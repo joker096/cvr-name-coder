@@ -1,0 +1,6 @@
+{
+  "name": "cvr.name.coder",
+  "description": "Autonomous AI agent featuring persistent local memory, recursive task auto-looping, and semantic context compression — outperforming standard agents by maintaining state across infinite coding cycles without manual intervention.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

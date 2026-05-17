@@ -1,0 +1,147 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --color-dash-bg: #0f0f11;
+  --color-dash-sidebar: #141417;
+  --color-dash-header: #1a1a1e;
+  --color-dash-card: #1c1c21;
+  --color-dash-border: #2d2d33;
+  --color-dash-accent: #5b6b8a;
+  --color-dash-accent-harsh: #4a6fa5;
+  --color-dash-success: #00ff94;
+  --color-dash-warning: #ff9e3d;
+  --color-dash-text-primary: #e0e0e6;
+  --color-dash-text-secondary: #a0a0b0;
+  --color-dash-text-muted: #707080;
+  --color-dash-text-label: #505060;
+}
+
+@layer base {
+  body {
+    @apply bg-dash-bg text-dash-text-primary antialiased h-screen overflow-hidden;
+  }
+
+  * {
+    @apply border-dash-border;
+  }
+
+  html {
+    @apply scroll-smooth;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-dash-border rounded-full hover:bg-dash-text-muted transition-colors;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-dash-text-secondary;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Dark select/option styling */
+select,
+option,
+input,
+textarea {
+  color-scheme: dark;
+}
+
+select option {
+  background: #1a1a1e;
+  color: #e0e0e6;
+}
+
+/* Selection color */
+::selection {
+  background: rgba(91, 107, 138, 0.3);
+  color: #e0e0e6;
+}
+
+/* Focus ring */
+*:focus-visible {
+  outline-color: #5b6b8a;
+  outline-width: 2px;
+  outline-offset: 2px;
+}
+
+/* Improved button focus */
+button:focus-visible {
+  @apply ring-2 ring-dash-accent ring-offset-2 ring-offset-dash-bg;
+}
+
+/* Improved input focus */
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  @apply ring-2 ring-dash-accent ring-offset-2 ring-offset-dash-bg;
+}
+
+/* Loading animation */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* Pulse animation for loading states */
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Text truncation utilities */
+.line-clamp-1 {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+}
+
+.line-clamp-2 {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.line-clamp-3 {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}

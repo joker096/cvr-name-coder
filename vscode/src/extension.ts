@@ -1,0 +1,848 @@
+import * as vscode from 'vscode';
+import * as path from 'path';
+import * as fs from 'fs';
+import { spawn, ChildProcess } from 'child_process';
+
+const $fetch = (globalThis as any).fetch as (url: string, init?: any) => Promise<{ json(): Promise<any>; status: number }>;
+
+let serverPort: number | null = null;
+
+// MCP Server Management
+interface McpServerConfig {
+  name: string;
+  command: string;
+  args: string[];
+  env?: Record<string, string>;
+}
+
+interface McpToolInfo {
+  serverName: string;
+  name: string;
+  description: string;
+  inputSchema: any;
+}
+
+class McpManager {
+  private processes: Map<string, ChildProcess> = new Map();
+  private tools: McpToolInfo[] = [];
+  private storagePath: string;
+  private nextId = 1;
+
+  constructor(storagePath: string) {
+    this.storagePath = storagePath;
+  }
+
+  getConfigPath(): string {
+    return path.join(this.storagePath, 'mcp-servers.json');
+  }
+
+  async loadConfig(): Promise<McpServerConfig[]> {
+    try {
+      const data = await fs.promises.readFile(this.getConfigPath(), 'utf-8');
+      return JSON.parse(data);
+    } catch { return []; }
+  }
+
+  async saveConfig(servers: McpServerConfig[]): Promise<void> {
+    await fs.promises.writeFile(this.getConfigPath(), JSON.stringify(servers, null, 2));
+  }
+
+  async startServers(): Promise<void> {
+    const configs = await this.loadConfig();
+    for (const cfg of configs) {
+      await this.startServer(cfg);
+    }
+  }
+
+  private async startServer(cfg: McpServerConfig): Promise<void> {
+    try {
+      const proc = spawn(cfg.command, cfg.args, {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: { ...process.env, ...cfg.env },
+      });
+
+      this.processes.set(cfg.name, proc);
+
+      const encoder = new TextEncoder();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      proc.stdout?.on('data', (data: Buffer) => {
+        buffer += decoder.decode(data, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (line.trim()) this.handleMessage(cfg.name, line.trim());
+        }
+      });
+
+      proc.on('exit', (code) => {
+        console.log(`MCP server ${cfg.name} exited with code ${code}`);
+        this.processes.delete(cfg.name);
+      });
+
+      // Initialize session
+      this.sendMessage(cfg.name, {
+        jsonrpc: '2.0',
+        id: this.nextId++,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2024-11-05',
+          capabilities: {},
+          clientInfo: { name: 'cvr-name', version: '1.0.0' },
+        },
+      });
+
+      // List tools
+      this.sendMessage(cfg.name, {
+        jsonrpc: '2.0',
+        id: this.nextId++,
+        method: 'tools/list',
+      });
+    } catch (e) {
+      console.error(`Failed to start MCP server ${cfg.name}:`, e);
+    }
+  }
+
+  private sendMessage(serverName: string, msg: any): void {
+    const proc = this.processes.get(serverName);
+    if (!proc?.stdin?.writable) return;
+    const data = JSON.stringify(msg) + '\n';
+    proc.stdin.write(data);
+  }
+
+  private handleMessage(serverName: string, line: string): void {
+    try {
+      const msg = JSON.parse(line);
+      if (msg.id && msg.result) {
+        // tools/list response
+        if (msg.result.tools) {
+          for (const tool of msg.result.tools) {
+            this.tools.push({
+              serverName,
+              name: tool.name,
+              description: tool.description || '',
+              inputSchema: tool.inputSchema || {},
+            });
+          }
+          console.log(`MCP: ${msg.result.tools.length} tools loaded from ${serverName}`);
+        }
+      }
+    } catch (e) {
+      // ignore parse errors
+    }
+  }
+
+  getTools(): McpToolInfo[] {
+    return this.tools;
+  }
+
+  getToolsContext(): string {
+    if (this.tools.length === 0) return '';
+    let ctx = '\n\nAVAILABLE MCP TOOLS:\n';
+    for (const t of this.tools) {
+      ctx += `- ${t.serverName}/${t.name}: ${t.description}\n`;
+      if (t.inputSchema && t.inputSchema.properties) {
+        ctx += `  Args: ${Object.keys(t.inputSchema.properties).join(', ')}\n`;
+      }
+    }
+    ctx += '\nTo use an MCP tool, respond with:\n';
+    ctx += '```tool_call\n{"server":"serverName","tool":"toolName","arguments":{...}}\n```\n';
+    ctx += 'The tool will be executed and the result will be returned.\n';
+    return ctx;
+  }
+
+  async callTool(serverName: string, toolName: string, args: any): Promise<any> {
+    return new Promise((resolve, reject) => {
+      const proc = this.processes.get(serverName);
+      if (!proc) return reject(new Error(`MCP server "${serverName}" not running`));
+
+      const id = this.nextId++;
+      let buffer = '';
+      let resolved = false;
+
+      const handler = (data: Buffer) => {
+        if (resolved) return;
+        buffer += data.toString();
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const msg = JSON.parse(line);
+            if (msg.id === id && msg.result) {
+              resolved = true;
+              proc.stdout?.removeListener('data', handler);
+              resolve(msg.result);
+            } else if (msg.id === id && msg.error) {
+              resolved = true;
+              proc.stdout?.removeListener('data', handler);
+              reject(new Error(msg.error.message || 'MCP error'));
+            }
+          } catch {}
+        }
+      };
+
+      proc.stdout?.on('data', handler);
+
+      this.sendMessage(serverName, {
+        jsonrpc: '2.0',
+        id,
+        method: 'tools/call',
+        params: { name: toolName, arguments: args },
+      });
+
+      setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          proc.stdout?.removeListener('data', handler);
+          reject(new Error('MCP tool call timed out'));
+        }
+      }, 30000);
+    });
+  }
+
+  stopAll(): void {
+    for (const [name, proc] of this.processes) {
+      proc.kill();
+      console.log(`MCP server ${name} stopped`);
+    }
+    this.processes.clear();
+    this.tools = [];
+  }
+}
+
+function getServerDir(context: vscode.ExtensionContext): string {
+  return context.extensionPath;
+}
+
+async function ensureStorage(storagePath: string) {
+  const historyFile = path.join(storagePath, 'history.json');
+  const memoryFile = path.join(storagePath, 'memory.json');
+  try {
+    await fs.promises.mkdir(storagePath, { recursive: true });
+    try { await fs.promises.access(historyFile); } catch { await fs.promises.writeFile(historyFile, JSON.stringify([])); }
+    try { await fs.promises.access(memoryFile); } catch { await fs.promises.writeFile(memoryFile, JSON.stringify([])); }
+  } catch (e) {
+    console.error('Storage init error:', e);
+  }
+}
+
+async function startAppServer(context: vscode.ExtensionContext): Promise<number> {
+  const express = require('express');
+  const dotenv = require('dotenv');
+
+  dotenv.config();
+
+  const app = express();
+  app.use(express.json());
+
+  const storagePath = path.join(context.globalStorageUri.fsPath, '.opencode-infinite');
+  const historyFile = path.join(storagePath, 'history.json');
+  const memoryFile = path.join(storagePath, 'memory.json');
+
+  await ensureStorage(storagePath);
+
+  const mcpManager = new McpManager(storagePath);
+  mcpManager.startServers();
+
+  let geminiClient: any = null;
+  function getGemini() {
+    if (!geminiClient) {
+      const { GoogleGenAI } = require('@google/genai');
+      geminiClient = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
+    }
+    return geminiClient;
+  }
+
+  async function generateAIContent(prompt: string, contents: any[] = [], provider = 'gemini', localUrl?: string, modelName?: string, apiKey?: string): Promise<string> {
+    let full = '';
+    await generateContentStream(prompt, contents, (t) => { full += t; }, provider, localUrl, modelName, apiKey);
+    return full;
+  }
+
+  async function generateContentStream(prompt: string, contents: any[], onToken: (token: string) => void, provider = 'gemini', localUrl?: string, modelName?: string, apiKey?: string, signal?: AbortSignal): Promise<void> {
+    const msgs = [
+      { role: 'system', content: prompt },
+      ...contents.map((c: any) => ({ role: c.role === 'model' ? 'assistant' : c.role, content: c.parts[0].text }))
+    ];
+
+    if (provider === 'local') {
+      if (!localUrl) throw new Error('Local provider requires a URL. Configure it in Settings.');
+      const url = `${localUrl.replace(/\/$/, '')}/chat/completions`;
+      const body = JSON.stringify({ model: modelName || 'local-model', messages: msgs, stream: true });
+      const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, signal });
+      if (!response.ok) { const e = await response.json(); throw new Error(e.error?.message || 'Local AI Error'); }
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('No response body');
+      const decoder = new TextDecoder();
+      let buf = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop() || '';
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || !trimmed.startsWith('data: ')) continue;
+          const jsonStr = trimmed.slice(6);
+          if (jsonStr === '[DONE]') return;
+          try {
+            const chunk = JSON.parse(jsonStr);
+            const text = chunk.choices?.[0]?.delta?.content || chunk.choices?.[0]?.text || '';
+            if (text) onToken(text);
+          } catch {}
+        }
+      }
+      return;
+    }
+
+    if (provider === 'custom' || provider === 'openai' || provider === 'deepseek' || provider === 'grok' || provider === 'groq') {
+      let baseUrl = localUrl;
+      if (provider === 'openai') baseUrl = 'https://api.openai.com/v1';
+      if (provider === 'deepseek') baseUrl = localUrl || 'https://api.deepseek.com';
+      if (provider === 'grok') baseUrl = localUrl || 'https://api.x.ai/v1';
+      if (provider === 'groq') baseUrl = localUrl || 'https://api.groq.com/openai/v1';
+      if (!baseUrl) throw new Error(`Provider ${provider} requires a URL. Configure it in Settings.`);
+      const key = apiKey || (provider === 'openai' ? process.env.OPENAI_API_KEY : provider === 'deepseek' ? process.env.DEEPSEEK_API_KEY : provider === 'grok' ? process.env.XAI_API_KEY : provider === 'groq' ? process.env.GROQ_API_KEY : '');
+      const model = modelName || (provider === 'openai' ? 'gpt-4o' : provider === 'deepseek' ? 'deepseek-chat' : provider === 'grok' ? 'grok-beta' : provider === 'groq' ? 'llama3-70b-8192' : 'model');
+
+      const response = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+        body: JSON.stringify({ model, messages: msgs, stream: true }),
+        signal,
+      });
+      if (!response.ok) { const e = await response.json(); throw new Error(e.error?.message || 'AI Error'); }
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('No response body');
+      const decoder = new TextDecoder();
+      let buf = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop() || '';
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || !trimmed.startsWith('data: ')) continue;
+          const jsonStr = trimmed.slice(6);
+          if (jsonStr === '[DONE]') return;
+          try {
+            const chunk = JSON.parse(jsonStr);
+            const text = chunk.choices?.[0]?.delta?.content || '';
+            if (text) onToken(text);
+          } catch {}
+        }
+      }
+      return;
+    }
+
+    if (provider === 'anthropic') {
+      const apiKeyValue = apiKey || process.env.ANTHROPIC_API_KEY;
+      if (!apiKeyValue) throw new Error('Anthropic requires an API key.');
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKeyValue, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({
+          model: modelName || 'claude-3-5-sonnet-20240620',
+          max_tokens: 4096,
+          stream: true,
+          system: prompt,
+          messages: contents.map((c: any) => ({ role: c.role === 'model' ? 'assistant' : c.role, content: c.parts[0].text }))
+        }),
+        signal,
+      });
+      if (!response.ok) { const e = await response.json(); throw new Error(e.error?.message || 'Anthropic Error'); }
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('No response body');
+      const decoder = new TextDecoder();
+      let buf = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop() || '';
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || !trimmed.startsWith('data: ')) continue;
+          const jsonStr = trimmed.slice(6);
+          try {
+            const chunk = JSON.parse(jsonStr);
+            if (chunk.type === 'content_block_delta' && chunk.delta?.text) onToken(chunk.delta.text);
+          } catch {}
+        }
+      }
+      return;
+    }
+
+    // Gemini
+    if (!process.env.GEMINI_API_KEY) throw new Error('Gemini requires GEMINI_API_KEY environment variable. Use a local provider in Settings.');
+    const streamResult = await getGemini().models.generateContentStream({
+      model: modelName || 'gemini-2.0-flash',
+      contents: [{ role: 'user', parts: [{ text: prompt }] }, ...contents],
+    });
+    for await (const chunk of streamResult) {
+      const text = chunk.text;
+      if (text) onToken(text);
+    }
+  }
+
+  async function summarizeLongHistory(messages: any[], provider = 'gemini', localUrl?: string, modelName?: string, apiKey?: string) {
+    if (messages.length < 5) return null;
+    const instruction = `You are the "cvr.name Dreamer Engine". Examine the conversation below and extract:
+1. KEY_FACTS: Fundamental project decisions or requirements.
+2. INVARIANT_RULES: Coding standards or logic that MUST not change.
+3. PROGRESS_STATE: What was just finished.
+4. PENDING_GOALS: What the agent is currently working towards.
+
+Format as a strict technical manifest (max 150 words). Focus on architectural integrity.
+
+Conversation:
+${messages.slice(-10).map((m: any) => `${m.role}: ${m.content}`).join('\n')}`;
+    try { return await generateAIContent(instruction, [], provider, localUrl, modelName, apiKey); }
+    catch (e) { console.error('Summarization failed:', e); return null; }
+  }
+
+  const AGENT_PROMPTS: Record<string, string> = {
+    build: '[ROLE: BUILD] - DEFAULT DEVELOPER AGENT. You have full access to developer tools (read/write files, execute bash). Focus on iterative coding, bug fixing, and implementation.',
+    general: '[ROLE: GENERAL] - UNIVERSAL ASSISTANT. Help with complex, multi-stage tasks. You can modify files, run parallel processes, and coordinate broad workflows.',
+    explore: '[ROLE: EXPLORE] - CODEBASE EXPLORER. Read-only specialist. Efficiently search patterns, find keywords, and explain codebase structure. Use fast search tools. You CANNOT write files.',
+    scout: '[ROLE: SCOUT] - ANALYST. Read-only. Specialized in external documentation research and dependency analysis. Focus on architectural auditing and research.',
+    prometheus: '[ROLE: PROMETHEUS] - STRATEGIC PLANNER. You are a strategic architect. Before any code is written, you must clarify requirements, define architecture, and scope the work. You create comprehensive plans.',
+    hephaestus: '[ROLE: HEPHAESTUS] - DEEP EXECUTOR. Autonomous specialist. Given a goal, independently research patterns, write code, and finish the task without requiring step-by-step guidance.',
+  };
+
+  function buildSystemPrompt(agent: string, memories: any[], mcpCtx: string, workspaceCtx: string): string {
+    const contextParts = memories.slice(-5).map((m: any) => `[CLUSTER_DATA]: ${m.content}`).join('\n');
+    return `You are "cvr.name", the world's most advanced autonomous coding kernel. 
+
+CURRENT_AGENT_IDENTITY:
+${AGENT_PROMPTS[agent] || AGENT_PROMPTS.build}
+
+INTEGRATED PROTOCOLS:
+- [COMPLEXITY_OPTIMIZER]: When analyzing or refactoring, apply Algorithmic Complexity Evaluation.
+- [AGENT_BEST_PRACTICES]: Maintain a proactive, provider-neutral stance.
+- [SUPERPOWERS]: Active plugin from OpenCode for brainstorming, refactoring, debugging.
+- [MCP_TOOLS]: You have access to external tools.
+${mcpCtx}
+
+WORKSPACE CONTEXT:
+${workspaceCtx || 'No workspace open. The user is not currently editing a project.'}
+
+SYSTEM ARCHITECTURE: 
+- Local Persistent Memory (.opencode-infinite)
+- Recursive Task Execution Pipeline
+- Dreamer Semantic Compression Engine
+- MCP Tool Server
+
+AUTONOMY PROTOCOLS:
+1. OBJECTIVE: Absolute task completion.
+2. ITERATION: For multi-vector tasks, solve sequentially.
+3. TERMINATION: "CONTINUE_NEEDED" for next cycles. "TASK_COMPLETE" for final success.
+
+PERSISTENT CONTEXT CLUSTERS:
+${contextParts || 'No previous knowledge clusters found. Cold-start mode.'}
+`;
+  }
+
+  function getWorkspaceContext(): string {
+    const folders = vscode.workspace.workspaceFolders;
+    if (!folders || folders.length === 0) return '';
+    const root = folders[0].uri.fsPath;
+    try {
+      const entries = fs.readdirSync(root, { withFileTypes: true });
+      const files = entries.filter(e => !e.name.startsWith('.') && !e.name.startsWith('node_modules')).map(e => e.name + (e.isDirectory() ? '/' : ''));
+      return `Project: ${path.basename(root)}\nFiles: ${files.slice(0, 50).join(', ')}${files.length > 50 ? '...' : ''}`;
+    } catch { return `Project: ${path.basename(root)}`; }
+  }
+
+  app.post('/api/chat', async (req: any, res: any) => {
+    try {
+      const { message, config = {}, kernelConfig = {} } = req.body;
+      const { aiProvider = 'gemini', localUrl, aiModel, apiKey } = config;
+      const kConfig = kernelConfig.aiProvider ? kernelConfig : config;
+
+      const history = JSON.parse(await fs.promises.readFile(historyFile, 'utf-8'));
+      const memories = JSON.parse(await fs.promises.readFile(memoryFile, 'utf-8'));
+      const { agent = 'build' } = req.body;
+
+      const systemPrompt = buildSystemPrompt(agent, memories, mcpManager.getToolsContext(), getWorkspaceContext());
+
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no',
+      });
+
+      let fullText = '';
+      const onToken = (token: string) => {
+        fullText += token;
+        const escaped = JSON.stringify(token);
+        res.write(`data: ${escaped}\n\n`);
+      };
+
+      try {
+        await generateContentStream(systemPrompt, [
+          ...history.slice(-10).map((m: any) => ({ role: m.role, parts: [{ text: m.content }] })),
+          { role: 'user', parts: [{ text: message }] }
+        ], onToken, aiProvider, localUrl, aiModel, apiKey, req.signal);
+      } catch (e: any) {
+        res.write(`data: ${JSON.stringify({ error: e.message })}\n\n`);
+        res.end();
+        return;
+      }
+
+      // MCP tool call processing
+      const toolCallRegex = /```tool_call\n([\s\S]*?)```/g;
+      let match;
+      while ((match = toolCallRegex.exec(fullText)) !== null) {
+        try {
+          const call = JSON.parse(match[1]);
+          if (call.server && call.tool) {
+            const result = await mcpManager.callTool(call.server, call.tool, call.arguments || {});
+            const resultText = `\n\n**MCP Tool ${call.server}/${call.tool}:** ${JSON.stringify(result)}\n\n`;
+            fullText += resultText;
+            res.write(`data: ${JSON.stringify(resultText)}\n\n`);
+          }
+        } catch (e: any) {
+          const errText = `\n\n**MCP Error:** ${e.message}\n\n`;
+          fullText += errText;
+          res.write(`data: ${JSON.stringify(errText)}\n\n`);
+        }
+      }
+
+      const updatedHistory = [...history, { role: 'user', content: message, createdAt: new Date() }, { role: 'model', content: fullText, createdAt: new Date() }];
+      await fs.promises.writeFile(historyFile, JSON.stringify(updatedHistory));
+
+      if (updatedHistory.length % 5 === 0) {
+        summarizeLongHistory(updatedHistory, kConfig.aiProvider, kConfig.localUrl, kConfig.aiModel || kConfig.localModelName, kConfig.apiKey).then(async (summary) => {
+          if (summary) {
+            const currentMemories = JSON.parse(await fs.promises.readFile(memoryFile, 'utf-8'));
+            await fs.promises.writeFile(memoryFile, JSON.stringify([...currentMemories, { content: summary, createdAt: new Date() }]));
+          }
+        });
+      }
+
+      res.write(`data: ${JSON.stringify({ done: true, continueNeeded: fullText.includes('CONTINUE_NEEDED') })}\n\n`);
+      res.end();
+    } catch (error: any) {
+      console.error('API Error:', error);
+      if (!res.headersSent) res.status(500).json({ error: error.message });
+      else res.end();
+    }
+  });
+
+  // Workspace API
+  app.get('/api/workspace', (_req: any, res: any) => {
+    const folders = vscode.workspace.workspaceFolders;
+    if (!folders || folders.length === 0) return res.json({ root: null, files: [] });
+    const root = folders[0].uri.fsPath;
+    try {
+      const entries = fs.readdirSync(root, { withFileTypes: true });
+      const files = entries.filter(e => !e.name.startsWith('.') && e.name !== 'node_modules').map(e => ({
+        name: e.name,
+        isDir: e.isDirectory(),
+        size: e.isFile() ? fs.statSync(path.join(root, e.name)).size : 0,
+      }));
+      res.json({ root: path.basename(root), rootPath: root, files });
+    } catch (e: any) {
+      res.json({ root: path.basename(root), files: [], error: e.message });
+    }
+  });
+
+  app.post('/api/workspace/read', async (req: any, res: any) => {
+    const { file } = req.body;
+    const folders = vscode.workspace.workspaceFolders;
+    if (!folders || !file) return res.status(400).json({ error: 'No workspace or file path' });
+    const fullPath = path.join(folders[0].uri.fsPath, file);
+    if (!fullPath.startsWith(folders[0].uri.fsPath)) return res.status(403).json({ error: 'Path traversal denied' });
+    try {
+      const content = await fs.promises.readFile(fullPath, 'utf-8');
+      res.json({ content, path: file });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post('/api/workspace/write', async (req: any, res: any) => {
+    const { file, content } = req.body;
+    const folders = vscode.workspace.workspaceFolders;
+    if (!folders || !file) return res.status(400).json({ error: 'No workspace or file path' });
+    const fullPath = path.join(folders[0].uri.fsPath, file);
+    if (!fullPath.startsWith(folders[0].uri.fsPath)) return res.status(403).json({ error: 'Path traversal denied' });
+    try {
+      await fs.promises.mkdir(path.dirname(fullPath), { recursive: true });
+      await fs.promises.writeFile(fullPath, content, 'utf-8');
+      res.json({ status: 'written', path: file });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Session management
+  app.get('/api/sessions', async (_req: any, res: any) => {
+    try {
+      const sessionsDir = path.join(storagePath, 'sessions');
+      await fs.promises.mkdir(sessionsDir, { recursive: true });
+      const entries = await fs.promises.readdir(sessionsDir);
+      const sessions = entries.filter(e => e.endsWith('.json')).map(e => ({
+        id: e.replace('.json', ''),
+        name: e.replace('.json', ''),
+        modified: fs.statSync(path.join(sessionsDir, e)).mtimeMs,
+      }));
+      sessions.sort((a: any, b: any) => b.modified - a.modified);
+      res.json({ sessions, current: 'default' });
+    } catch { res.json({ sessions: [], current: 'default' }); }
+  });
+
+  app.post('/api/sessions/save', async (req: any, res: any) => {
+    const { id } = req.body;
+    const sessionsDir = path.join(storagePath, 'sessions');
+    await fs.promises.mkdir(sessionsDir, { recursive: true });
+    const history = JSON.parse(await fs.promises.readFile(historyFile, 'utf-8'));
+    await fs.promises.writeFile(path.join(sessionsDir, `${id || 'default'}.json`), JSON.stringify(history));
+    res.json({ status: 'saved' });
+  });
+
+  app.post('/api/sessions/load', async (req: any, res: any) => {
+    const { id } = req.body;
+    const sessionsDir = path.join(storagePath, 'sessions');
+    try {
+      const data = await fs.promises.readFile(path.join(sessionsDir, `${id || 'default'}.json`), 'utf-8');
+      const history = JSON.parse(data);
+      await fs.promises.writeFile(historyFile, JSON.stringify(history));
+      res.json({ history });
+    } catch { res.json({ history: [] }); }
+  });
+
+  app.get('/api/history', async (_req: any, res: any) => {
+    try {
+      const history = JSON.parse(await fs.promises.readFile(historyFile, 'utf-8'));
+      const memories = JSON.parse(await fs.promises.readFile(memoryFile, 'utf-8'));
+      res.json({ history, memories });
+    } catch {
+      res.json({ history: [], memories: [] });
+    }
+  });
+
+  app.post('/api/clear', async (_req: any, res: any) => {
+    await fs.promises.writeFile(historyFile, JSON.stringify([]));
+    await fs.promises.writeFile(memoryFile, JSON.stringify([]));
+    res.json({ status: 'cleared' });
+  });
+
+  // MCP Configuration endpoints
+  app.get('/api/mcp-config', async (_req: any, res: any) => {
+    const config = await mcpManager.loadConfig();
+    const tools = mcpManager.getTools();
+    res.json({ config, tools });
+  });
+
+  app.post('/api/mcp-config', async (req: any, res: any) => {
+    const servers: McpServerConfig[] = req.body.servers || [];
+    mcpManager.stopAll();
+    await mcpManager.saveConfig(servers);
+    mcpManager.startServers();
+    res.json({ status: 'saved' });
+  });
+
+  app.post('/api/mcp-call', async (req: any, res: any) => {
+    const { server, tool, arguments: args } = req.body;
+    try {
+      const result = await mcpManager.callTool(server, tool, args || {});
+      res.json({ result });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post('/api/mcp-refresh', async (_req: any, res: any) => {
+    mcpManager.stopAll();
+    await mcpManager.startServers();
+    res.json({ tools: mcpManager.getTools() });
+  });
+
+  const appDir = path.join(getServerDir(context), 'app');
+  app.use(express.static(appDir));
+  app.get('*', (_req: any, res: any) => {
+    res.sendFile(path.join(appDir, 'index.html'));
+  });
+
+  return new Promise((resolve, reject) => {
+    const server = app.listen(0, '127.0.0.1', () => {
+      const addr = server.address();
+      const port = typeof addr === 'object' && addr ? addr.port : 3000;
+      serverPort = port;
+      console.log(`cvr.name server running on http://127.0.0.1:${port}`);
+      resolve(port);
+    });
+    server.on('error', reject);
+  });
+}
+
+let serverStartPromise: Promise<void> | null = null;
+let statusBarItem: vscode.StatusBarItem | null = null;
+
+function ensureServer(context: vscode.ExtensionContext): Promise<void> {
+  if (!serverStartPromise) {
+    serverStartPromise = startAppServer(context)
+      .then(() => {
+        if (statusBarItem) {
+          statusBarItem.text = '$(rocket) cvr.name';
+          statusBarItem.tooltip = 'cvr.name kernel running';
+          statusBarItem.backgroundColor = undefined;
+        }
+      })
+      .catch(err => {
+        serverStartPromise = null;
+        if (statusBarItem) {
+          statusBarItem.text = '$(error) cvr.name';
+          statusBarItem.tooltip = 'Failed to start: ' + err.message;
+          statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
+        }
+        throw err;
+      });
+  }
+  return serverStartPromise;
+}
+
+export function activate(context: vscode.ExtensionContext) {
+  console.log('cvr.name extension activating...');
+
+  // Status bar
+  statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+  statusBarItem.text = '$(sync~spin) cvr.name';
+  statusBarItem.tooltip = 'Starting kernel server...';
+  statusBarItem.command = 'cvr.launch';
+  statusBarItem.show();
+  context.subscriptions.push(statusBarItem);
+
+  // Sidebar webview
+  const provider = new CvrWebviewViewProvider(context);
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(CvrWebviewViewProvider.viewType, provider)
+  );
+
+  // Launch dashboard command
+  context.subscriptions.push(
+    vscode.commands.registerCommand('cvr.launch', async () => {
+      await ensureServer(context);
+      if (serverPort) {
+        const panel = vscode.window.createWebviewPanel(
+          'cvrDashboard',
+          'cvr.name Dashboard',
+          vscode.ViewColumn.One,
+          { enableScripts: true, retainContextWhenHidden: true }
+        );
+        panel.webview.html = getWebviewContent(`http://127.0.0.1:${serverPort}`);
+      }
+    })
+  );
+
+  // Quick commands
+  context.subscriptions.push(
+    vscode.commands.registerCommand('cvr.clearHistory', async () => {
+      if (serverPort) {
+        await $fetch(`http://127.0.0.1:${serverPort}/api/clear`, { method: 'POST' });
+        vscode.window.showInformationMessage('cvr.name: History cleared');
+      }
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('cvr.openSidebar', () => {
+      vscode.commands.executeCommand('workbench.view.extension.cvr-explorer');
+    })
+  );
+
+  // Start server only when sidebar is first shown
+  context.subscriptions.push(
+    vscode.window.onDidChangeVisibleTextEditors(() => {
+      if (!serverStartPromise) {
+        ensureServer(context).catch(() => {});
+      }
+    })
+  );
+
+  // Deferred start after 2s (don't block VS Code startup)
+  setTimeout(() => {
+    ensureServer(context).catch(() => {});
+  }, 2000);
+}
+
+class CvrWebviewViewProvider implements vscode.WebviewViewProvider {
+  public static readonly viewType = 'cvr.webview';
+  private context: vscode.ExtensionContext;
+
+  constructor(ctx: vscode.ExtensionContext) {
+    this.context = ctx;
+  }
+
+  async resolveWebviewView(
+    webviewView: vscode.WebviewView,
+    _context: vscode.WebviewViewResolveContext,
+    _token: vscode.CancellationToken,
+  ) {
+    webviewView.webview.options = { enableScripts: true };
+
+    // Start server when sidebar is opened
+    if (!serverStartPromise) {
+      ensureServer(this.context).catch(() => {});
+    }
+
+    if (serverPort) {
+      webviewView.webview.html = getWebviewContent(`http://127.0.0.1:${serverPort}`);
+    } else {
+      webviewView.webview.html = getLoadingContent();
+      const check = setInterval(() => {
+        if (serverPort) {
+          webviewView.webview.html = getWebviewContent(`http://127.0.0.1:${serverPort}`);
+          clearInterval(check);
+        }
+      }, 500);
+      setTimeout(() => clearInterval(check), 30000);
+    }
+  }
+}
+
+function getLoadingContent() {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>cvr.name</title>
+<style>body,html{margin:0;padding:0;height:100vh;overflow:hidden;background:#0F0F11;color:#E0E0E6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:flex;align-items:center;justify-content:center;flex-direction:column;text-align:center}
+.spinner{width:28px;height:28px;border:2px solid #2D2D33;border-top-color:#3E5CFF;border-radius:50%;animation:spin .8s linear infinite;margin:16px auto}
+@keyframes spin{to{transform:rotate(360deg)}}
+h1{font-size:16px;font-weight:800;letter-spacing:1px;text-transform:uppercase;margin:0 0 4px}
+.accent{color:#3E5CFF}
+p{font-size:11px;color:#707080;margin:4px 0}</style>
+</head>
+<body>
+  <h1><span class="accent">cvr</span>.<span class="accent">name</span>.coder</h1>
+  <p>Starting kernel server...</p>
+  <div class="spinner"></div>
+</body>
+</html>`;
+}
+
+function getWebviewContent(url: string) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>cvr.name</title>
+  <style>
+    body,html{margin:0;padding:0;height:100vh;width:100vw;overflow:hidden;background:#000}
+    iframe{border:none;width:100%;height:100%;display:block}
+  </style>
+</head>
+<body>
+  <iframe src="${url}" allow="clipboard-read;clipboard-write;camera;microphone;geolocation" referrerpolicy="no-referrer"></iframe>
+</body>
+</html>`;
+}

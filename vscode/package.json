@@ -1,0 +1,113 @@
+{
+  "name": "cvr-name-coder",
+  "displayName": "cvr.name.coder",
+  "description": "Autonomous AI coding agent with persistent memory, streaming responses, local LLM support (Ollama/llama.cpp), multi-session chats, file workspace integration, and MCP tool server. Works offline with local models.",
+  "version": "1.2.0",
+  "publisher": "cvr-name",
+  "author": {
+    "name": "cvr.name",
+    "url": "https://github.com/cvr-name"
+  },
+  "license": "MIT",
+  "icon": "public/app-icon.png",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "AI",
+    "Machine Learning",
+    "Programming Languages",
+    "Other"
+  ],
+  "keywords": [
+    "ai",
+    "coding agent",
+    "autonomous",
+    "chat",
+    "gemini",
+    "ollama",
+    "llama.cpp",
+    "local ai",
+    "offline",
+    "mcp",
+    "code assistant",
+    "llm",
+    "deepseek",
+    "groq"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cvr-name/cvr.name.coder"
+  },
+  "bugs": {
+    "url": "https://github.com/cvr-name/cvr.name.coder/issues"
+  },
+  "galleryBanner": {
+    "color": "#0F0F11",
+    "theme": "dark"
+  },
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "cvr.launch",
+        "title": "cvr.name: Launch Dashboard",
+        "category": "cvr.name"
+      },
+      {
+        "command": "cvr.openSidebar",
+        "title": "cvr.name: Open Sidebar",
+        "category": "cvr.name"
+      },
+      {
+        "command": "cvr.clearHistory",
+        "title": "cvr.name: Clear History & Memory",
+        "category": "cvr.name"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "cvr-explorer",
+          "title": "cvr.name",
+          "icon": "public/app-icon.png"
+        }
+      ]
+    },
+    "views": {
+      "cvr-explorer": [
+        {
+          "type": "webview",
+          "id": "cvr.webview",
+          "name": "cvr.name Kernel"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "cvr.openSidebar",
+        "key": "ctrl+shift+c",
+        "mac": "cmd+shift+c",
+        "when": "editorTextFocus"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "node esbuild.config.mjs",
+    "watch": "node esbuild.config.mjs --watch",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@google/genai": "^1.29.0",
+    "@types/express": "^4.17.21",
+    "@types/node": "^18.19.130",
+    "@types/vscode": "^1.75.0",
+    "@vscode/vsce": "^3.9.1",
+    "dotenv": "^17.2.3",
+    "esbuild": "^0.25.2",
+    "express": "^4.21.2",
+    "typescript": "^4.9.5"
+  }
+}
