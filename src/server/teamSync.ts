@@ -1,10 +1,10 @@
 import { readFile, writeFile, access, mkdir, stat } from "fs/promises";
 import * as path from "path";
-import { exec } from "child_process";
+import { execFile } from "child_process";
 import { promisify } from "util";
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "crypto";
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 export interface SyncConfig {
   enabled: boolean;
@@ -54,25 +54,48 @@ function getSyncDir(): string {
 // ─── Encryption ───
 
 function getKey(): Buffer {
-  const keyStr = _config?.encryptionKey || process.env.SYNC_ENCRYPTION_KEY || "default-key-change-me";
+  const keyStr = _config?.encryptionKey || process.env.SYNC_ENCRYPTION_KEY;
+  if (!keyStr) {
+    throw new Error("Sync encryption key is not configured. Set encryptionKey in .cvr/sync.json or SYNC_ENCRYPTION_KEY env var.");
+  }
   return scryptSync(keyStr, "salt", 32);
 }
 
 function encrypt(data: Buffer): Buffer {
   const iv = randomBytes(16);
-  const cipher = createCipheriv("aes-256-gcm", getKey(), iv);
+  const salt = randomBytes(16);
+  const key = scryptSync(_config?.encryptionKey || process.env.SYNC_ENCRYPTION_KEY || "", salt, 32);
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
   const encrypted = Buffer.concat([cipher.update(data), cipher.final()]);
   const tag = cipher.getAuthTag();
-  return Buffer.concat([iv, tag, encrypted]);
+  return Buffer.concat([salt, iv, tag, encrypted]);
 }
 
 function decrypt(data: Buffer): Buffer {
-  const iv = data.subarray(0, 16);
-  const tag = data.subarray(16, 32);
-  const encrypted = data.subarray(32);
-  const decipher = createDecipheriv("aes-256-gcm", getKey(), iv);
+  const salt = data.subarray(0, 16);
+  const iv = data.subarray(16, 32);
+  const tag = data.subarray(32, 48);
+  const encrypted = data.subarray(48);
+  const key = scryptSync(_config?.encryptionKey || process.env.SYNC_ENCRYPTION_KEY || "", salt, 32);
+  const decipher = createDecipheriv("aes-256-gcm", key, iv);
   decipher.setAuthTag(tag);
   return Buffer.concat([decipher.update(encrypted), decipher.final()]);
+}
+
+// Backward compat: old format (no salt prefix)
+function tryDecrypt(data: Buffer): Buffer {
+  try {
+    return decrypt(data);
+  } catch {
+    // Try legacy format (salt was hardcoded)
+    const iv = data.subarray(0, 16);
+    const tag = data.subarray(16, 32);
+    const encrypted = data.subarray(32);
+    const key = getKey();
+    const decipher = createDecipheriv("aes-256-gcm", key, iv);
+    decipher.setAuthTag(tag);
+    return Buffer.concat([decipher.update(encrypted), decipher.final()]);
+  }
 }
 
 // ─── Config ───
@@ -96,7 +119,10 @@ export function getSyncConfig(): SyncConfig | null {
 
 export async function saveSyncConfig(config: SyncConfig): Promise<void> {
   await mkdir(SYNC_DIR, { recursive: true });
-  await writeFile(CONFIG_PATH, JSON.stringify(config, null, 2), "utf-8");
+  // SECURITY: Never write the encryption key to disk.
+  const safeConfig = { ...config };
+  delete (safeConfig as any).encryptionKey;
+  await writeFile(CONFIG_PATH, JSON.stringify(safeConfig, null, 2), "utf-8");
   _config = config;
   _status.provider = config.provider;
   restartAutoSync();
@@ -107,9 +133,9 @@ export async function saveSyncConfig(config: SyncConfig): Promise<void> {
 async function gitInit(syncDir: string): Promise<void> {
   await mkdir(syncDir, { recursive: true });
   try {
-    await execAsync("git init", { cwd: syncDir });
-    await execAsync("git config user.email \"sync@cvr.name\"", { cwd: syncDir });
-    await execAsync("git config user.name \"CVR Sync\"", { cwd: syncDir });
+    await execFileAsync("git", ["init"], { cwd: syncDir });
+    await execFileAsync("git", ["config", "user.email", "sync@cvr.name"], { cwd: syncDir });
+    await execFileAsync("git", ["config", "user.name", "CVR Sync"], { cwd: syncDir });
   } catch {
     // may already be initialized
   }
@@ -117,19 +143,19 @@ async function gitInit(syncDir: string): Promise<void> {
 
 async function gitSetRemote(syncDir: string, repoUrl: string): Promise<void> {
   try {
-    await execAsync("git remote remove origin", { cwd: syncDir });
+    await execFileAsync("git", ["remote", "remove", "origin"], { cwd: syncDir });
   } catch {
     // ignore
   }
-  await execAsync(`git remote add origin "${repoUrl}"`, { cwd: syncDir });
+  await execFileAsync("git", ["remote", "add", "origin", repoUrl], { cwd: syncDir });
 }
 
 async function gitPull(syncDir: string): Promise<void> {
   try {
-    await execAsync("git pull origin main --no-rebase", { cwd: syncDir });
+    await execFileAsync("git", ["pull", "origin", "main", "--no-rebase"], { cwd: syncDir });
   } catch {
     try {
-      await execAsync("git pull origin master --no-rebase", { cwd: syncDir });
+      await execFileAsync("git", ["pull", "origin", "master", "--no-rebase"], { cwd: syncDir });
     } catch {
       // branch may not exist yet
     }
@@ -138,9 +164,13 @@ async function gitPull(syncDir: string): Promise<void> {
 
 async function gitCommitAndPush(syncDir: string): Promise<void> {
   try {
-    await execAsync("git add -A", { cwd: syncDir });
-    await execAsync(`git commit -m "sync: ${new Date().toISOString()}" || true`, { cwd: syncDir });
-    await execAsync("git push origin HEAD:main || git push origin HEAD:master || true", { cwd: syncDir });
+    await execFileAsync("git", ["add", "-A"], { cwd: syncDir });
+    await execFileAsync("git", ["commit", "-m", `sync: ${new Date().toISOString()}`], { cwd: syncDir });
+    try {
+      await execFileAsync("git", ["push", "origin", "HEAD:main"], { cwd: syncDir });
+    } catch {
+      await execFileAsync("git", ["push", "origin", "HEAD:master"], { cwd: syncDir });
+    }
   } catch {
     // nothing to commit or push failed
   }
@@ -182,7 +212,7 @@ async function importFile(fileName: string, syncDir: string): Promise<void> {
 
   if (_config?.encrypt) {
     try {
-      data = decrypt(data);
+      data = tryDecrypt(data);
     } catch {
       throw new Error(`Failed to decrypt ${fileName}. Check encryption key.`);
     }

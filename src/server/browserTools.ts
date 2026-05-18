@@ -51,7 +51,36 @@ export async function closeAllBrowsers(): Promise<void> {
   }
 }
 
+function validateBrowserUrl(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return "Only HTTP and HTTPS URLs are allowed for security";
+    }
+    // Block local network / file-system access
+    const hostname = parsed.hostname.toLowerCase();
+    if (
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "0.0.0.0" ||
+      hostname.startsWith("192.168.") ||
+      hostname.startsWith("10.") ||
+      hostname.startsWith("172.") ||
+      hostname.endsWith(".local")
+    ) {
+      return "Navigation to local/internal addresses is blocked for security";
+    }
+    return null;
+  } catch {
+    return "Invalid URL";
+  }
+}
+
 export async function browserNavigate(sessionId: string, url: string, headless = true): Promise<{ success: boolean; output: string; error?: string }> {
+  const validationError = validateBrowserUrl(url);
+  if (validationError) {
+    return { success: false, output: "", error: validationError };
+  }
   try {
     const { page } = await getOrCreateSession(sessionId, headless);
     await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
@@ -96,10 +125,13 @@ export async function browserScreenshot(sessionId: string, headless = true): Pro
 export async function browserEvaluate(sessionId: string, script: string, headless = true): Promise<{ success: boolean; output: string; error?: string }> {
   try {
     const { page } = await getOrCreateSession(sessionId, headless);
+    // SECURITY: Do not use eval(). Pass the script as a page function parameter.
+    // The script runs in the page context, not the Node.js context.
     const result = await page.evaluate((code) => {
       try {
-        // eslint-disable-next-line no-eval
-        return eval(code);
+        // Execute as an IIFE in the page context (no eval)
+        const fn = new Function(code);
+        return fn();
       } catch (e: any) {
         return { __browser_eval_error__: e.message };
       }

@@ -4,6 +4,8 @@ import { readFile, writeFile, mkdir, access } from "fs/promises";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 import { executeTool } from "./src/server/tools.js";
 import { recordChange, undoChange, redoChange, getChangeState } from "./src/server/changes.js";
 import { buildSystemPrompt } from "./src/server/prompts.js";
@@ -70,6 +72,42 @@ const app = express();
 const PORT = 3000;
 
 app.use(express.json());
+
+// ─── Security Middleware ───
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"], // Allow inline scripts for SPA
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "blob:"],
+    },
+  },
+}));
+
+const limiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 120, // 120 requests per minute per IP
+  message: { error: "Too many requests, please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use(limiter);
+
+// API key authentication for non-development environments
+const API_KEY = process.env.CVR_API_KEY || (process.env.NODE_ENV === "production" ? null : "dev");
+function requireApiKey(req: express.Request, res: express.Response, next: express.NextFunction) {
+  if (!API_KEY || API_KEY === "dev") {
+    return next();
+  }
+  const headerKey = req.headers["x-api-key"];
+  if (headerKey !== API_KEY) {
+    return res.status(401).json({ error: "Unauthorized: invalid or missing x-api-key header" });
+  }
+  next();
+}
+app.use("/api", requireApiKey);
+app.use("/mcp", requireApiKey);
 
 // Initialize Permission Engine
 let permissionEngine: PermissionEngine | undefined;
@@ -1123,8 +1161,9 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+  // SECURITY: Bind to localhost only to prevent remote exposure
+  app.listen(PORT, "127.0.0.1", () => {
+    console.log(`Server running on http://127.0.0.1:${PORT}`);
   });
 }
 

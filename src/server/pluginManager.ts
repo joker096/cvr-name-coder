@@ -1,7 +1,6 @@
 import { readdir, readFile, access } from "fs/promises";
 import * as path from "path";
 import type { PluginManifest, PluginInstance } from "../types/plugin";
-import { hookRegistry } from "./hooks.js";
 
 const PLUGINS_DIR = path.resolve(process.cwd(), ".cvr", "plugins");
 let _pluginsDir = PLUGINS_DIR;
@@ -50,21 +49,15 @@ export async function registerPlugins(): Promise<void> {
 }
 
 async function registerPlugin(plugin: PluginInstance): Promise<void> {
-  // Register hooks
+  // SECURITY: Dynamic code execution from manifest.json is disabled.
+  // Plugins are loaded as declarative metadata only.
+  // To add runtime behavior, load a companion JS module via require/import
+  // after manifest validation and signature verification (future feature).
   if (plugin.manifest.hooks) {
-    for (const hook of plugin.manifest.hooks) {
-      try {
-        const fn = new Function("ctx", hook.handler) as (ctx: any) => Promise<void> | void;
-        hookRegistry.register({
-          id: `${plugin.manifest.id}:${hook.point}`,
-          hookPoint: hook.point as any,
-          handler: fn,
-          priority: hook.priority || 0,
-        });
-      } catch (e) {
-        console.error(`Failed to register hook ${hook.point} for plugin ${plugin.manifest.id}:`, e);
-      }
-    }
+    console.warn(
+      `Plugin ${plugin.manifest.id}: hooks declared in manifest.json are ignored for security. ` +
+      `Use a signed JS module instead.`
+    );
   }
 }
 
