@@ -4,6 +4,7 @@
   "version": "1.3.0",
   "type": "module",
   "description": "Advanced autonomous AI coding agent with persistent memory and local LLM support",
+  "icon": "public/app-icon.png",
   "scripts": {
     "dev": "tsx server.ts",
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
@@ -39,6 +40,7 @@
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.25.0",
     "prettier": "^3.4.2",
+    "sharp": "^0.34.5",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
