@@ -49,6 +49,13 @@ Thumbs.db
 
 # TypeScript
 *.tsbuildinfo
+# Generated JS/d.ts from TS compilation
+src/**/*.d.ts
+src/**/*.d.ts.map
+src/**/*.js
+vite.config.d.ts
+vite.config.d.ts.map
+vite.config.js
 
 # Temporary files
 .opencode-infinite/

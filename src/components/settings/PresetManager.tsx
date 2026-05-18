@@ -46,7 +46,6 @@ export const PresetManager: React.FC<PresetManagerProps> = ({
     return (
       preset.config.aiProvider === currentConfig.aiProvider &&
       preset.config.aiModel === currentConfig.aiModel &&
-      preset.config.customKey === currentConfig.customKey &&
       preset.config.customUrl === currentConfig.customUrl &&
       preset.config.localUrl === currentConfig.localUrl &&
       preset.config.localModelName === currentConfig.localModelName

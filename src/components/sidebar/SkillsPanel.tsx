@@ -1,6 +1,7 @@
 import React from "react";
-import { Rocket, Compass, Save } from "lucide-react";
+import { Rocket, Compass, Search, Brain, Zap, Shield, Terminal } from "lucide-react";
 import { cn } from "../../utils/cn";
+import { COMMAND_LIST } from "../../utils/commands";
 
 export interface Skill {
   id: string;
@@ -12,20 +13,51 @@ export interface Skill {
 }
 
 interface SkillsPanelProps {
-  skills: Skill[];
+  skills?: Skill[];
   onLearnSkill?: (skillId: string) => void;
   t: any;
   className?: string;
 }
 
+// Map commands to skill icons
+const COMMAND_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  "/analyze": Search,
+  "/fix": Shield,
+  "/optimize": Zap,
+  "/audit": Compass,
+  "/explain": Brain,
+  "/refactor": Terminal,
+};
+
+// Map commands to categories
+const COMMAND_CATEGORIES: Record<string, string> = {
+  "/analyze": "research",
+  "/fix": "devops",
+  "/optimize": "devops",
+  "/audit": "research",
+  "/explain": "knowledge",
+  "/refactor": "devops",
+};
+
 export const SkillsPanel: React.FC<SkillsPanelProps> = ({
-  skills,
+  skills: externalSkills,
   onLearnSkill,
   t,
   className,
 }) => {
-  const learnedSkills = skills.filter((s) => s.status === "learned");
-  const availableSkills = skills.filter((s) => s.status === "available");
+  // Build skills from real commands
+  const commandSkills: Skill[] = COMMAND_LIST.map((cmd) => ({
+    id: cmd.command,
+    name: cmd.label,
+    description: cmd.description,
+    icon: COMMAND_ICONS[cmd.command] || Terminal,
+    status: "learned" as const,
+    category: (COMMAND_CATEGORIES[cmd.command] || "knowledge") as any,
+  }));
+
+  const allSkills = externalSkills && externalSkills.length > 0 ? externalSkills : commandSkills;
+  const learnedSkills = allSkills.filter((s) => s.status === "learned");
+  const availableSkills = allSkills.filter((s) => s.status === "available");
 
   return (
     <div className={cn("space-y-4", className)}>
@@ -60,6 +92,9 @@ export const SkillsPanel: React.FC<SkillsPanelProps> = ({
                   <div className="text-[9px] text-dash-text-muted leading-tight mt-0.5">
                     {skill.description}
                   </div>
+                  <div className="text-[9px] font-mono text-dash-accent/70 mt-1">
+                    {skill.id}
+                  </div>
                 </div>
               </div>
             ))
@@ -67,18 +102,14 @@ export const SkillsPanel: React.FC<SkillsPanelProps> = ({
         </div>
       </div>
 
-      <div className="space-y-3 pt-2 border-t border-dash-border">
-        <div className="text-[11px] uppercase tracking-widest text-dash-accent font-extrabold flex items-center justify-between">
-          {t.skillStore || "Skill Store"}
-          <Compass className="w-2.5 h-2.5" aria-hidden="true" />
-        </div>
-        <div className="grid gap-2">
-          {availableSkills.length === 0 ? (
-            <div className="p-2 text-[10px] text-dash-text-muted italic border border-dashed border-dash-border rounded text-center">
-              {t.noAvailableSkills || "No available skills"}
-            </div>
-          ) : (
-            availableSkills.map((skill) => (
+      {availableSkills.length > 0 && (
+        <div className="space-y-3 pt-2 border-t border-dash-border">
+          <div className="text-[11px] uppercase tracking-widest text-dash-accent font-extrabold flex items-center justify-between">
+            {t.skillStore || "Skill Store"}
+            <Compass className="w-2.5 h-2.5" aria-hidden="true" />
+          </div>
+          <div className="grid gap-2">
+            {availableSkills.map((skill) => (
               <div
                 key={skill.id}
                 className="p-2 bg-neutral-900 border border-dash-border rounded-md flex items-start gap-2 opacity-60 hover:opacity-100 transition-opacity cursor-pointer group"
@@ -100,13 +131,13 @@ export const SkillsPanel: React.FC<SkillsPanelProps> = ({
                   className="self-center p-1 rounded hover:bg-neutral-800 text-dash-text-muted hover:text-dash-success"
                   aria-label={`Learn ${skill.name}`}
                 >
-                  <Save className="w-3 h-3" />
+                  <Rocket className="w-3 h-3" />
                 </button>
               </div>
-            ))
-          )}
+            ))}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };

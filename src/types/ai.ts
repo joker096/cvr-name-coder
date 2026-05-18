@@ -24,7 +24,7 @@ export const toProviderId = (id: string): ProviderId => id as ProviderId;
 
 // Helper to convert string to ChatProviderId
 export const toChatProviderId = (id: string): ChatProviderId => {
-  const validIds: ChatProviderId[] = ['gemini', 'openai', 'anthropic', 'deepseek', 'grok', 'groq', 'local', 'custom'];
+  const validIds: ChatProviderId[] = ['gemini', 'openai', 'anthropic', 'deepseek', 'grok', 'groq', 'baseten', 'openrouter', 'together', 'mistral', 'local', 'custom'];
   if (validIds.includes(id as ChatProviderId)) {
     return id as ChatProviderId;
   }

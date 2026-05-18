@@ -5,14 +5,6 @@ export const validationService = {
     const errors: Record<string, string> = {};
     const warnings: Record<string, string> = {};
 
-    // Check API key for cloud providers
-    if (['openai', 'anthropic', 'deepseek', 'grok', 'groq'].includes(config.aiProvider)) {
-      const keyValidation = this.validateAPIKey(config.customKey || '');
-      if (!keyValidation.isValid) {
-        errors.apiKey = keyValidation.error || 'Invalid API key';
-      }
-    }
-
     // Check URL for local/custom providers
     if (['local', 'custom'].includes(config.aiProvider)) {
       const urlValidation = this.validateURL(config.localUrl || config.customUrl || '');

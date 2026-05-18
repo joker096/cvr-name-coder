@@ -36,13 +36,13 @@ export const ProviderSelector: React.FC<ProviderSelectorProps> = ({
   };
 
   return (
-    <div className={cn("grid grid-cols-4 gap-2", className)}>
+    <div className={cn("grid grid-cols-4 md:grid-cols-6 gap-2", className)}>
       {providers.map((provider) => (
         <button
           key={provider.id}
           onClick={() => handleProviderSelect(provider.id)}
           className={cn(
-            "p-2 rounded border text-[13px] font-mono transition-all flex items-center justify-center",
+            "p-2 rounded border text-[11px] font-mono transition-all flex items-center justify-center",
             selectedProvider === provider.id
               ? "bg-dash-accent/10 border-dash-accent text-dash-accent"
               : "border-dash-border text-dash-text-muted hover:bg-neutral-800/50"

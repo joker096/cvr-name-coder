@@ -1,4 +1,4 @@
-import { readFile, readdir, stat, writeFile, mkdir, unlink } from "fs/promises";
+import { readFile, readdir, writeFile, mkdir } from "fs/promises";
 import * as path from "path";
 import { exec } from "child_process";
 import { promisify } from "util";
@@ -8,7 +8,6 @@ import { READ_ONLY_TOOLS } from "../types/tools";
 const execAsync = promisify(exec);
 
 const PROJECT_ROOT = process.cwd();
-const MAX_FILE_SIZE = 1024 * 1024; // 1MB
 
 function resolveProjectPath(requestedPath: string): string {
   const resolved = path.resolve(PROJECT_ROOT, requestedPath);

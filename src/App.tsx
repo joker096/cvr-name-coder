@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Menu, Settings as SettingsIcon, X } from "lucide-react";
+import { Menu, Settings as SettingsIcon, X, Cpu, Compass, Search, Brain, Zap, Shield, Undo2, Redo2, Lightbulb, Hammer } from "lucide-react";
 import { TRANSLATIONS } from "./i18n";
 import { ChatContainer } from "./components/chat/ChatContainer";
 import { SettingsModal } from "./components/settings/SettingsModal";
@@ -7,7 +7,20 @@ import { Sidebar } from "./components/sidebar/Sidebar";
 import { useSettings } from "./hooks/useSettings";
 import { useChat } from "./hooks/useChat";
 import { useMemory } from "./hooks/useMemory";
+import { useChanges } from "./hooks/useChanges";
+import { cn } from "./utils/cn";
 import type { Skill } from "./components/sidebar/SkillsPanel";
+import type { AgentId } from "./types/settings";
+import type { Message } from "./types/chat";
+
+const AGENT_CONFIG: Record<AgentId, { label: string; icon: React.ComponentType<{ className?: string }>; color: string }> = {
+  build: { label: "BUILD", icon: Cpu, color: "text-dash-accent" },
+  general: { label: "GENERAL", icon: Brain, color: "text-blue-400" },
+  explore: { label: "EXPLORE", icon: Search, color: "text-green-400" },
+  scout: { label: "SCOUT", icon: Compass, color: "text-yellow-400" },
+  prometheus: { label: "PLAN", icon: Zap, color: "text-purple-400" },
+  hephaestus: { label: "EXECUTE", icon: Shield, color: "text-red-400" },
+};
 
 export default function App() {
   const [showSettings, setShowSettings] = useState(false);
@@ -20,14 +33,50 @@ export default function App() {
     return validLangs.includes(saved || "") ? (saved as any) : "en";
   });
 
-  const { settings, updateChatConfig } = useSettings();
-  const { messages, isLoading, sendMessage, cancelMessage } = useChat(settings.chat);
+  const { settings, updateChatConfig, toggleAutonomous, updateAutoLoopDelay } = useSettings();
+  const { messages, isLoading, sendMessage, cancelMessage, addMessage } = useChat(settings.chat);
   const { memories } = useMemory();
+  const { undo, redo, canUndo, canRedo } = useChanges();
+
+  const handleModeToggle = () => {
+    const newMode = settings.chat.mode === "plan" ? "build" : "plan";
+    updateChatConfig({ mode: newMode });
+  };
 
   const t = TRANSLATIONS[lang] || TRANSLATIONS.en;
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     if (!input.trim()) return;
+
+    // Handle undo/redo commands directly
+    const trimmed = input.trim();
+    if (trimmed === "/undo") {
+      const result = await undo();
+      addMessage({
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content: result.success
+          ? `↶ Undone: ${result.restored?.description || "last change"}`
+          : `Undo failed: ${result.error}`,
+        timestamp: Date.now(),
+      } as Message);
+      setInput("");
+      return;
+    }
+    if (trimmed === "/redo") {
+      const result = await redo();
+      addMessage({
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content: result.success
+          ? `↷ Redone: ${result.restored?.description || "last change"}`
+          : `Redo failed: ${result.error}`,
+        timestamp: Date.now(),
+      } as Message);
+      setInput("");
+      return;
+    }
+
     sendMessage(input);
     setInput("");
   };
@@ -49,14 +98,16 @@ export default function App() {
     localStorage.setItem("cvr_lang", newLang);
   };
 
+  const handleAgentChange = (agent: AgentId) => {
+    updateChatConfig({ agent });
+  };
+
   const handleLearnSkill = (skillId: string) => {
     console.log("Learn skill:", skillId);
   };
 
-  const activeAgent = "build";
-  const agentsList = [
-    { id: "build", label: "BUILD", color: "text-dash-accent", icon: SettingsIcon },
-  ];
+  const activeAgent = settings.chat.agent || "build";
+  const agentConfig = AGENT_CONFIG[activeAgent];
 
   const learnedSkills: Skill[] = [
     {
@@ -111,6 +162,66 @@ export default function App() {
           </div>
         </div>
         <div className="flex items-center gap-2 md:gap-3">
+          {/* Agent Selector */}
+          <div className="hidden md:flex items-center gap-1">
+            <select
+              value={activeAgent}
+              onChange={(e) => handleAgentChange(e.target.value as AgentId)}
+              className="bg-transparent text-[11px] font-mono uppercase tracking-wider border-none focus:ring-0 cursor-pointer hover:text-dash-accent transition-colors text-dash-text-muted"
+              title={t.agentSelect || "Select Agent"}
+            >
+              {(Object.keys(AGENT_CONFIG) as AgentId[]).map((id) => (
+                <option key={id} value={id} className="bg-dash-bg text-dash-text-primary">
+                  {AGENT_CONFIG[id].label}
+                </option>
+              ))}
+            </select>
+            <span className={agentConfig.color}>
+              <agentConfig.icon className="w-3 h-3" />
+            </span>
+          </div>
+          {/* Plan/Build Toggle */}
+          <button
+            onClick={handleModeToggle}
+            className={cn(
+              "hidden md:flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono uppercase tracking-wider transition-all border",
+              settings.chat.mode === "plan"
+                ? "bg-amber-500/10 border-amber-500/30 text-amber-400"
+                : "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+            )}
+            title={settings.chat.mode === "plan" ? t.planMode || "Plan Mode" : t.buildMode || "Build Mode"}
+          >
+            {settings.chat.mode === "plan" ? (
+              <>
+                <Lightbulb className="w-3 h-3" /> PLAN
+              </>
+            ) : (
+              <>
+                <Hammer className="w-3 h-3" /> BUILD
+              </>
+            )}
+          </button>
+
+          {/* Undo/Redo */}
+          <div className="hidden md:flex items-center gap-0.5">
+            <button
+              onClick={undo}
+              disabled={!canUndo}
+              className="p-1 hover:bg-neutral-800 rounded transition-colors text-dash-text-muted disabled:opacity-30 disabled:cursor-not-allowed"
+              title={t.undo || "Undo"}
+            >
+              <Undo2 className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={redo}
+              disabled={!canRedo}
+              className="p-1 hover:bg-neutral-800 rounded transition-colors text-dash-text-muted disabled:opacity-30 disabled:cursor-not-allowed"
+              title={t.redo || "Redo"}
+            >
+              <Redo2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
           <div className="hidden lg:flex items-center gap-2 text-[11px] font-mono text-dash-text-muted">
             <span className="flex items-center gap-1 opacity-70">
               <span className="w-2 h-2 bg-dash-success rounded-full" aria-hidden="true" /> {t.engineStable}
@@ -119,6 +230,11 @@ export default function App() {
               <span className="w-2 h-2 bg-dash-accent rounded-full" aria-hidden="true" /> {memories.length}
             </span>
           </div>
+          {settings.isAutonomous && (
+            <span className="hidden sm:inline-flex text-[9px] font-mono text-dash-success bg-dash-success/10 px-1.5 py-0.5 rounded uppercase tracking-wider">
+              {t.autonomyForce || "AUTO"}
+            </span>
+          )}
           <button
             onClick={() => setShowSettings(true)}
             className="p-1 hover:bg-neutral-800 rounded transition-colors text-dash-text-muted"
@@ -151,7 +267,7 @@ export default function App() {
             onSendMessage={handleSendMessage}
             onCancelMessage={handleCancelMessage}
             isLooming={isLoading}
-            agentLabel={agentsList.find((a) => a.id === activeAgent)?.label}
+            agentLabel={AGENT_CONFIG[activeAgent]?.label}
             t={t}
             lang={lang}
             loadingText={t.processing}
@@ -167,10 +283,14 @@ export default function App() {
         config={settings.chat}
         kernelConfig={settings.chat}
         presets={settings.presets}
+        isAutonomous={settings.isAutonomous}
+        autoLoopDelay={settings.autoLoopDelay}
         onSave={handleSaveSettings}
         onPresetSave={(preset) => console.log("Save preset:", preset)}
         onPresetApply={(preset) => console.log("Apply preset:", preset)}
         onPresetDelete={(id) => console.log("Delete preset:", id)}
+        onToggleAutonomous={toggleAutonomous}
+        onChangeAutoLoopDelay={updateAutoLoopDelay}
         onLanguageChange={handleLanguageChange}
         t={t}
         lang={lang}

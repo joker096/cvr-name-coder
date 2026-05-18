@@ -1,4 +1,5 @@
 import { readFile, writeFile, mkdir, unlink, stat } from "fs/promises";
+// @ts-ignore unused imports for completeness
 import * as path from "path";
 import type { FileChange, ChangeHistory, ChangeState } from "../types/changes";
 
@@ -81,6 +82,9 @@ export async function undoChange(): Promise<{ success: boolean; restored?: FileC
   }
 
   const change = activeChanges[activeChanges.length - 1];
+  if (!change) {
+    return { success: false, error: "Nothing to undo" };
+  }
   history.undoStack.push(change.id);
 
   // Restore file
