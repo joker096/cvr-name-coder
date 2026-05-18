@@ -1,9 +1,12 @@
 import express from "express";
-import path from "path";
-import fs from "fs/promises";
+import * as path from "path";
+import { readFile, writeFile, mkdir, access } from "fs/promises";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
+import { executeTool } from "./src/server/tools.js";
+import { recordChange, undoChange, redoChange, getChangeState } from "./src/server/changes.js";
+import { buildSystemPrompt } from "./src/server/prompts.js";
 
 dotenv.config();
 
@@ -14,9 +17,9 @@ const MEMORY_FILE = path.join(STORAGE_DIR, "memory.json");
 
 async function ensureStorage() {
   try {
-    await fs.mkdir(STORAGE_DIR, { recursive: true });
-    try { await fs.access(HISTORY_FILE); } catch { await fs.writeFile(HISTORY_FILE, JSON.stringify([])); }
-    try { await fs.access(MEMORY_FILE); } catch { await fs.writeFile(MEMORY_FILE, JSON.stringify([])); }
+    await mkdir(STORAGE_DIR, { recursive: true });
+    try { await access(HISTORY_FILE); } catch { await writeFile(HISTORY_FILE, JSON.stringify([])); }
+    try { await access(MEMORY_FILE); } catch { await writeFile(MEMORY_FILE, JSON.stringify([])); }
   } catch (e) {
     console.error("Storage init error:", e);
   }
@@ -33,22 +36,20 @@ const ai = new GoogleGenAI({
 });
 
 // Gemini Logic
-async function generateAIContent(prompt: string, contents: any[] = [], provider: string = "gemini", localUrl?: string, modelName?: string, apiKey?: string) {
-  if ((provider === "local" || provider === "custom" || provider === "openai" || provider === "deepseek" || provider === "grok") && (localUrl || apiKey)) {
+async function generateAIContent(prompt: string, contents: any[] = [], provider: string = "gemini", localUrl?: string, modelName?: string, apiKey?: string, temperature?: number, maxTokens?: number) {
+  if ((provider === "local" || provider === "custom" || provider === "openai" || provider === "deepseek" || provider === "grok" || provider === "baseten" || provider === "openrouter" || provider === "together" || provider === "mistral") && (localUrl || apiKey)) {
     try {
       let baseUrl = localUrl;
       if (provider === "openai") baseUrl = "https://api.openai.com/v1";
       if (provider === "deepseek") baseUrl = localUrl || "https://api.deepseek.com";
       if (provider === "grok") baseUrl = localUrl || "https://api.x.ai/v1";
+      if (provider === "baseten") baseUrl = "https://api.baseten.co/v1";
+      if (provider === "openrouter") baseUrl = "https://openrouter.ai/api/v1";
+      if (provider === "together") baseUrl = "https://api.together.xyz/v1";
+      if (provider === "mistral") baseUrl = "https://api.mistral.ai/v1";
 
-      const response = await fetch(`${(baseUrl || '').replace(/\/$/, '')}/v1/chat/completions`, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey || (provider === "openai" ? process.env.OPENAI_API_KEY : provider === "deepseek" ? process.env.DEEPSEEK_API_KEY : provider === "grok" ? process.env.XAI_API_KEY : "")}`
-        },
-        body: JSON.stringify({
-          model: modelName || (provider === "openai" ? "gpt-4o" : provider === "deepseek" ? "deepseek-chat" : provider === "grok" ? "grok-beta" : "local-model"),
+        const body: any = {
+          model: modelName || (provider === "openai" ? "gpt-4o" : provider === "deepseek" ? "deepseek-chat" : provider === "grok" ? "grok-beta" : provider === "baseten" ? "llama-3-1-70b-instruct" : provider === "openrouter" ? "meta-llama/llama-3.3-70b-instruct:free" : provider === "together" ? "meta-llama/Llama-3.3-70B-Instruct-Turbo" : provider === "mistral" ? "mistral-large-latest" : "local-model"),
           messages: [
             { role: 'system', content: prompt },
             ...contents.map(c => ({ 
@@ -56,8 +57,18 @@ async function generateAIContent(prompt: string, contents: any[] = [], provider:
               content: c.parts[0].text 
             }))
           ]
-        })
-      });
+        };
+        if (temperature !== undefined) body.temperature = temperature;
+        if (maxTokens !== undefined) body.max_tokens = maxTokens;
+
+        const response = await fetch(`${(baseUrl || '').replace(/\/$/, '')}/v1/chat/completions`, {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey || (provider === "openai" ? process.env.OPENAI_API_KEY : provider === "deepseek" ? process.env.DEEPSEEK_API_KEY : provider === "grok" ? process.env.XAI_API_KEY : provider === "baseten" ? process.env.BASETEN_API_KEY : provider === "openrouter" ? process.env.OPENROUTER_API_KEY : provider === "together" ? process.env.TOGETHER_API_KEY : provider === "mistral" ? process.env.MISTRAL_API_KEY : provider === "custom" ? process.env.CUSTOM_API_KEY : "")}`
+          },
+          body: JSON.stringify(body)
+        });
       const data: any = await response.json();
       if (data.error) throw new Error(data.error.message || "AI Provider Error");
       return data.choices[0].message.content;
@@ -136,66 +147,41 @@ async function summarizeLongHistory(messages: any[], provider: string = "gemini"
 // API Routes
 app.post("/api/chat", async (req, res) => {
   try {
-    const { message, config = {}, kernelConfig = {} } = req.body;
-    const { aiProvider = "gemini", localUrl, aiModel, apiKey } = config;
+    const { message, config = {}, kernelConfig = {}, agent: bodyAgent } = req.body;
+    const { aiProvider = "gemini", localUrl, aiModel, apiKey, temperature, maxTokens, systemPrompt: customSystemPrompt, agent: configAgent } = config;
     const kConfig = kernelConfig.aiProvider ? kernelConfig : config;
 
     // 1. Read persistent state
-    const history = JSON.parse(await fs.readFile(HISTORY_FILE, "utf-8"));
-    const memories = JSON.parse(await fs.readFile(MEMORY_FILE, "utf-8"));
+    const history = JSON.parse(await readFile(HISTORY_FILE, "utf-8"));
+    const memories = JSON.parse(await readFile(MEMORY_FILE, "utf-8"));
 
     // 2. Construct context
-    const { agent = "build" } = req.body;
+    const agent = bodyAgent || configAgent || "build";
+    const mode = config.mode || "build";
     const contextParts = memories.slice(-5).map((m: any) => `[CLUSTER_DATA]: ${m.content}`).join('\n');
-    
-    const AGENT_PROMPTS: Record<string, string> = {
-      build: `[ROLE: BUILD] - DEFAULT DEVELOPER AGENT. You have full access to developer tools (read/write files, execute bash). Focus on iterative coding, bug fixing, and implementation.`,
-      general: `[ROLE: GENERAL] - UNIVERSAL ASSISTANT. Help with complex, multi-stage tasks. You can modify files, run parallel processes, and coordinate broad workflows.`,
-      explore: `[ROLE: EXPLORE] - CODEBASE EXPLORER. Read-only specialist. Efficiently search patterns, find keywords, and explain codebase structure. Use fast search tools. You CANNOT write files.`,
-      scout: `[ROLE: SCOUT] - ANALYST. Read-only. Specialized in external documentation research and dependency analysis. Focus on architectural auditing and research.`,
-      prometheus: `[ROLE: PROMETHEUS] - STRATEGIC PLANNER. You are a strategic architect. Before any code is written, you must clarify requirements, define architecture, and scope the work. You create comprehensive plans.`,
-      hephaestus: `[ROLE: HEPHAESTUS] - DEEP EXECUTOR. Autonomous specialist. Given a goal, independently research patterns, write code, and finish the task without requiring step-by-step guidance.`,
-    };
 
-    const systemPrompt = `You are "cvr.name", the world's most advanced autonomous coding kernel. 
-    
-    CURRENT_AGENT_IDENTITY:
-    ${AGENT_PROMPTS[agent] || AGENT_PROMPTS.build}
-    
-    INTEGRATED PROTOCOLS:
-    - [COMPLEXITY_OPTIMIZER]: When analyzing or refactoring, apply Algorithmic Complexity Evaluation. Detect performance hotspots (O(n) notation), identify high-risk logic, and provide safe optimization reports. Focus on memory usage, execution speed, and architectural efficiency.
-    - [AGENT_BEST_PRACTICES]: Maintain a proactive, provider-neutral stance. Rigorously audit your own tool harness and state. When tasked with complexity, solve sequentially without human friction, prioritizing MVP stability and clear tool definitions.
-    - [SUPERPOWERS]: Active plugin from OpenCode. Enables high-level brainstorming, advanced task decomposition, and "Superpower" skills (available: brainstorming, refactor, test-gen, arch-review, debug, doc-gen). Use the 'skill' tool nomenclature to refer to discovered capabilities. Enhanced tool mapping is active (e.g., TodoWrite -> todowrite).
-    
-    SYSTEM ARCHITECTURE: 
-    - Local Persistent Memory (.opencode-infinite)
-    - Recursive Task Execution Pipeline
-    - Dreamer Semantic Compression Engine
-    
-    AUTONOMY PROTOCOLS:
-    1. OBJECTIVE: Absolute task completion. Use deep-analysis for code optimization.
-    2. ITERATION: For multi-vector tasks, solve sequentially. If /optimize is used, focus on complexity reduction. If /audit is used, report on system integrity. If /superpowers is used, invoke the Superpowers plugin for high-level refactoring and brainstorming.
-    3. TERMINATION: "CONTINUE_NEEDED" for next cycles. "TASK_COMPLETE" for final success.
-    
-    PERSISTENT CONTEXT CLUSTERS:
-    ${contextParts || "No previous knowledge clusters found. Kernel is in cold-start mode."}
-    `;
+    const systemPrompt = buildSystemPrompt({
+      agent,
+      mode,
+      contextParts,
+      customSystemPrompt: customSystemPrompt && customSystemPrompt.trim() ? customSystemPrompt : undefined,
+    });
 
     const responseText = await generateAIContent(systemPrompt, [
       ...history.slice(-10).map((m: any) => ({ role: m.role, parts: [{ text: m.content }] })),
       { role: 'user', parts: [{ text: message }] }
-    ], aiProvider, localUrl, aiModel, apiKey);
+    ], aiProvider, localUrl, aiModel, apiKey, temperature, maxTokens);
 
     // 3. Persist
     const updatedHistory = [...history, { role: 'user', content: message, createdAt: new Date() }, { role: 'model', content: responseText, createdAt: new Date() }];
-    await fs.writeFile(HISTORY_FILE, JSON.stringify(updatedHistory));
+    await writeFile(HISTORY_FILE, JSON.stringify(updatedHistory));
 
     // 4. Memory Compression (Project "Dreamer" process)
     if (updatedHistory.length % 5 === 0) {
       summarizeLongHistory(updatedHistory, kConfig.aiProvider, kConfig.localUrl, kConfig.aiModel || kConfig.localModelName, kConfig.apiKey).then(async (summary) => {
         if (summary) {
-          const currentMemories = JSON.parse(await fs.readFile(MEMORY_FILE, "utf-8"));
-          await fs.writeFile(MEMORY_FILE, JSON.stringify([...currentMemories, { content: summary, createdAt: new Date() }]));
+          const currentMemories = JSON.parse(await readFile(MEMORY_FILE, "utf-8"));
+          await writeFile(MEMORY_FILE, JSON.stringify([...currentMemories, { content: summary, createdAt: new Date() }]));
         }
       });
     }
@@ -213,8 +199,8 @@ app.post("/api/chat", async (req, res) => {
 
 app.get("/api/history", async (_req, res) => {
   try {
-    const history = JSON.parse(await fs.readFile(HISTORY_FILE, "utf-8"));
-    const memories = JSON.parse(await fs.readFile(MEMORY_FILE, "utf-8"));
+    const history = JSON.parse(await readFile(HISTORY_FILE, "utf-8"));
+    const memories = JSON.parse(await readFile(MEMORY_FILE, "utf-8"));
     res.json({ history, memories });
   } catch (e: any) {
     res.json({ history: [], memories: [] });
@@ -222,9 +208,58 @@ app.get("/api/history", async (_req, res) => {
 });
 
 app.post("/api/clear", async (_req, res) => {
-  await fs.writeFile(HISTORY_FILE, JSON.stringify([]));
-  await fs.writeFile(MEMORY_FILE, JSON.stringify([]));
+  await writeFile(HISTORY_FILE, JSON.stringify([]));
+  await writeFile(MEMORY_FILE, JSON.stringify([]));
   res.json({ status: "cleared" });
+});
+
+// Tool execution endpoint
+app.post("/api/tools/execute", async (req, res) => {
+  try {
+    const { toolCall, mode = "build" } = req.body;
+    const result = await executeTool(toolCall, mode);
+
+    // Snapshot for undo if write tool succeeded
+    if (
+      result.success &&
+      (toolCall.name === "write_file" || toolCall.name === "edit_file")
+    ) {
+      const afterContent =
+        toolCall.name === "write_file"
+          ? (toolCall.params.content as string)
+          : await readFile(path.join(process.cwd(), toolCall.params.path as string), "utf-8");
+      const change = await recordChange(
+        toolCall.params.path as string,
+        toolCall.name === "write_file" ? "write" : "edit",
+        afterContent,
+        `${toolCall.name}: ${toolCall.params.path}`
+      );
+      result.changeId = change.id;
+    }
+
+    res.json(result);
+  } catch (error: any) {
+    console.error("Tool execution error:", error);
+    res.status(500).json({ success: false, output: "", error: error.message });
+  }
+});
+
+// Undo endpoint
+app.post("/api/undo", async (_req, res) => {
+  const result = await undoChange();
+  res.json(result);
+});
+
+// Redo endpoint
+app.post("/api/redo", async (_req, res) => {
+  const result = await redoChange();
+  res.json(result);
+});
+
+// Changes state endpoint
+app.get("/api/changes", async (_req, res) => {
+  const state = await getChangeState();
+  res.json(state);
 });
 
 async function startServer() {
