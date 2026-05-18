@@ -16,7 +16,7 @@ const AGENT_PROMPTS: Record<string, string> = {
 
 export async function buildSystemPrompt(options: {
   agent: AgentId;
-  mode: "plan" | "build";
+  mode: "plan" | "build" | "review";
   contextParts?: string;
   customSystemPrompt?: string;
 }): Promise<string> {
@@ -28,6 +28,8 @@ export async function buildSystemPrompt(options: {
   const modeDirective =
     mode === "plan"
       ? `[PLANNING MODE ACTIVE]\nYou are in PLANNING mode. You may ONLY use read_file, list_directory, and search_files.\nDo NOT write files, edit files, or execute commands. Provide a detailed implementation plan with specific file paths and changes.`
+      : mode === "review"
+      ? `[REVIEW MODE ACTIVE]\nYou are in CODE REVIEW mode. You are a senior code reviewer.\nAnalyze code changes thoroughly. Be constructive and specific. Suggest fixes with code examples.\nDo NOT write files or execute commands. Provide structured review comments with categories and severity.`
       : `[BUILD MODE ACTIVE]\nYou are in BUILD mode. You have full access to all tools including write_file, edit_file, and execute_command.\nImplement the plan directly and efficiently.`;
 
   const customTools = await loadCustomTools();

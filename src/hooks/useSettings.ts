@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { storageService } from "../services/storageService";
 import type { ChatConfig, Preset } from "../types/settings";
+import { toPresetId } from "../types/ai";
 
 const STORAGE_KEY = "cvr_settings";
 
@@ -27,6 +28,8 @@ const DEFAULT_SETTINGS: Settings = {
     maxTokens: 4096,
     systemPrompt: "",
     agent: "build",
+    visionEnabled: true,
+    maxImageSize: 1024,
   },
   presets: [],
   autoLoopDelay: 2000,
@@ -88,7 +91,7 @@ export const useSettings = () => {
   const addPreset = (preset: Omit<Preset, "id" | "createdAt">) => {
     const newPreset: Preset = {
       ...preset,
-      id: `preset_${Date.now()}`,
+      id: toPresetId(`preset_${Date.now()}`),
       createdAt: Date.now(),
     };
     setSettings((prev) => ({

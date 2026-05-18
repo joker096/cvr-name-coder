@@ -6,7 +6,7 @@ export const useTools = () => {
   const [lastResult, setLastResult] = useState<ToolResult | null>(null);
 
   const executeToolCall = useCallback(
-    async (toolCall: ToolCall, mode: "plan" | "build" = "build"): Promise<ToolResult> => {
+    async (toolCall: ToolCall, mode: "plan" | "build" | "review" = "build"): Promise<ToolResult> => {
       setIsExecuting(true);
       try {
         const response = await fetch("/api/tools/execute", {

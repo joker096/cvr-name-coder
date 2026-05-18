@@ -113,6 +113,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setCurrentConfig((prev) => ({ ...prev, systemPrompt: prompt }));
   };
 
+  const handleVisionToggle = () => {
+    setCurrentConfig((prev) => ({ ...prev, visionEnabled: !prev.visionEnabled }));
+  };
+
+  const handleMaxImageSizeChange = (size: number) => {
+    setCurrentConfig((prev) => ({ ...prev, maxImageSize: size }));
+  };
+
   const providers: Provider[] = [
     { id: toChatProviderId("gemini"), icon: { type: "lucide", name: "sparkles" }, label: t.cloudGemini || "Google Gemini", type: "cloud" },
     { id: toChatProviderId("openai"), icon: { type: "lucide", name: "bot" }, label: t.openaiProvider || "OpenAI", type: "cloud" },
@@ -238,6 +246,53 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         className="w-full px-3 py-2 bg-dash-bg border border-dash-border rounded text-dash-text-primary focus:outline-none focus:ring-2 focus:ring-dash-accent text-sm"
                       />
                     </div>
+                  </div>
+
+                  {/* Vision Settings */}
+                  <div className="space-y-3 pt-4 border-t border-dash-border">
+                    <h3 className="text-sm font-bold text-dash-text-muted uppercase tracking-widest">{t.visionSettings || "Vision Settings"}</h3>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-sm font-medium text-dash-text-primary">{t.visionEnabled || "Enable Vision"}</div>
+                        <div className="text-[11px] text-dash-text-muted">{t.visionEnabledDesc || "Allow image upload and vision model usage"}</div>
+                      </div>
+                      <button
+                        onClick={handleVisionToggle}
+                        className={cn(
+                          "relative inline-flex h-5 w-9 items-center rounded-full transition-colors",
+                          currentConfig.visionEnabled ? "bg-dash-accent" : "bg-neutral-700"
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform",
+                            currentConfig.visionEnabled ? "translate-x-5" : "translate-x-1"
+                          )}
+                        />
+                      </button>
+                    </div>
+                    {currentConfig.visionEnabled && (
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <label className="text-sm font-medium text-dash-text-primary">{t.maxImageSize || "Max Image Size"}</label>
+                          <span className="text-[11px] font-mono text-dash-accent">{currentConfig.maxImageSize ?? 1024}px</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={512}
+                          max={2048}
+                          step={128}
+                          value={currentConfig.maxImageSize ?? 1024}
+                          onChange={(e) => handleMaxImageSizeChange(parseInt(e.target.value))}
+                          className="w-full accent-dash-accent"
+                        />
+                        <div className="flex justify-between text-[9px] text-dash-text-muted mt-1">
+                          <span>Small (512px)</span>
+                          <span>Medium (1024px)</span>
+                          <span>Large (2048px)</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* System Prompt */}

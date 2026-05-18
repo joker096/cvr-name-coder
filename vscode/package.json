@@ -69,6 +69,11 @@
         "command": "cvr.inlineEdit",
         "title": "cvr.name: Inline Edit Selection",
         "category": "cvr.name"
+      },
+      {
+        "command": "cvr.startMcpServer",
+        "title": "cvr.name: Start MCP Server",
+        "category": "cvr.name"
       }
     ],
     "viewsContainers": {

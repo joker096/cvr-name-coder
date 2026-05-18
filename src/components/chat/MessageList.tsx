@@ -4,10 +4,10 @@ import type { Message } from "../../types/chat";
 
 interface MessageListProps {
   messages: Message[];
-  agentLabel?: string;
+  agentLabel?: string | undefined;
   t: any;
   isLooming?: boolean;
-  loadingText?: string;
+  loadingText?: string | undefined;
 }
 
 export const MessageList: React.FC<MessageListProps> = ({

@@ -60,7 +60,7 @@ async function searchDir(dir: string, query: string): Promise<string[]> {
 
 export async function executeTool(
   toolCall: { name: string; params: Record<string, unknown> },
-  mode: "plan" | "build" = "build",
+  mode: "plan" | "build" | "review" = "build",
   permissionEngine?: PermissionEngine,
   sessionId: string = "default"
 ): Promise<ToolResult> {

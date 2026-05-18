@@ -2,6 +2,7 @@ import { useState, useCallback, useRef } from "react";
 import type { Message } from "../types/chat";
 import type { ChatConfig } from "../types/settings";
 import type { ToolCall } from "../types/tools";
+import { toMessageId } from "../types/ai";
 import { parseCommand, getCommandPrompt, getCommandAgent } from "../utils/commands";
 
 interface ChatState {
@@ -39,8 +40,8 @@ export const useChat = (config: ChatConfig) => {
 
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  const sendMessage = useCallback(async (content: string): Promise<{ content: string; continueNeeded: boolean } | null> => {
-    if (!content.trim()) {
+  const sendMessage = useCallback(async (content: string, images?: string[]): Promise<{ content: string; continueNeeded: boolean } | null> => {
+    if (!content.trim() && (!images || images.length === 0)) {
       return null;
     }
 
@@ -50,9 +51,10 @@ export const useChat = (config: ChatConfig) => {
     const messageContent = command ? getCommandPrompt(command, args) : content;
 
     const userMessage: Message = {
-      id: crypto.randomUUID(),
+      id: toMessageId(crypto.randomUUID()),
       role: "user",
       content,
+      ...(images ? { images } : {}),
       timestamp: Date.now(),
     };
 
@@ -73,6 +75,7 @@ export const useChat = (config: ChatConfig) => {
         },
         body: JSON.stringify({
           message: messageContent,
+          images,
           config,
           agent,
         }),
@@ -90,7 +93,7 @@ export const useChat = (config: ChatConfig) => {
         // Standalone server returns JSON
         const data = await response.json();
         const assistantMessage: Message = {
-          id: crypto.randomUUID(),
+          id: toMessageId(crypto.randomUUID()),
           role: "assistant",
           content: data.content || "",
           timestamp: Date.now(),
@@ -111,7 +114,7 @@ export const useChat = (config: ChatConfig) => {
       }
 
       const assistantMessage: Message = {
-        id: crypto.randomUUID(),
+        id: toMessageId(crypto.randomUUID()),
         role: "assistant",
         content: "",
         timestamp: Date.now(),
@@ -258,11 +261,11 @@ export const useChat = (config: ChatConfig) => {
       .pop();
 
     if (lastUserMessage) {
-      await sendMessage(lastUserMessage.content);
+      await sendMessage(lastUserMessage.content, lastUserMessage.images);
     }
   }, [state.messages, sendMessage]);
 
-  const executeToolCalls = useCallback(async (messageId: string, mode: "plan" | "build" = "build") => {
+  const executeToolCalls = useCallback(async (messageId: string, mode: "plan" | "build" | "review" = "build") => {
     const message = state.messages.find((m) => m.id === messageId);
     if (!message || message.role !== "assistant") return;
 
@@ -285,7 +288,7 @@ export const useChat = (config: ChatConfig) => {
     }
 
     const toolMessage: Message = {
-      id: crypto.randomUUID(),
+      id: toMessageId(crypto.randomUUID()),
       role: "assistant",
       content: `[TOOL_RESULTS]\n${results.join("\n---\n")}`,
       timestamp: Date.now(),
@@ -317,5 +320,8 @@ export const useChat = (config: ChatConfig) => {
     retryMessage,
     executeToolCalls,
     addMessage,
+    setMessages: (messages: Message[]) => {
+      setState((prev) => ({ ...prev, messages }));
+    },
   };
 };

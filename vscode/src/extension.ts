@@ -26,6 +26,7 @@ import { loadInstructions, getInstructionsContext, setRulesDir } from '../../src
 import { loadCustomTools, setCustomToolsDir } from '../../src/server/customToolLoader.js';
 import { loadPlugins, registerPlugins, getPlugins, enablePlugin, disablePlugin, setPluginsDir } from '../../src/server/pluginManager.js';
 import { cronScheduler } from '../../src/server/cronScheduler.js';
+import { loadMcpConfig, mountMcpSseRoutes } from '../../src/server/mcpServer.js';
 
 const $fetch = (globalThis as any).fetch as (url: string, init?: any) => Promise<{ json(): Promise<any>; status: number }>;
 
@@ -1327,6 +1328,12 @@ Complete the code at the cursor position:`;
     res.json({ disabled: true });
   });
 
+  // MCP Server routes
+  const mcpConfig = await loadMcpConfig();
+  if (mcpConfig.enabled && (mcpConfig.transport === 'http' || mcpConfig.transport === 'sse')) {
+    mountMcpSseRoutes(app, mcpConfig.basePath || '/mcp');
+  }
+
   const appDir = path.join(getServerDir(context), 'app');
   app.use(express.static(appDir));
   app.get('*', (_req: any, res: any) => {
@@ -1446,6 +1453,19 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('cvr.openSidebar', () => {
       vscode.commands.executeCommand('workbench.view.extension.cvr-explorer');
+    })
+  );
+
+  // Start MCP Server command
+  context.subscriptions.push(
+    vscode.commands.registerCommand('cvr.startMcpServer', async () => {
+      await ensureServer(context);
+      if (serverPort) {
+        const mcpUrl = `http://127.0.0.1:${serverPort}/mcp/sse`;
+        vscode.window.showInformationMessage(`cvr.name MCP Server running on ${mcpUrl}`);
+      } else {
+        vscode.window.showWarningMessage('cvr.name server not running yet. Please wait and try again.');
+      }
     })
   );
 

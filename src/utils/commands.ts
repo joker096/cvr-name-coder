@@ -5,6 +5,7 @@ export type SlashCommand =
   | "/audit"
   | "/explain"
   | "/refactor"
+  | "/review"
   | "/undo"
   | "/redo";
 
@@ -102,6 +103,13 @@ Make it clear and educational.`,
 6. Provide the refactored code with explanations
 
 Preserve functionality while improving quality.`,
+  },
+  "/review": {
+    command: "/review",
+    label: "Review Changes",
+    description: "Review code changes and provide feedback",
+    agent: "build",
+    prompt: "REVIEW: Review the current code changes and provide structured feedback.",
   },
   "/undo": {
     command: "/undo",

@@ -25,7 +25,10 @@ import { loadCustomTools, setCustomToolsDir } from "./src/server/customToolLoade
 import { registerPlugins, getPlugins, enablePlugin, disablePlugin, setPluginsDir } from "./src/server/pluginManager.js";
 import { cronScheduler } from "./src/server/cronScheduler.js";
 import { getGitStatus, getGitDiff, gitCommit, gitPush, getGitLog } from "./src/server/gitTools.js";
+import { analyzeDiff, getPendingReviews, acceptComment, rejectComment } from "./src/server/codeReview.js";
 import { trackCost, getCosts, resetCosts, estimateTokens } from "./src/server/costTracker.js";
+import { processImages, type ProcessedImage } from "./src/server/imageProcessor.js";
+import { loadMcpConfig, startMcpStdio, mountMcpSseRoutes } from "./src/server/mcpServer.js";
 
 dotenv.config();
 
@@ -100,10 +103,23 @@ async function generateAIContent(prompt: string, contents: any[] = [], provider:
           model: modelName || (provider === "openai" ? "gpt-4o" : provider === "deepseek" ? "deepseek-chat" : provider === "grok" ? "grok-beta" : provider === "baseten" ? "llama-3-1-70b-instruct" : provider === "openrouter" ? "meta-llama/llama-3.3-70b-instruct:free" : provider === "together" ? "meta-llama/Llama-3.3-70B-Instruct-Turbo" : provider === "mistral" ? "mistral-large-latest" : "local-model"),
           messages: [
             { role: 'system', content: prompt },
-            ...contents.map(c => ({ 
-              role: c.role === 'model' ? 'assistant' : c.role, 
-              content: c.parts[0].text 
-            }))
+            ...contents.map(c => {
+              const hasImages = c.parts.some((p: any) => p.inlineData);
+              if (hasImages) {
+                return {
+                  role: c.role === 'model' ? 'assistant' : c.role,
+                  content: c.parts.map((p: any) => {
+                    if (p.text) return { type: 'text', text: p.text };
+                    if (p.inlineData) return { type: 'image_url', image_url: { url: `data:${p.inlineData.mimeType};base64,${p.inlineData.data}` } };
+                    return null;
+                  }).filter((x: any) => x !== null)
+                };
+              }
+              return {
+                role: c.role === 'model' ? 'assistant' : c.role,
+                content: c.parts[0].text
+              };
+            })
           ]
         };
         if (temperature !== undefined) body.temperature = temperature;
@@ -147,10 +163,23 @@ async function generateAIContent(prompt: string, contents: any[] = [], provider:
           model: modelName || "claude-3-5-sonnet-20240620",
           max_tokens: 4096,
           system: prompt,
-          messages: contents.map(c => ({
-            role: c.role === 'model' ? 'assistant' : c.role,
-            content: c.parts[0].text
-          }))
+          messages: contents.map(c => {
+            const hasImages = c.parts.some((p: any) => p.inlineData);
+            if (hasImages) {
+              return {
+                role: c.role === 'model' ? 'assistant' : c.role,
+                content: c.parts.map((p: any) => {
+                  if (p.text) return { type: 'text', text: p.text };
+                  if (p.inlineData) return { type: 'image', source: { type: 'base64', media_type: p.inlineData.mimeType, data: p.inlineData.data } };
+                  return null;
+                }).filter((x: any) => x !== null)
+              };
+            }
+            return {
+              role: c.role === 'model' ? 'assistant' : c.role,
+              content: c.parts[0].text
+            };
+          })
         })
       });
       const data: any = await response.json();
@@ -239,7 +268,7 @@ async function summarizeLongHistory(messages: any[], provider: string = "gemini"
 app.post("/api/chat", async (req, res) => {
   try {
     const { message, config = {}, kernelConfig = {}, agent: bodyAgent } = req.body;
-    const { aiProvider = "gemini", localUrl, aiModel, apiKey, temperature, maxTokens, systemPrompt: customSystemPrompt, agent: configAgent } = config;
+    const { aiProvider = "gemini", localUrl, aiModel, apiKey, temperature, maxTokens, systemPrompt: customSystemPrompt, agent: configAgent, maxImageSize } = config;
     const kConfig = kernelConfig.aiProvider ? kernelConfig : config;
 
     // 1. Read persistent state
@@ -258,13 +287,47 @@ app.post("/api/chat", async (req, res) => {
       customSystemPrompt: customSystemPrompt && customSystemPrompt.trim() ? customSystemPrompt : undefined,
     });
 
+    // Process images if provided
+    const { images: rawImages = [] } = req.body;
+    let processedImages: ProcessedImage[] = [];
+    if (Array.isArray(rawImages) && rawImages.length > 0) {
+      processedImages = await processImages(rawImages, { maxDimension: maxImageSize || 1024 });
+    }
+
+    const buildParts = (text: string, imgs?: ProcessedImage[]) => {
+      const parts: any[] = [{ text }];
+      if (imgs && imgs.length > 0) {
+        for (const img of imgs) {
+          parts.push({ inlineData: { mimeType: img.mimeType, data: img.base64 } });
+        }
+      }
+      return parts;
+    };
+
+    const historyContents = history.slice(-10).map((m: any) => {
+      const parts: any[] = [{ text: m.content }];
+      if (m.images && Array.isArray(m.images)) {
+        for (const img of m.images) {
+          const match = typeof img === 'string' ? img.match(/^data:([^;]+);base64,(.+)$/) : null;
+          if (match) {
+            parts.push({ inlineData: { mimeType: match[1], data: match[2] } });
+          }
+        }
+      }
+      return { role: m.role, parts };
+    });
+
     const responseText = await generateAIContent(systemPrompt, [
-      ...history.slice(-10).map((m: any) => ({ role: m.role, parts: [{ text: m.content }] })),
-      { role: 'user', parts: [{ text: message }] }
+      ...historyContents,
+      { role: 'user', parts: buildParts(message, processedImages) }
     ], aiProvider, localUrl, aiModel, apiKey, temperature, maxTokens);
 
     // 3. Persist
-    const updatedHistory = [...history, { role: 'user', content: message, createdAt: new Date() }, { role: 'model', content: responseText, createdAt: new Date() }];
+    const userHistoryEntry: any = { role: 'user', content: message, createdAt: new Date() };
+    if (processedImages.length > 0) {
+      userHistoryEntry.images = processedImages.map(img => `data:${img.mimeType};base64,${img.base64}`);
+    }
+    const updatedHistory = [...history, userHistoryEntry, { role: 'model', content: responseText, createdAt: new Date() }];
     await writeFile(HISTORY_FILE, JSON.stringify(updatedHistory));
 
     // 4. Memory Compression (Project "Dreamer" process)
@@ -777,6 +840,44 @@ app.post("/api/subagents/:id/abort", async (req, res) => {
   res.json({ aborted: true });
 });
 
+// Review API routes
+app.post("/api/review", async (req, res) => {
+  try {
+    const { diff, config = {} } = req.body;
+    const { aiProvider = "gemini", localUrl, aiModel, apiKey, temperature, maxTokens } = config;
+
+    const result = await analyzeDiff(
+      (prompt) => generateAIContent(prompt, [], aiProvider, localUrl, aiModel, apiKey, temperature, maxTokens),
+      diff
+    );
+
+    return res.json(result);
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/api/review/pending", async (_req, res) => {
+  try {
+    const reviews = getPendingReviews();
+    return res.json({ reviews });
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+app.post("/api/review/:id/accept", (req, res) => {
+  const { commentId } = req.body;
+  const success = acceptComment(req.params.id, commentId);
+  return res.json({ success });
+});
+
+app.post("/api/review/:id/reject", (req, res) => {
+  const { commentId } = req.body;
+  const success = rejectComment(req.params.id, commentId);
+  return res.json({ success });
+});
+
 // Cost tracking API routes
 app.get("/api/costs", async (_req, res) => {
   try {
@@ -847,6 +948,16 @@ async function startServer() {
   await loadAgents();
   await registerPlugins();
   registerBuiltinHooks();
+
+  const mcpConfig = await loadMcpConfig();
+  if (mcpConfig.enabled && mcpConfig.transport === "stdio") {
+    await startMcpStdio();
+    return;
+  }
+
+  if (mcpConfig.enabled && (mcpConfig.transport === "http" || mcpConfig.transport === "sse")) {
+    mountMcpSseRoutes(app, mcpConfig.basePath || "/mcp");
+  }
 
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

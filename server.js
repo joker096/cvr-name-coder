@@ -11,7 +11,22 @@ import { PermissionEngine } from "./src/server/permissions.js";
 import { randomUUID } from "crypto";
 import { AgentLoop } from "./src/server/agentLoop.js";
 import { createPlan } from "./src/server/planner.js";
+import { SubagentManager } from "./src/server/subagentManager.js";
 import { hookRegistry, registerBuiltinHooks } from "./src/server/hooks.js";
+import { loadAgents } from "./src/server/agentLoader.js";
+import { readMemory, writeMemory, readUser, writeUser } from "./src/server/memoryStore.js";
+import { createSession, addMessage, getSession, listSessions, searchSessions, deleteSession, setSessionDbPath } from "./src/server/sessionStore.js";
+import { loadSkills, getSkillById, setSkillsDir } from "./src/server/skillLoader.js";
+import { setSkillCreatorDir } from "./src/server/skillCreator.js";
+import { ingestDocument, searchRAG, listSources, clearSource, setRagDbPath } from "./src/server/ragEngine.js";
+import { loadInstructions, getInstructionsContext, setRulesDir } from "./src/server/instructionLoader.js";
+import { loadCustomTools, setCustomToolsDir } from "./src/server/customToolLoader.js";
+import { registerPlugins, getPlugins, enablePlugin, disablePlugin, setPluginsDir } from "./src/server/pluginManager.js";
+import { cronScheduler } from "./src/server/cronScheduler.js";
+import { getGitStatus, getGitDiff, gitCommit, gitPush, getGitLog } from "./src/server/gitTools.js";
+import { analyzeDiff, getPendingReviews, acceptComment, rejectComment } from "./src/server/codeReview.js";
+import { trackCost, getCosts, resetCosts, estimateTokens } from "./src/server/costTracker.js";
+import { processImages } from "./src/server/imageProcessor.js";
 dotenv.config();
 // Local Storage Path
 const STORAGE_DIR = path.join(process.cwd(), ".opencode-infinite");
@@ -70,6 +85,10 @@ const ai = new GoogleGenAI({
 });
 // Gemini Logic
 async function generateAIContent(prompt, contents = [], provider = "gemini", localUrl, modelName, apiKey, temperature, maxTokens) {
+    const requestText = prompt + " " + contents.map(c => c.parts?.[0]?.text || "").join(" ");
+    let responseText = "";
+    let inputTokens = 0;
+    let outputTokens = 0;
     if ((provider === "local" || provider === "custom" || provider === "openai" || provider === "deepseek" || provider === "grok" || provider === "baseten" || provider === "openrouter" || provider === "together" || provider === "mistral") && (localUrl || apiKey)) {
         try {
             let baseUrl = localUrl;
@@ -91,10 +110,25 @@ async function generateAIContent(prompt, contents = [], provider = "gemini", loc
                 model: modelName || (provider === "openai" ? "gpt-4o" : provider === "deepseek" ? "deepseek-chat" : provider === "grok" ? "grok-beta" : provider === "baseten" ? "llama-3-1-70b-instruct" : provider === "openrouter" ? "meta-llama/llama-3.3-70b-instruct:free" : provider === "together" ? "meta-llama/Llama-3.3-70B-Instruct-Turbo" : provider === "mistral" ? "mistral-large-latest" : "local-model"),
                 messages: [
                     { role: 'system', content: prompt },
-                    ...contents.map(c => ({
-                        role: c.role === 'model' ? 'assistant' : c.role,
-                        content: c.parts[0].text
-                    }))
+                    ...contents.map(c => {
+                        const hasImages = c.parts.some((p) => p.inlineData);
+                        if (hasImages) {
+                            return {
+                                role: c.role === 'model' ? 'assistant' : c.role,
+                                content: c.parts.map((p) => {
+                                    if (p.text)
+                                        return { type: 'text', text: p.text };
+                                    if (p.inlineData)
+                                        return { type: 'image_url', image_url: { url: `data:${p.inlineData.mimeType};base64,${p.inlineData.data}` } };
+                                    return null;
+                                }).filter((x) => x !== null)
+                            };
+                        }
+                        return {
+                            role: c.role === 'model' ? 'assistant' : c.role,
+                            content: c.parts[0].text
+                        };
+                    })
                 ]
             };
             if (temperature !== undefined)
@@ -112,7 +146,17 @@ async function generateAIContent(prompt, contents = [], provider = "gemini", loc
             const data = await response.json();
             if (data.error)
                 throw new Error(data.error.message || "AI Provider Error");
-            return data.choices[0].message.content;
+            responseText = data.choices[0].message.content;
+            if (data.usage) {
+                inputTokens = data.usage.prompt_tokens || 0;
+                outputTokens = data.usage.completion_tokens || 0;
+            }
+            if (!inputTokens)
+                inputTokens = estimateTokens(requestText);
+            if (!outputTokens)
+                outputTokens = estimateTokens(responseText);
+            await trackCost(provider, modelName || body.model, inputTokens, outputTokens);
+            return responseText;
         }
         catch (e) {
             console.error(`${provider} AI Error:`, e);
@@ -132,16 +176,41 @@ async function generateAIContent(prompt, contents = [], provider = "gemini", loc
                     model: modelName || "claude-3-5-sonnet-20240620",
                     max_tokens: 4096,
                     system: prompt,
-                    messages: contents.map(c => ({
-                        role: c.role === 'model' ? 'assistant' : c.role,
-                        content: c.parts[0].text
-                    }))
+                    messages: contents.map(c => {
+                        const hasImages = c.parts.some((p) => p.inlineData);
+                        if (hasImages) {
+                            return {
+                                role: c.role === 'model' ? 'assistant' : c.role,
+                                content: c.parts.map((p) => {
+                                    if (p.text)
+                                        return { type: 'text', text: p.text };
+                                    if (p.inlineData)
+                                        return { type: 'image', source: { type: 'base64', media_type: p.inlineData.mimeType, data: p.inlineData.data } };
+                                    return null;
+                                }).filter((x) => x !== null)
+                            };
+                        }
+                        return {
+                            role: c.role === 'model' ? 'assistant' : c.role,
+                            content: c.parts[0].text
+                        };
+                    })
                 })
             });
             const data = await response.json();
             if (data.error)
                 throw new Error(data.error.message || "Anthropic Error");
-            return data.content[0].text;
+            responseText = data.content[0].text;
+            if (data.usage) {
+                inputTokens = data.usage.input_tokens || 0;
+                outputTokens = data.usage.output_tokens || 0;
+            }
+            if (!inputTokens)
+                inputTokens = estimateTokens(requestText);
+            if (!outputTokens)
+                outputTokens = estimateTokens(responseText);
+            await trackCost(provider, modelName || "claude-3-5-sonnet-20240620", inputTokens, outputTokens);
+            return responseText;
         }
         catch (e) {
             console.error("Anthropic Error:", e);
@@ -156,13 +225,39 @@ async function generateAIContent(prompt, contents = [], provider = "gemini", loc
                 ...contents
             ]
         });
-        return result.text;
+        responseText = result.text || "";
+        inputTokens = estimateTokens(requestText);
+        outputTokens = estimateTokens(responseText);
+        await trackCost(provider, modelName || "gemini-2.0-flash", inputTokens, outputTokens);
+        return responseText;
     }
     catch (error) {
         console.error("Gemini Generation Error:", error);
         throw error;
     }
 }
+async function generateEmbeddings(texts) {
+    try {
+        const result = await ai.models.embedContent({
+            model: "text-embedding-004",
+            contents: texts.map((t) => ({ role: "user", parts: [{ text: t }] })),
+        });
+        // Gemini v1 returns embeddings per content
+        if (Array.isArray(result.embeddings)) {
+            return result.embeddings.map((e) => e.values);
+        }
+        if (result.embeddings && Array.isArray(result.embeddings.values)) {
+            return [result.embeddings.values];
+        }
+        return texts.map(() => []);
+    }
+    catch (e) {
+        console.error("Embedding generation failed:", e);
+        return texts.map(() => []);
+    }
+}
+import { setRagEmbedFn } from "./src/server/tools.js";
+setRagEmbedFn(generateEmbeddings);
 // Memory Engine
 async function summarizeLongHistory(messages, provider = "gemini", localUrl, modelName, apiKey) {
     if (messages.length < 5)
@@ -189,7 +284,7 @@ async function summarizeLongHistory(messages, provider = "gemini", localUrl, mod
 app.post("/api/chat", async (req, res) => {
     try {
         const { message, config = {}, kernelConfig = {}, agent: bodyAgent } = req.body;
-        const { aiProvider = "gemini", localUrl, aiModel, apiKey, temperature, maxTokens, systemPrompt: customSystemPrompt, agent: configAgent } = config;
+        const { aiProvider = "gemini", localUrl, aiModel, apiKey, temperature, maxTokens, systemPrompt: customSystemPrompt, agent: configAgent, maxImageSize } = config;
         const kConfig = kernelConfig.aiProvider ? kernelConfig : config;
         // 1. Read persistent state
         const history = JSON.parse(await readFile(HISTORY_FILE, "utf-8"));
@@ -198,18 +293,49 @@ app.post("/api/chat", async (req, res) => {
         const agent = bodyAgent || configAgent || "build";
         const mode = config.mode || "build";
         const contextParts = memories.slice(-5).map((m) => `[CLUSTER_DATA]: ${m.content}`).join('\n');
-        const systemPrompt = buildSystemPrompt({
+        const systemPrompt = await buildSystemPrompt({
             agent,
             mode,
             contextParts,
             customSystemPrompt: customSystemPrompt && customSystemPrompt.trim() ? customSystemPrompt : undefined,
         });
+        // Process images if provided
+        const { images: rawImages = [] } = req.body;
+        let processedImages = [];
+        if (Array.isArray(rawImages) && rawImages.length > 0) {
+            processedImages = await processImages(rawImages, { maxDimension: maxImageSize || 1024 });
+        }
+        const buildParts = (text, imgs) => {
+            const parts = [{ text }];
+            if (imgs && imgs.length > 0) {
+                for (const img of imgs) {
+                    parts.push({ inlineData: { mimeType: img.mimeType, data: img.base64 } });
+                }
+            }
+            return parts;
+        };
+        const historyContents = history.slice(-10).map((m) => {
+            const parts = [{ text: m.content }];
+            if (m.images && Array.isArray(m.images)) {
+                for (const img of m.images) {
+                    const match = typeof img === 'string' ? img.match(/^data:([^;]+);base64,(.+)$/) : null;
+                    if (match) {
+                        parts.push({ inlineData: { mimeType: match[1], data: match[2] } });
+                    }
+                }
+            }
+            return { role: m.role, parts };
+        });
         const responseText = await generateAIContent(systemPrompt, [
-            ...history.slice(-10).map((m) => ({ role: m.role, parts: [{ text: m.content }] })),
-            { role: 'user', parts: [{ text: message }] }
+            ...historyContents,
+            { role: 'user', parts: buildParts(message, processedImages) }
         ], aiProvider, localUrl, aiModel, apiKey, temperature, maxTokens);
         // 3. Persist
-        const updatedHistory = [...history, { role: 'user', content: message, createdAt: new Date() }, { role: 'model', content: responseText, createdAt: new Date() }];
+        const userHistoryEntry = { role: 'user', content: message, createdAt: new Date() };
+        if (processedImages.length > 0) {
+            userHistoryEntry.images = processedImages.map(img => `data:${img.mimeType};base64,${img.base64}`);
+        }
+        const updatedHistory = [...history, userHistoryEntry, { role: 'model', content: responseText, createdAt: new Date() }];
         await writeFile(HISTORY_FILE, JSON.stringify(updatedHistory));
         // 4. Memory Compression (Project "Dreamer" process)
         if (updatedHistory.length % 5 === 0) {
@@ -244,6 +370,312 @@ app.post("/api/clear", async (_req, res) => {
     await writeFile(HISTORY_FILE, JSON.stringify([]));
     await writeFile(MEMORY_FILE, JSON.stringify([]));
     res.json({ status: "cleared" });
+});
+// Memory API routes
+app.get("/api/memory", async (_req, res) => {
+    try {
+        const data = await readMemory();
+        res.json({ raw: data.raw, sections: data.sections });
+    }
+    catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+app.post("/api/memory", async (req, res) => {
+    try {
+        const { content, section } = req.body;
+        await writeMemory(content, section);
+        res.json({ saved: true });
+    }
+    catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+app.get("/api/user", async (_req, res) => {
+    try {
+        const data = await readUser();
+        res.json({ raw: data.raw, sections: data.sections });
+    }
+    catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+app.post("/api/user", async (req, res) => {
+    try {
+        const { content, section } = req.body;
+        await writeUser(content, section);
+        res.json({ saved: true });
+    }
+    catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+// Session API routes
+app.post("/api/sessions", async (req, res) => {
+    try {
+        const { title } = req.body;
+        const session = createSession(title || "New Session");
+        return res.json(session);
+    }
+    catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
+});
+app.get("/api/sessions", async (_req, res) => {
+    try {
+        const sessions = listSessions();
+        return res.json({ sessions });
+    }
+    catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
+});
+app.get("/api/sessions/:id", async (req, res) => {
+    try {
+        const result = getSession(req.params.id);
+        if (!result)
+            return res.status(404).json({ error: "Session not found" });
+        return res.json(result);
+    }
+    catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
+});
+app.post("/api/sessions/:id/messages", async (req, res) => {
+    try {
+        const { role, content } = req.body;
+        const message = addMessage(req.params.id, role, content);
+        return res.json(message);
+    }
+    catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
+});
+app.get("/api/sessions/search", async (req, res) => {
+    try {
+        const { q, limit } = req.query;
+        const results = searchSessions(String(q || ""), limit ? parseInt(String(limit), 10) : 20);
+        return res.json({ results });
+    }
+    catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
+});
+app.delete("/api/sessions/:id", async (req, res) => {
+    try {
+        deleteSession(req.params.id);
+        return res.json({ deleted: true });
+    }
+    catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
+});
+// Skill API routes
+app.get("/api/skills", async (_req, res) => {
+    try {
+        const skills = await loadSkills();
+        return res.json({ skills: skills.map((s) => ({ id: s.id, name: s.name, description: s.description, triggers: s.triggers })) });
+    }
+    catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
+});
+app.get("/api/skills/:id", async (req, res) => {
+    try {
+        const skill = await getSkillById(req.params.id);
+        if (!skill)
+            return res.status(404).json({ error: "Skill not found" });
+        return res.json({ id: skill.id, name: skill.name, description: skill.description, triggers: skill.triggers, content: skill.content });
+    }
+    catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
+});
+// RAG API routes
+app.post("/api/rag/ingest", async (req, res) => {
+    try {
+        const { source, content } = req.body;
+        await ingestDocument(source || "unknown", content || "", generateEmbeddings);
+        return res.json({ ingested: true });
+    }
+    catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
+});
+app.get("/api/rag/search", async (req, res) => {
+    try {
+        const { q, topK } = req.query;
+        const results = await searchRAG(String(q || ""), generateEmbeddings, topK ? parseInt(String(topK), 10) : 3);
+        return res.json({ results });
+    }
+    catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
+});
+app.get("/api/rag/sources", async (_req, res) => {
+    try {
+        return res.json({ sources: listSources() });
+    }
+    catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
+});
+app.delete("/api/rag/sources/:source", async (req, res) => {
+    try {
+        clearSource(req.params.source);
+        return res.json({ cleared: true });
+    }
+    catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
+});
+// Instruction/Rules API routes
+app.get("/api/rules", async (_req, res) => {
+    try {
+        const instructions = await loadInstructions();
+        return res.json({ rules: instructions.map((r) => ({ name: r.name, priority: r.priority })) });
+    }
+    catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
+});
+app.get("/api/rules/:name", async (req, res) => {
+    try {
+        const instructions = await loadInstructions();
+        const rule = instructions.find((r) => r.name === req.params.name);
+        if (!rule)
+            return res.status(404).json({ error: "Rule not found" });
+        return res.json({ name: rule.name, content: rule.content, priority: rule.priority });
+    }
+    catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
+});
+app.get("/api/rules/context", async (_req, res) => {
+    try {
+        const ctx = await getInstructionsContext();
+        return res.json({ context: ctx });
+    }
+    catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
+});
+// Custom Tools API routes
+app.get("/api/custom-tools", async (_req, res) => {
+    try {
+        const tools = await loadCustomTools();
+        return res.json({ tools: tools.map((t) => ({ id: t.id, name: t.name, description: t.description, readOnly: t.readOnly })) });
+    }
+    catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
+});
+app.get("/api/custom-tools/:id", async (req, res) => {
+    try {
+        const tools = await loadCustomTools();
+        const tool = tools.find((t) => t.id === req.params.id);
+        if (!tool)
+            return res.status(404).json({ error: "Tool not found" });
+        return res.json({ id: tool.id, name: tool.name, description: tool.description, parameters: tool.parameters, readOnly: tool.readOnly });
+    }
+    catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
+});
+// Plugin API routes
+app.get("/api/plugins", async (_req, res) => {
+    try {
+        const plugins = getPlugins();
+        return res.json({ plugins: plugins.map((p) => ({ id: p.manifest.id, name: p.manifest.name, version: p.manifest.version, enabled: p.enabled })) });
+    }
+    catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
+});
+app.post("/api/plugins/:id/enable", (req, res) => {
+    enablePlugin(req.params.id);
+    return res.json({ enabled: true });
+});
+app.post("/api/plugins/:id/disable", (req, res) => {
+    disablePlugin(req.params.id);
+    return res.json({ disabled: true });
+});
+// Cron API routes
+app.get("/api/cron", (_req, res) => {
+    return res.json({ tasks: cronScheduler.getTasks() });
+});
+app.post("/api/cron", (req, res) => {
+    try {
+        const task = cronScheduler.addTask(req.body);
+        return res.json(task);
+    }
+    catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
+});
+app.delete("/api/cron/:id", (req, res) => {
+    cronScheduler.removeTask(req.params.id);
+    return res.json({ removed: true });
+});
+app.post("/api/cron/:id/enable", (req, res) => {
+    cronScheduler.enableTask(req.params.id);
+    return res.json({ enabled: true });
+});
+app.post("/api/cron/:id/disable", (req, res) => {
+    cronScheduler.disableTask(req.params.id);
+    return res.json({ disabled: true });
+});
+// Git API routes
+app.get("/api/git/status", async (_req, res) => {
+    try {
+        const status = await getGitStatus();
+        return res.json(status);
+    }
+    catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
+});
+app.get("/api/git/diff", async (req, res) => {
+    try {
+        const staged = req.query.staged === "true";
+        const diffs = await getGitDiff(staged);
+        return res.json({ diffs });
+    }
+    catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
+});
+app.post("/api/git/commit", async (req, res) => {
+    try {
+        const { message } = req.body;
+        if (!message || typeof message !== "string") {
+            return res.status(400).json({ error: "Commit message is required" });
+        }
+        const result = await gitCommit(message);
+        return res.json(result);
+    }
+    catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
+});
+app.post("/api/git/push", async (_req, res) => {
+    try {
+        const result = await gitPush();
+        return res.json(result);
+    }
+    catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
+});
+app.get("/api/git/log", async (req, res) => {
+    try {
+        const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : 10;
+        const commits = await getGitLog(limit);
+        return res.json({ commits });
+    }
+    catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
 });
 // Tool execution endpoint
 app.post("/api/tools/execute", async (req, res) => {
@@ -324,6 +756,7 @@ app.post("/api/permissions/resolve/:id", (req, res) => {
 });
 // Agent Loop API routes
 const activeLoops = new Map();
+const subagentManager = new SubagentManager();
 app.post("/api/agent/loop", async (req, res) => {
     try {
         const { goal, provider, model } = req.body;
@@ -363,6 +796,75 @@ app.post("/api/agent/plan", async (req, res) => {
     }
     catch (error) {
         res.status(500).json({ error: error.message });
+    }
+});
+// Subagent API routes
+app.post("/api/subagents/spawn", async (req, res) => {
+    try {
+        const { goal, agentConfig, provider, model } = req.body;
+        const task = await subagentManager.spawn(req.body.parentId || "main", goal, agentConfig, (prompt) => generateAIContent(prompt, [], provider, undefined, model));
+        res.json(task);
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+app.get("/api/subagents", (_req, res) => {
+    const tasks = subagentManager.listTasks();
+    res.json({ tasks });
+});
+app.post("/api/subagents/:id/abort", async (req, res) => {
+    await subagentManager.abort(req.params.id);
+    res.json({ aborted: true });
+});
+// Review API routes
+app.post("/api/review", async (req, res) => {
+    try {
+        const { diff, config = {} } = req.body;
+        const { aiProvider = "gemini", localUrl, aiModel, apiKey, temperature, maxTokens } = config;
+        const result = await analyzeDiff((prompt) => generateAIContent(prompt, [], aiProvider, localUrl, aiModel, apiKey, temperature, maxTokens), diff);
+        return res.json(result);
+    }
+    catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
+});
+app.get("/api/review/pending", async (_req, res) => {
+    try {
+        const reviews = getPendingReviews();
+        return res.json({ reviews });
+    }
+    catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
+});
+app.post("/api/review/:id/accept", (req, res) => {
+    const { commentId } = req.body;
+    const success = acceptComment(req.params.id, commentId);
+    return res.json({ success });
+});
+app.post("/api/review/:id/reject", (req, res) => {
+    const { commentId } = req.body;
+    const success = rejectComment(req.params.id, commentId);
+    return res.json({ success });
+});
+// Cost tracking API routes
+app.get("/api/costs", async (_req, res) => {
+    try {
+        const costs = await getCosts();
+        return res.json(costs);
+    }
+    catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
+});
+app.post("/api/costs/reset", async (_req, res) => {
+    try {
+        await resetCosts();
+        return res.json({ reset: true });
+    }
+    catch (e) {
+        return res.status(500).json({ error: e.message });
     }
 });
 // Hook API routes
@@ -405,6 +907,15 @@ app.post("/api/hooks/unregister", (req, res) => {
 });
 async function startServer() {
     await ensureStorage();
+    setSessionDbPath(STORAGE_DIR);
+    setSkillsDir(path.join(process.cwd(), ".cvr", "skills"));
+    setSkillCreatorDir(path.join(process.cwd(), ".cvr", "skills"));
+    setRagDbPath(STORAGE_DIR);
+    setRulesDir(path.join(process.cwd(), ".cvr", "rules"));
+    setCustomToolsDir(path.join(process.cwd(), ".cvr", "tools"));
+    setPluginsDir(path.join(process.cwd(), ".cvr", "plugins"));
+    await loadAgents();
+    await registerPlugins();
     registerBuiltinHooks();
     if (process.env.NODE_ENV !== "production") {
         const vite = await createViteServer({

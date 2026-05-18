@@ -6,7 +6,7 @@ import { hookRegistry } from "./hooks";
 import { maybeCreateSkill } from "./skillCreator";
 
 export type ThinkFunction = (prompt: string) => Promise<string>;
-export type ExecuteToolFunction = (toolCall: ToolCall, mode?: "plan" | "build") => Promise<import("../types/tools").ToolResult>;
+export type ExecuteToolFunction = (toolCall: ToolCall, mode?: "plan" | "build" | "review") => Promise<import("../types/tools").ToolResult>;
 
 export class AgentLoop {
   private state: LoopState;

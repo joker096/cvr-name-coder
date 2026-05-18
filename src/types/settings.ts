@@ -1,4 +1,4 @@
-import type { ProviderId, ModelId, PresetId } from './ai';
+import type { PresetId } from './ai';
 
 // Provider IDs as literal union type
 export type ChatProviderId =
@@ -28,7 +28,9 @@ export interface ChatConfig {
   maxTokens?: number;
   systemPrompt?: string;
   agent?: AgentId;
-  mode?: "plan" | "build";
+  mode?: "plan" | "build" | "review";
+  visionEnabled?: boolean;
+  maxImageSize?: number;
 }
 
 // Preset with branded ID

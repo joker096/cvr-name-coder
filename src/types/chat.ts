@@ -1,11 +1,18 @@
 import type { IconType } from './ai';
+import type { MessageId, MemoryId, SkillId, AgentId } from './ai';
+import type { ReviewComment } from '../server/codeReview';
 
 // Message with branded ID
 export interface Message {
   id: MessageId;
-  role: 'user' | 'model' | 'assistant';
+  role: 'user' | 'model' | 'assistant' | 'review';
   content: string;
+  images?: string[] | undefined;
   timestamp: number;
+  reviewData?: {
+    comments: ReviewComment[];
+    summary: string;
+  };
 }
 
 // Memory with branded ID

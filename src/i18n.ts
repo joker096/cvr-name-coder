@@ -124,6 +124,7 @@ export const TRANSLATIONS = {
     localPresetCustom: "Custom URL",
     planMode: "Plan Mode - strategic planning with blueprint generation",
     buildMode: "Build Mode - direct code execution and modification",
+    reviewMode: "Review Mode - code review and quality analysis",
     undo: "Undo (Ctrl+Z)",
     redo: "Redo (Ctrl+Y)",
     apiKeyServerSide: "API keys are stored server-side in environment variables for security. Configure GEMINI_API_KEY, OPENAI_API_KEY, etc. in your environment or VS Code settings.",

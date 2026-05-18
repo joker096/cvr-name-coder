@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Menu, Settings as SettingsIcon, X, Cpu, Compass, Search, Brain, Zap, Shield, Undo2, Redo2, Lightbulb, Hammer, Loader2, Square } from "lucide-react";
+import { Menu, Settings as SettingsIcon, X, Cpu, Compass, Search, Brain, Zap, Shield, Undo2, Redo2, Lightbulb, Hammer, Loader2, Square, Eye } from "lucide-react";
 import { TRANSLATIONS } from "./i18n";
 import { ChatContainer } from "./components/chat/ChatContainer";
 import { SettingsModal } from "./components/settings/SettingsModal";
@@ -38,20 +38,22 @@ export default function App() {
 
   const { settings, updateChatConfig, toggleAutonomous, updateAutoLoopDelay, toggleAutoCommit, toggleVoiceEnabled, setVoiceLanguage, toggleVoiceAutoSend } = useSettings();
   const { state: agentState, isRunning: isAgentRunning, startLoop, abortLoop } = useAgentLoop();
-  const { messages, isLoading, sendMessage, cancelMessage, addMessage } = useChat(settings.chat);
+  const { messages, isLoading, sendMessage, cancelMessage, addMessage, deleteMessage } = useChat(settings.chat);
   const { memories } = useMemory();
   const { undo, redo, canUndo, canRedo } = useChanges();
   const { pending, approve, deny } = usePermissions();
 
   const handleModeToggle = () => {
-    const newMode = settings.chat.mode === "plan" ? "build" : "plan";
+    const modes: Array<"build" | "plan" | "review"> = ["build", "plan", "review"];
+    const currentIndex = modes.indexOf(settings.chat.mode || "build");
+    const newMode = modes[(currentIndex + 1) % modes.length]!;
     updateChatConfig({ mode: newMode });
   };
 
   const t = TRANSLATIONS[lang] || TRANSLATIONS.en;
 
-  const handleSendMessage = async () => {
-    if (!input.trim()) return;
+  const handleSendMessage = async (images?: string[]) => {
+    if (!input.trim() && (!images || images.length === 0)) return;
 
     // Handle undo/redo commands directly
     const trimmed = input.trim();
@@ -81,8 +83,48 @@ export default function App() {
       setInput("");
       return;
     }
+    if (trimmed.startsWith("/review")) {
+      setInput("");
+      // Show loading indicator
+      const loadingId = crypto.randomUUID();
+      addMessage({
+        id: loadingId,
+        role: "assistant",
+        content: "🔍 Analyzing code changes for review...",
+        timestamp: Date.now(),
+      } as Message);
+      try {
+        const response = await fetch("/api/review", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ config: settings.chat }),
+        });
+        const reviewData = await response.json();
+        // Replace loading message with review result
+        deleteMessage(loadingId);
+        addMessage({
+          id: crypto.randomUUID(),
+          role: "review",
+          content: reviewData.summary || "Code review completed.",
+          timestamp: Date.now(),
+          reviewData: {
+            summary: reviewData.summary || "",
+            comments: reviewData.comments || [],
+          },
+        } as Message);
+      } catch (err: any) {
+        deleteMessage(loadingId);
+        addMessage({
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: `Review failed: ${err.message}`,
+          timestamp: Date.now(),
+        } as Message);
+      }
+      return;
+    }
 
-    const result = await sendMessage(input);
+    const result = await sendMessage(input, images);
     setInput("");
 
     if (result?.continueNeeded && settings.isAutonomous) {
@@ -229,20 +271,32 @@ export default function App() {
               <agentConfig.icon className="w-3 h-3" />
             </span>
           </div>
-          {/* Plan/Build Toggle */}
+          {/* Mode Toggle */}
           <button
             onClick={handleModeToggle}
             className={cn(
               "hidden md:flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono uppercase tracking-wider transition-all border",
               settings.chat.mode === "plan"
                 ? "bg-amber-500/10 border-amber-500/30 text-amber-400"
+                : settings.chat.mode === "review"
+                ? "bg-sky-500/10 border-sky-500/30 text-sky-400"
                 : "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
             )}
-            title={settings.chat.mode === "plan" ? t.planMode || "Plan Mode" : t.buildMode || "Build Mode"}
+            title={
+              settings.chat.mode === "plan"
+                ? t.planMode || "Plan Mode"
+                : settings.chat.mode === "review"
+                ? (t as any).reviewMode || "Review Mode"
+                : t.buildMode || "Build Mode"
+            }
           >
             {settings.chat.mode === "plan" ? (
               <>
                 <Lightbulb className="w-3 h-3" /> PLAN
+              </>
+            ) : settings.chat.mode === "review" ? (
+              <>
+                <Eye className="w-3 h-3" /> REVIEW
               </>
             ) : (
               <>
@@ -335,6 +389,7 @@ export default function App() {
             voiceEnabled={settings.voiceEnabled}
             voiceLanguage={settings.voiceLanguage}
             voiceAutoSend={settings.voiceAutoSend}
+            visionEnabled={settings.chat.visionEnabled ?? true}
           />
         </div>
       </main>

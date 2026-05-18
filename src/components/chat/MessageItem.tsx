@@ -5,11 +5,12 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { cn } from "../../utils/cn";
 import type { Message } from "../../types/chat";
+import { ReviewMessage } from "./ReviewMessage";
 
 interface MessageItemProps {
   message: Message;
   index: number;
-  agentLabel?: string;
+  agentLabel?: string | undefined;
   t: any;
 }
 
@@ -19,6 +20,24 @@ export const MessageItem: React.FC<MessageItemProps> = ({
   agentLabel,
   t,
 }) => {
+  if (message.role === "review") {
+    return (
+      <motion.div
+        key={index}
+        initial={{ opacity: 0, y: 5 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="flex flex-col sm:flex-row gap-0.5 sm:gap-3"
+      >
+        <span className="shrink-0 font-bold uppercase text-[10px] sm:text-[11px] sm:w-14 sm:text-right pt-0.5 text-dash-accent">
+          [REVIEW]
+        </span>
+        <div className="flex-1">
+          <ReviewMessage message={message} />
+        </div>
+      </motion.div>
+    );
+  }
+
   return (
     <motion.div
       key={index}
@@ -97,6 +116,23 @@ export const MessageItem: React.FC<MessageItemProps> = ({
         >
           {message.content}
         </ReactMarkdown>
+        {message.images && message.images.length > 0 && (
+          <div className="flex flex-wrap gap-2 mt-2">
+            {message.images.map((img, i) => (
+              <div
+                key={`${img.slice(-20)}-${i}`}
+                className="w-20 h-20 rounded-md overflow-hidden border border-dash-border bg-dash-bg"
+              >
+                <img
+                  src={img}
+                  alt={`Message image ${i + 1}`}
+                  className="w-full h-full object-cover"
+                  loading="lazy"
+                />
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </motion.div>
   );

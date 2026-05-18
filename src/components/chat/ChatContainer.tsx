@@ -7,19 +7,20 @@ interface ChatContainerProps {
   messages: Message[];
   input: string;
   onInputChange: (value: string) => void;
-  onSendMessage: () => void;
-  onCancelMessage?: () => void;
+  onSendMessage: (images?: string[]) => void;
+  onCancelMessage?: (() => void) | undefined;
   isLooming?: boolean;
-  agentLabel?: string;
+  agentLabel?: string | undefined;
   t: any;
   lang?: string;
-  loadingText?: string;
+  loadingText?: string | undefined;
   placeholder?: string;
   disabled?: boolean;
   className?: string;
-  voiceEnabled?: boolean;
-  voiceLanguage?: string;
-  voiceAutoSend?: boolean;
+  voiceEnabled?: boolean | undefined;
+  voiceLanguage?: string | undefined;
+  voiceAutoSend?: boolean | undefined;
+  visionEnabled?: boolean | undefined;
 }
 
 export const ChatContainer: React.FC<ChatContainerProps> = ({
@@ -39,6 +40,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   voiceEnabled,
   voiceLanguage,
   voiceAutoSend,
+  visionEnabled,
 }) => {
   return (
     <div className={cn("flex flex-col h-full", className)}>
@@ -62,6 +64,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
           voiceEnabled={voiceEnabled}
           voiceLanguage={voiceLanguage}
           voiceAutoSend={voiceAutoSend}
+          visionEnabled={visionEnabled}
         />
       </div>
     </div>
