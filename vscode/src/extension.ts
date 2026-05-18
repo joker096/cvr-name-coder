@@ -22,6 +22,10 @@ import { loadSkills, getSkillById, setSkillsDir } from '../../src/server/skillLo
 import { setSkillCreatorDir } from '../../src/server/skillCreator.js';
 import { ingestDocument, searchRAG, listSources, clearSource, setRagDbPath } from '../../src/server/ragEngine.js';
 import { setRagEmbedFn } from '../../src/server/tools.js';
+import { loadInstructions, getInstructionsContext, setRulesDir } from '../../src/server/instructionLoader.js';
+import { loadCustomTools, setCustomToolsDir } from '../../src/server/customToolLoader.js';
+import { loadPlugins, registerPlugins, getPlugins, enablePlugin, disablePlugin, setPluginsDir } from '../../src/server/pluginManager.js';
+import { cronScheduler } from '../../src/server/cronScheduler.js';
 
 const $fetch = (globalThis as any).fetch as (url: string, init?: any) => Promise<{ json(): Promise<any>; status: number }>;
 
@@ -296,6 +300,9 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
   setSkillsDir(path.join(storagePath, 'skills'));
   setSkillCreatorDir(path.join(storagePath, 'skills'));
   setRagDbPath(storagePath);
+  setRulesDir(path.join(storagePath, 'rules'));
+  setCustomToolsDir(path.join(storagePath, 'tools'));
+  setPluginsDir(path.join(storagePath, 'plugins'));
 
   // Initialize Permission Engine
   let permissionEngine: PermissionEngine | undefined;
@@ -1220,6 +1227,106 @@ Complete the code at the cursor position:`;
     }
   });
 
+  // Instruction/Rules API routes
+  app.get('/api/rules', async (_req: any, res: any) => {
+    try {
+      const instructions = await loadInstructions();
+      res.json({ rules: instructions.map((r: any) => ({ name: r.name, priority: r.priority })) });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get('/api/rules/:name', async (req: any, res: any) => {
+    try {
+      const instructions = await loadInstructions();
+      const rule = instructions.find((r: any) => r.name === req.params.name);
+      if (!rule) return res.status(404).json({ error: 'Rule not found' });
+      res.json({ name: rule.name, content: rule.content, priority: rule.priority });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get('/api/rules/context', async (_req: any, res: any) => {
+    try {
+      const ctx = await getInstructionsContext();
+      res.json({ context: ctx });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Custom Tools API routes
+  app.get('/api/custom-tools', async (_req: any, res: any) => {
+    try {
+      const tools = await loadCustomTools();
+      res.json({ tools: tools.map((t: any) => ({ id: t.id, name: t.name, description: t.description, readOnly: t.readOnly })) });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get('/api/custom-tools/:id', async (req: any, res: any) => {
+    try {
+      const tools = await loadCustomTools();
+      const tool = tools.find((t: any) => t.id === req.params.id);
+      if (!tool) return res.status(404).json({ error: 'Tool not found' });
+      res.json({ id: tool.id, name: tool.name, description: tool.description, parameters: tool.parameters, readOnly: tool.readOnly });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Plugin API routes
+  app.get('/api/plugins', async (_req: any, res: any) => {
+    try {
+      const plugins = getPlugins();
+      res.json({ plugins: plugins.map((p: any) => ({ id: p.manifest.id, name: p.manifest.name, version: p.manifest.version, enabled: p.enabled })) });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post('/api/plugins/:id/enable', (req: any, res: any) => {
+    enablePlugin(req.params.id);
+    res.json({ enabled: true });
+  });
+
+  app.post('/api/plugins/:id/disable', (req: any, res: any) => {
+    disablePlugin(req.params.id);
+    res.json({ disabled: true });
+  });
+
+  // Cron API routes
+  app.get('/api/cron', (_req: any, res: any) => {
+    res.json({ tasks: cronScheduler.getTasks() });
+  });
+
+  app.post('/api/cron', (req: any, res: any) => {
+    try {
+      const task = cronScheduler.addTask(req.body);
+      res.json(task);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.delete('/api/cron/:id', (req: any, res: any) => {
+    cronScheduler.removeTask(req.params.id);
+    res.json({ removed: true });
+  });
+
+  app.post('/api/cron/:id/enable', (req: any, res: any) => {
+    cronScheduler.enableTask(req.params.id);
+    res.json({ enabled: true });
+  });
+
+  app.post('/api/cron/:id/disable', (req: any, res: any) => {
+    cronScheduler.disableTask(req.params.id);
+    res.json({ disabled: true });
+  });
+
   const appDir = path.join(getServerDir(context), 'app');
   app.use(express.static(appDir));
   app.get('*', (_req: any, res: any) => {
@@ -1274,6 +1381,7 @@ export async function activate(context: vscode.ExtensionContext) {
     setAgentsDir(path.join(workspaceRoot, '.cvr', 'agents'));
   }
   await loadAgents();
+  await registerPlugins();
 
   // Status bar
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);

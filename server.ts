@@ -20,6 +20,10 @@ import { createSession, addMessage, getSession, listSessions, searchSessions, de
 import { loadSkills, getSkillById, setSkillsDir } from "./src/server/skillLoader.js";
 import { setSkillCreatorDir } from "./src/server/skillCreator.js";
 import { ingestDocument, searchRAG, listSources, clearSource, setRagDbPath } from "./src/server/ragEngine.js";
+import { loadInstructions, getInstructionsContext, setRulesDir } from "./src/server/instructionLoader.js";
+import { loadCustomTools, setCustomToolsDir } from "./src/server/customToolLoader.js";
+import { registerPlugins, getPlugins, enablePlugin, disablePlugin, setPluginsDir } from "./src/server/pluginManager.js";
+import { cronScheduler } from "./src/server/cronScheduler.js";
 
 dotenv.config();
 
@@ -429,6 +433,106 @@ app.delete("/api/rag/sources/:source", async (req, res) => {
   }
 });
 
+// Instruction/Rules API routes
+app.get("/api/rules", async (_req, res) => {
+  try {
+    const instructions = await loadInstructions();
+    return res.json({ rules: instructions.map((r) => ({ name: r.name, priority: r.priority })) });
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/api/rules/:name", async (req, res) => {
+  try {
+    const instructions = await loadInstructions();
+    const rule = instructions.find((r) => r.name === req.params.name);
+    if (!rule) return res.status(404).json({ error: "Rule not found" });
+    return res.json({ name: rule.name, content: rule.content, priority: rule.priority });
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/api/rules/context", async (_req, res) => {
+  try {
+    const ctx = await getInstructionsContext();
+    return res.json({ context: ctx });
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// Custom Tools API routes
+app.get("/api/custom-tools", async (_req, res) => {
+  try {
+    const tools = await loadCustomTools();
+    return res.json({ tools: tools.map((t) => ({ id: t.id, name: t.name, description: t.description, readOnly: t.readOnly })) });
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/api/custom-tools/:id", async (req, res) => {
+  try {
+    const tools = await loadCustomTools();
+    const tool = tools.find((t) => t.id === req.params.id);
+    if (!tool) return res.status(404).json({ error: "Tool not found" });
+    return res.json({ id: tool.id, name: tool.name, description: tool.description, parameters: tool.parameters, readOnly: tool.readOnly });
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// Plugin API routes
+app.get("/api/plugins", async (_req, res) => {
+  try {
+    const plugins = getPlugins();
+    return res.json({ plugins: plugins.map((p) => ({ id: p.manifest.id, name: p.manifest.name, version: p.manifest.version, enabled: p.enabled })) });
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+app.post("/api/plugins/:id/enable", (req, res) => {
+  enablePlugin(req.params.id);
+  return res.json({ enabled: true });
+});
+
+app.post("/api/plugins/:id/disable", (req, res) => {
+  disablePlugin(req.params.id);
+  return res.json({ disabled: true });
+});
+
+// Cron API routes
+app.get("/api/cron", (_req, res) => {
+  return res.json({ tasks: cronScheduler.getTasks() });
+});
+
+app.post("/api/cron", (req, res) => {
+  try {
+    const task = cronScheduler.addTask(req.body);
+    return res.json(task);
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete("/api/cron/:id", (req, res) => {
+  cronScheduler.removeTask(req.params.id);
+  return res.json({ removed: true });
+});
+
+app.post("/api/cron/:id/enable", (req, res) => {
+  cronScheduler.enableTask(req.params.id);
+  return res.json({ enabled: true });
+});
+
+app.post("/api/cron/:id/disable", (req, res) => {
+  cronScheduler.disableTask(req.params.id);
+  return res.json({ disabled: true });
+});
+
 // Tool execution endpoint
 app.post("/api/tools/execute", async (req, res) => {
   try {
@@ -639,7 +743,11 @@ async function startServer() {
   setSkillsDir(path.join(process.cwd(), ".cvr", "skills"));
   setSkillCreatorDir(path.join(process.cwd(), ".cvr", "skills"));
   setRagDbPath(STORAGE_DIR);
+  setRulesDir(path.join(process.cwd(), ".cvr", "rules"));
+  setCustomToolsDir(path.join(process.cwd(), ".cvr", "tools"));
+  setPluginsDir(path.join(process.cwd(), ".cvr", "plugins"));
   await loadAgents();
+  await registerPlugins();
   registerBuiltinHooks();
 
   if (process.env.NODE_ENV !== "production") {

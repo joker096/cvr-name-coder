@@ -2,7 +2,7 @@ import { readFile, readdir, writeFile, mkdir } from "fs/promises";
 import * as path from "path";
 import { exec } from "child_process";
 import { promisify } from "util";
-import type { ToolCall, ToolResult } from "../types/tools";
+import type { ToolResult } from "../types/tools";
 import { READ_ONLY_TOOLS } from "../types/tools";
 import { PermissionEngine } from "./permissions.js";
 import type { PermissionRequest } from "../types/permissions.js";
@@ -11,6 +11,7 @@ import { readMemory, writeMemory, readUser, writeUser } from "./memoryStore.js";
 import { loadSkills, getSkillById } from "./skillLoader.js";
 import { searchRAG } from "./ragEngine.js";
 import type { EmbedFunction } from "./ragEngine.js";
+import { loadCustomTools, executeCustomTool } from "./customToolLoader.js";
 
 const execAsync = promisify(exec);
 
@@ -57,7 +58,7 @@ async function searchDir(dir: string, query: string): Promise<string[]> {
 }
 
 export async function executeTool(
-  toolCall: ToolCall,
+  toolCall: { name: string; params: Record<string, unknown> },
   mode: "plan" | "build" = "build",
   permissionEngine?: PermissionEngine,
   sessionId: string = "default"
@@ -69,7 +70,14 @@ export async function executeTool(
   let result: ToolResult;
 
   // Plan mode blocks write tools
-  if (mode === "plan" && !READ_ONLY_TOOLS.has(name)) {
+  const isReadOnlyBuiltIn = READ_ONLY_TOOLS.has(name as import("../types/tools").ToolName);
+  let isReadOnlyCustom = false;
+  if (!isReadOnlyBuiltIn) {
+    const customTools = await loadCustomTools();
+    const customTool = customTools.find((t) => t.id === name);
+    isReadOnlyCustom = customTool ? customTool.readOnly : false;
+  }
+  if (mode === "plan" && !isReadOnlyBuiltIn && !isReadOnlyCustom) {
     result = {
       success: false,
       output: "",
@@ -264,8 +272,17 @@ export async function executeTool(
         break;
       }
 
-      default:
-        result = { success: false, output: "", error: `Unknown tool: ${name}` };
+      default: {
+        // Check custom tools
+        const customTools = await loadCustomTools();
+        const customTool = customTools.find((t) => t.id === name);
+        if (customTool) {
+          result = executeCustomTool(customTool, params);
+        } else {
+          result = { success: false, output: "", error: `Unknown tool: ${name}` };
+        }
+        break;
+      }
     }
   } catch (err: any) {
     result = { success: false, output: "", error: err.message };

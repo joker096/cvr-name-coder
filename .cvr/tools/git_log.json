@@ -1,0 +1,13 @@
+{
+  "id": "git_log",
+  "name": "git_log",
+  "description": "Show recent git commits",
+  "parameters": [
+    { "name": "count", "type": "number", "description": "Number of commits to show", "required": false, "default": 10 }
+  ],
+  "handler": {
+    "type": "command",
+    "template": "git log --oneline -{count}"
+  },
+  "readOnly": true
+}
