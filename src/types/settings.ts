@@ -8,8 +8,14 @@ export type ChatProviderId =
   | 'deepseek'
   | 'grok'
   | 'groq'
+  | 'baseten'
+  | 'openrouter'
+  | 'together'
+  | 'mistral'
   | 'local'
   | 'custom';
+
+export type AgentId = 'build' | 'general' | 'explore' | 'scout' | 'prometheus' | 'hephaestus';
 
 // Chat config with proper types
 export interface ChatConfig {
@@ -17,9 +23,12 @@ export interface ChatConfig {
   aiModel: string;
   localUrl?: string;
   localModelName?: string;
-  customKey?: string;
   customUrl?: string;
-  apiKey?: string;
+  temperature?: number;
+  maxTokens?: number;
+  systemPrompt?: string;
+  agent?: AgentId;
+  mode?: "plan" | "build";
 }
 
 // Preset with branded ID
