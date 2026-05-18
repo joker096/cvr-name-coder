@@ -33,30 +33,30 @@ export const InputArea: React.FC<InputAreaProps> = ({
   };
 
   return (
-    <div className={cn("flex items-end gap-2", className)}>
+    <div className={cn("flex items-end gap-1.5", className)}>
       <textarea
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
         disabled={disabled}
-        className="flex-1 bg-transparent border-none focus:ring-0 text-[16px] font-mono p-1 min-h-[34px] max-h-24 resize-none no-scrollbar text-dash-text-primary placeholder:text-dash-text-label disabled:opacity-50"
+        className="flex-1 bg-transparent border-none focus:ring-0 text-[15px] font-mono p-1 min-h-[32px] max-h-24 resize-none no-scrollbar text-dash-text-primary placeholder:text-dash-text-label disabled:opacity-50"
       />
       {isLooming ? (
         <button
           onClick={onCancel}
-          className="p-1.5 bg-dash-warning/20 hover:bg-dash-warning/30 border border-dash-warning/30 rounded-md transition-all mb-0.5 mr-0.5"
+          className="p-1 bg-dash-warning/20 hover:bg-dash-warning/30 border border-dash-warning/30 rounded-md transition-all"
           title={lang === "ru" ? "Отменить" : "Cancel"}
         >
-          <X className="w-3.5 h-3.5 text-dash-warning" />
+          <X className="w-3 h-3 text-dash-warning" />
         </button>
       ) : (
         <button
           onClick={onSend}
           disabled={!value.trim() || disabled}
-          className="p-1.5 bg-dash-accent hover:bg-dash-accent/80 disabled:bg-neutral-800 disabled:text-neutral-700 rounded-md transition-all mb-0.5 mr-0.5"
+          className="p-1 bg-dash-accent hover:bg-dash-accent/80 disabled:bg-neutral-800 disabled:text-neutral-700 rounded-md transition-all"
         >
-          <CornerDownLeft className="w-3.5 h-3.5 text-white" />
+          <CornerDownLeft className="w-3 h-3 text-white" />
         </button>
       )}
     </div>

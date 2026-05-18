@@ -1,31 +1,77 @@
+import type { IconType } from './ai';
+
+// Message with branded ID
 export interface Message {
-  id: string;
+  id: MessageId;
   role: 'user' | 'model' | 'assistant';
   content: string;
   timestamp: number;
 }
 
+// Memory with branded ID
 export interface Memory {
-  id: string;
+  id: MemoryId;
   content: string;
   timestamp: number;
 }
 
+// Skill with branded ID and proper icon type
 export interface Skill {
-  id: string;
+  id: SkillId;
   name: string;
   description: string;
-  icon: any;
+  icon: IconType;
   status: 'learned' | 'available';
   category: 'research' | 'devops' | 'content' | 'knowledge';
 }
 
+// Agent with branded ID and proper icon type
 export interface Agent {
-  id: string;
+  id: AgentId;
   label: string;
   role: string;
-  icon: any;
+  icon: IconType;
   color: string;
   tools: string;
   autonomy: string;
 }
+
+// Chat state as discriminated union
+export type ChatStateIdle = {
+  status: 'idle';
+};
+
+export type ChatStateLoading = {
+  status: 'loading';
+  provider: string;
+};
+
+export type ChatStateStreaming = {
+  status: 'streaming';
+  provider: string;
+  content: string;
+};
+
+export type ChatStateError = {
+  status: 'error';
+  error: string;
+};
+
+export type ChatState = ChatStateIdle | ChatStateLoading | ChatStateStreaming | ChatStateError;
+
+// Type guards for chat state
+export const isIdleState = (state: ChatState): state is ChatStateIdle => {
+  return state.status === 'idle';
+};
+
+export const isLoadingState = (state: ChatState): state is ChatStateLoading => {
+  return state.status === 'loading';
+};
+
+export const isStreamingState = (state: ChatState): state is ChatStateStreaming => {
+  return state.status === 'streaming';
+};
+
+export const isErrorState = (state: ChatState): state is ChatStateError => {
+  return state.status === 'error';
+};

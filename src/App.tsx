@@ -14,9 +14,10 @@ export default function App() {
   const [showSidebar, setShowSidebar] = useState(false);
   const [sidebarTab, setSidebarTab] = useState<"memory" | "skills">("memory");
   const [input, setInput] = useState("");
-  const [lang] = useState<"en" | "ru">(() => {
+  const [lang, setLang] = useState<"en" | "ru" | "es" | "zh" | "de" | "fr" | "pt" | "it" | "ja" | "ko" | "ar" | "tr" | "pl" | "uk" | "vi" | "hi">(() => {
     const saved = localStorage.getItem("cvr_lang");
-    return (saved === "en" || saved === "ru") ? saved : "ru";
+    const validLangs = ["en", "ru", "es", "zh", "de", "fr", "pt", "it", "ja", "ko", "ar", "tr", "pl", "uk", "vi", "hi"];
+    return validLangs.includes(saved || "") ? (saved as any) : "en";
   });
 
   const { settings, updateChatConfig } = useSettings();
@@ -41,6 +42,11 @@ export default function App() {
 
   const handleSaveSettings = (chatConfig: any) => {
     updateChatConfig(chatConfig);
+  };
+
+  const handleLanguageChange = (newLang: string) => {
+    setLang(newLang as any);
+    localStorage.setItem("cvr_lang", newLang);
   };
 
   const handleLearnSkill = (skillId: string) => {
@@ -95,30 +101,27 @@ export default function App() {
               <X className="w-3.5 h-3.5" />
             </button>
           )}
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1">
             <div className="flex items-center gap-1 cursor-default select-none">
               <span className="w-1.5 h-1.5 rounded-full bg-dash-success animate-pulse" aria-hidden="true" />
-              <span className="text-[10px] font-mono text-dash-text-muted uppercase tracking-wider">
+              <span className="text-[11px] font-mono text-dash-text-muted uppercase tracking-wider">
                 cvr
               </span>
             </div>
-             <span className="text-dash-text-label text-[8px] font-mono hidden sm:inline">
-               v1.3.0
-             </span>
           </div>
         </div>
-        <div className="flex items-center gap-2 md:gap-4">
-          <div className="hidden lg:flex items-center gap-3 text-[11px] font-mono text-dash-text-muted">
+        <div className="flex items-center gap-2 md:gap-3">
+          <div className="hidden lg:flex items-center gap-2 text-[11px] font-mono text-dash-text-muted">
             <span className="flex items-center gap-1 opacity-70">
-              <span className="w-2.5 h-2.5 bg-dash-success rounded-full" aria-hidden="true" /> {t.engineStable}
+              <span className="w-2 h-2 bg-dash-success rounded-full" aria-hidden="true" /> {t.engineStable}
             </span>
             <span className="flex items-center gap-1 opacity-70">
-              <span className="w-2.5 h-2.5 bg-dash-accent rounded-full" aria-hidden="true" /> {memories.length} BLOCKS
+              <span className="w-2 h-2 bg-dash-accent rounded-full" aria-hidden="true" /> {memories.length}
             </span>
           </div>
           <button
             onClick={() => setShowSettings(true)}
-            className="p-1.5 hover:bg-neutral-800 rounded transition-colors text-dash-text-muted"
+            className="p-1 hover:bg-neutral-800 rounded transition-colors text-dash-text-muted"
           >
             <SettingsIcon className="w-3.5 h-3.5" />
           </button>
@@ -168,6 +171,7 @@ export default function App() {
         onPresetSave={(preset) => console.log("Save preset:", preset)}
         onPresetApply={(preset) => console.log("Apply preset:", preset)}
         onPresetDelete={(id) => console.log("Delete preset:", id)}
+        onLanguageChange={handleLanguageChange}
         t={t}
         lang={lang}
       />

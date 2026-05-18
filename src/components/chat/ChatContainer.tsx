@@ -43,7 +43,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         isLooming={isLooming}
         loadingText={loadingText}
       />
-      <div className="border-t border-dash-border p-2 bg-dash-bg">
+      <div className="border-t border-dash-border p-1.5 bg-dash-bg">
         <InputArea
           value={input}
           onChange={onInputChange}

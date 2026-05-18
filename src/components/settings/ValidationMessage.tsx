@@ -4,6 +4,33 @@ import { cn } from "../../utils/cn";
 
 export type ValidationMessageType = "error" | "warning" | "success" | "info";
 
+// Discriminated union for validation message styles
+type ValidationStyleError = {
+  type: "error";
+  container: string;
+  icon: typeof AlertCircle;
+};
+
+type ValidationStyleWarning = {
+  type: "warning";
+  container: string;
+  icon: typeof AlertTriangle;
+};
+
+type ValidationStyleSuccess = {
+  type: "success";
+  container: string;
+  icon: typeof CheckCircle;
+};
+
+type ValidationStyleInfo = {
+  type: "info";
+  container: string;
+  icon: typeof AlertCircle;
+};
+
+type ValidationStyle = ValidationStyleError | ValidationStyleWarning | ValidationStyleSuccess | ValidationStyleInfo;
+
 interface ValidationMessageProps {
   type: ValidationMessageType;
   message: string;
@@ -11,20 +38,24 @@ interface ValidationMessageProps {
   className?: string;
 }
 
-const typeStyles = {
+const validationStyles: Record<ValidationMessageType, ValidationStyle> = {
   error: {
+    type: "error",
     container: "bg-dash-error/10 border-dash-error/30 text-dash-error",
     icon: AlertCircle,
   },
   warning: {
+    type: "warning",
     container: "bg-dash-warning/10 border-dash-warning/30 text-dash-warning",
     icon: AlertTriangle,
   },
   success: {
+    type: "success",
     container: "bg-dash-success/10 border-dash-success/30 text-dash-success",
     icon: CheckCircle,
   },
   info: {
+    type: "info",
     container: "bg-dash-accent/10 border-dash-accent/30 text-dash-accent",
     icon: AlertCircle,
   },
@@ -36,7 +67,7 @@ export const ValidationMessage: React.FC<ValidationMessageProps> = ({
   onDismiss,
   className,
 }) => {
-  const style = typeStyles[type];
+  const style = validationStyles[type];
   const Icon = style.icon;
 
   return (

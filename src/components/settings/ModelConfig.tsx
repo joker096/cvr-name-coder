@@ -1,15 +1,19 @@
 import React from "react";
 import { cn } from "../../utils/cn";
+import type { ChatProviderId } from "../../types/settings";
 
 export interface ModelConfig {
+  aiModel?: string;
   apiKey?: string;
   baseUrl?: string;
   localUrl?: string;
   localModelName?: string;
+  customKey?: string;
+  customUrl?: string;
 }
 
 interface ModelConfigProps {
-  provider: string;
+  provider: ChatProviderId;
   config: ModelConfig;
   onChange: (config: Partial<ModelConfig>) => void;
   t: any;
@@ -29,114 +33,101 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
     provider === "deepseek" ||
     provider === "grok" ||
     provider === "groq" ||
-    provider === "custom";
+    provider === "gemini";
 
-  const requiresBaseUrl =
-    provider === "custom" ||
-    provider === "deepseek" ||
-    provider === "grok" ||
-    provider === "groq";
+  const requiresLocalUrl = provider === "local";
 
-  const requiresLocalConfig = provider === "local";
-
-  const handleSetOfficialUrl = (url: string) => {
-    onChange({ baseUrl: url });
-  };
+  const requiresCustomConfig = provider === "custom";
 
   return (
-    <div className={cn("space-y-3 pt-2", className)}>
+    <div className={cn("space-y-4", className)}>
       {requiresApiKey && (
-        <div className="space-y-2">
-          <label className="text-[13px] uppercase font-bold text-dash-text-muted tracking-widest">
-            {t.customApiKey || "API Key"}
+        <div>
+          <label className="block text-sm font-medium text-dash-text-primary mb-2">
+            {t.apiKey || "API Key"}
           </label>
           <input
             type="password"
             value={config.apiKey || ""}
             onChange={(e) => onChange({ apiKey: e.target.value })}
-            className="w-full bg-dash-bg border border-dash-border rounded px-3 py-2 text-base font-mono text-dash-text-primary focus:border-dash-accent outline-none"
-            placeholder="sk-..."
+            className="w-full px-3 py-2 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent"
+            placeholder={t.enterApiKey || "Enter your API key"}
           />
         </div>
       )}
 
-      {requiresBaseUrl && (
-        <div className="space-y-2">
-          <label className="text-[14px] uppercase font-bold text-dash-text-muted tracking-widest">
-            {provider === "custom" ? (t.customBaseUrl || "Base URL") : (t.localUrl || "Local URL")}
-          </label>
-          <div className="flex gap-1 mb-1">
-            {provider === "deepseek" && (
-              <button
-                onClick={() => handleSetOfficialUrl("https://api.deepseek.com")}
-                className="text-[12px] text-dash-accent underline font-mono"
-              >
-                OFFICIAL
-              </button>
-            )}
-            {provider === "grok" && (
-              <button
-                onClick={() => handleSetOfficialUrl("https://api.x.ai/v1")}
-                className="text-[12px] text-dash-accent underline font-mono"
-              >
-                OFFICIAL
-              </button>
-            )}
-            {provider === "groq" && (
-              <button
-                onClick={() => handleSetOfficialUrl("https://api.groq.com/openai/v1")}
-                className="text-[12px] text-dash-accent underline font-mono"
-              >
-                OFFICIAL
-              </button>
-            )}
-          </div>
-          <input
-            type="text"
-            value={config.baseUrl || ""}
-            onChange={(e) => onChange({ baseUrl: e.target.value })}
-            className="w-full bg-dash-bg border border-dash-border rounded px-3 py-2 text-base font-mono text-dash-text-primary focus:border-dash-accent outline-none"
-            placeholder={
-              provider === "groq"
-                ? "https://api.groq.com/openai/v1"
-                : provider === "deepseek"
-                ? "https://api.deepseek.com"
-                : provider === "grok"
-                ? "https://api.x.ai/v1"
-                : "https://api.example.com"
-            }
-          />
-        </div>
-      )}
-
-      {requiresLocalConfig && (
+      {requiresLocalUrl && (
         <>
-          <div className="space-y-2">
-            <label className="text-[14px] uppercase font-bold text-dash-text-muted tracking-widest">
+          <div>
+            <label className="block text-sm font-medium text-dash-text-primary mb-2">
               {t.localUrl || "Local URL"}
             </label>
             <input
               type="text"
               value={config.localUrl || ""}
               onChange={(e) => onChange({ localUrl: e.target.value })}
-              className="w-full bg-dash-bg border border-dash-border rounded px-3 py-2 text-base font-mono text-dash-text-primary focus:border-dash-accent outline-none"
+              className="w-full px-3 py-2 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent"
               placeholder="http://localhost:11434"
             />
           </div>
-          <div className="space-y-2">
-            <label className="text-[14px] uppercase font-bold text-dash-text-muted tracking-widest">
-              {t.localModelName || "Model Name"}
+
+          <div>
+            <label className="block text-sm font-medium text-dash-text-primary mb-2">
+              {t.modelName || "Model Name"}
             </label>
             <input
               type="text"
               value={config.localModelName || ""}
               onChange={(e) => onChange({ localModelName: e.target.value })}
-              className="w-full bg-dash-bg border border-dash-border rounded px-3 py-2 text-base font-mono text-dash-text-primary focus:border-dash-accent outline-none"
-              placeholder="llama2-7b"
+              className="w-full px-3 py-2 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent"
+              placeholder="llama3"
             />
           </div>
         </>
       )}
+
+      {requiresCustomConfig && (
+        <>
+          <div>
+            <label className="block text-sm font-medium text-dash-text-primary mb-2">
+              {t.customUrl || "Custom URL"}
+            </label>
+            <input
+              type="text"
+              value={config.customUrl || ""}
+              onChange={(e) => onChange({ customUrl: e.target.value })}
+              className="w-full px-3 py-2 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent"
+              placeholder="https://api.example.com"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-dash-text-primary mb-2">
+              {t.customKey || "Custom Key"}
+            </label>
+            <input
+              type="password"
+              value={config.customKey || ""}
+              onChange={(e) => onChange({ customKey: e.target.value })}
+              className="w-full px-3 py-2 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent"
+              placeholder={t.enterCustomKey || "Enter your custom key"}
+            />
+          </div>
+        </>
+      )}
+
+      <div>
+        <label className="block text-sm font-medium text-dash-text-primary mb-2">
+          {t.modelName || "Model Name"}
+        </label>
+        <input
+          type="text"
+          value={config.aiModel || ""}
+          onChange={(e) => onChange({ aiModel: e.target.value })}
+          className="w-full px-3 py-2 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent"
+          placeholder={t.enterModelName || "Enter model name"}
+        />
+      </div>
     </div>
   );
 };

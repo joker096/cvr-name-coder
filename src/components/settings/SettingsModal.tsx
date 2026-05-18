@@ -5,20 +5,17 @@ import { cn } from "../../utils/cn";
 import { SettingsTabs, type SettingsTab } from "./SettingsTabs";
 import { ProviderSelector, type Provider } from "./ProviderSelector";
 import { ModelConfig, type ModelConfig as ModelConfigType } from "./ModelConfig";
-import { PresetManager } from "./PresetManager";
-import { ValidationMessage } from "./ValidationMessage";
+import { LanguageSelector } from "./LanguageSelector";
 import type { ChatConfig, Preset } from "../../types/settings";
+import { toChatProviderId } from "../../types/ai";
 
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   config: ChatConfig;
   kernelConfig: ChatConfig;
-  presets: Preset[];
   onSave: (config: ChatConfig, kernelConfig: ChatConfig) => void;
-  onPresetSave: (preset: Omit<Preset, "id" | "createdAt">) => void;
-  onPresetApply: (preset: Preset) => void;
-  onPresetDelete: (id: string) => void;
+  onLanguageChange?: (lang: string) => void;
   t: any;
   lang?: string;
   className?: string;
@@ -29,18 +26,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onClose,
   config,
   kernelConfig,
-  presets,
   onSave,
-  onPresetSave,
-  onPresetApply,
-  onPresetDelete,
+  onLanguageChange,
   t,
+  lang = "en",
   className,
 }) => {
   const [activeTab, setActiveTab] = useState<SettingsTab>("chat");
   const [localConfig, setLocalConfig] = useState<ChatConfig>(config);
   const [localKernelConfig, setLocalKernelConfig] = useState<ChatConfig>(kernelConfig);
-  const [validationErrors] = useState<Record<string, string>>({});
 
   const currentConfig = activeTab === "chat" ? localConfig : localKernelConfig;
   const setCurrentConfig = activeTab === "chat" ? setLocalConfig : setLocalKernelConfig;
@@ -53,7 +47,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const handleProviderChange = (providerId: string) => {
     setCurrentConfig((prev) => ({
       ...prev,
-      aiProvider: providerId as any,
+      aiProvider: providerId as ChatConfig["aiProvider"],
     }));
   };
 
@@ -65,14 +59,54 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const providers: Provider[] = [
-    { id: "gemini", icon: () => <span className="text-2xl">⚙️</span>, label: t.cloudGemini || "Google Gemini" },
-    { id: "openai", icon: () => <span className="text-2xl">⚡</span>, label: t.openaiProvider || "OpenAI" },
-    { id: "anthropic", icon: () => <span className="text-2xl">🧠</span>, label: t.anthropicProvider || "Anthropic" },
-    { id: "deepseek", icon: () => <span className="text-2xl">💻</span>, label: t.deepseekProvider || "DeepSeek" },
-    { id: "grok", icon: () => <span className="text-2xl">🚀</span>, label: t.grokProvider || "Grok" },
-    { id: "groq", icon: () => <span className="text-2xl">⚡</span>, label: "Groq" },
-    { id: "local", icon: () => <span className="text-2xl">💻</span>, label: t.localModel || "Local" },
-    { id: "custom", icon: () => <span className="text-2xl">🔧</span>, label: t.customProvider || "Custom" },
+    { 
+      id: toChatProviderId("gemini"), 
+      icon: { type: "lucide", name: "sparkles" }, 
+      label: t.cloudGemini || "Google Gemini",
+      type: "cloud"
+    },
+    { 
+      id: toChatProviderId("openai"), 
+      icon: { type: "lucide", name: "bot" }, 
+      label: t.openaiProvider || "OpenAI",
+      type: "cloud"
+    },
+    { 
+      id: toChatProviderId("anthropic"), 
+      icon: { type: "lucide", name: "brain" }, 
+      label: t.anthropicProvider || "Anthropic",
+      type: "cloud"
+    },
+    { 
+      id: toChatProviderId("deepseek"), 
+      icon: { type: "lucide", name: "search" }, 
+      label: t.deepseekProvider || "DeepSeek",
+      type: "cloud"
+    },
+    { 
+      id: toChatProviderId("grok"), 
+      icon: { type: "lucide", name: "zap" }, 
+      label: t.grokProvider || "Grok",
+      type: "cloud"
+    },
+    { 
+      id: toChatProviderId("groq"), 
+      icon: { type: "lucide", name: "cpu" }, 
+      label: "Groq",
+      type: "cloud"
+    },
+    { 
+      id: toChatProviderId("local"), 
+      icon: { type: "lucide", name: "server" }, 
+      label: t.localModel || "Local",
+      type: "local"
+    },
+    { 
+      id: toChatProviderId("custom"), 
+      icon: { type: "lucide", name: "settings" }, 
+      label: t.customProvider || "Custom",
+      type: "cloud"
+    },
   ];
 
   const tabs = [
@@ -95,9 +129,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         onClick={onClose}
       >
         <motion.div
-          initial={{ opacity: 0, scale: 0.95, y: 20 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: 20 }}
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.95 }}
           className={cn(
             "bg-dash-bg border border-dash-border rounded-lg shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden",
             className
@@ -148,63 +182,60 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <ModelConfig
                     provider={currentConfig.aiProvider}
                     config={{
-                      apiKey: currentConfig.customKey,
-                      baseUrl: currentConfig.customUrl,
+                      aiModel: currentConfig.aiModel,
+                      apiKey: currentConfig.apiKey,
                       localUrl: currentConfig.localUrl,
                       localModelName: currentConfig.localModelName,
+                      customKey: currentConfig.customKey,
+                      customUrl: currentConfig.customUrl,
                     }}
                     onChange={handleModelConfigChange}
                     t={t}
                   />
-
-                  <PresetManager
-                    presets={presets}
-                    currentConfig={currentConfig}
-                    onSavePreset={onPresetSave}
-                    onApplyPreset={onPresetApply}
-                    onDeletePreset={onPresetDelete}
-                    t={t}
-                  />
                 </motion.div>
-              ) : (
+              ) : activeTab === "mcp" ? (
                 <motion.div
                   key="mcp"
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: 20 }}
-                  className="text-center py-8 text-dash-text-muted"
+                  className="space-y-6"
                 >
-                  <p>{t.mcpSettings || "MCP settings coming soon"}</p>
+                  <div>
+                    <h3 className="text-sm font-bold text-dash-text-muted uppercase tracking-widest mb-3">
+                      MCP Tools
+                    </h3>
+                    <p className="text-sm text-dash-text-muted">
+                      MCP (Model Context Protocol) tools allow the AI to interact with external services and APIs.
+                    </p>
+                  </div>
                 </motion.div>
-              )}
+              ) : null}
             </AnimatePresence>
-
-            {Object.keys(validationErrors).length > 0 && (
-              <div className="mt-4 space-y-2">
-                {Object.entries(validationErrors).map(([field, error]) => (
-                  <ValidationMessage
-                    key={field}
-                    type="error"
-                    message={error}
-                  />
-                ))}
-              </div>
-            )}
           </div>
 
-          <div className="flex items-center justify-end gap-2 p-4 border-t border-dash-border">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-bold text-dash-text-muted hover:text-white transition-colors"
-            >
-              {t.cancel || "Cancel"}
-            </button>
-            <button
-              onClick={handleSave}
-              className="px-4 py-2 bg-dash-accent hover:bg-dash-accent/80 rounded text-sm font-bold text-white transition-colors"
-            >
-              {t.save || "Save"}
-            </button>
+          <div className="flex items-center justify-between p-4 border-t border-dash-border">
+            <div className="flex items-center gap-4">
+              <LanguageSelector
+                currentLang={lang}
+                onLanguageChange={onLanguageChange}
+                t={t}
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={onClose}
+                className="px-4 py-2 text-sm text-dash-text-muted hover:text-dash-text-primary transition-colors"
+              >
+                {t.cancel || "Cancel"}
+              </button>
+              <button
+                onClick={handleSave}
+                className="px-4 py-2 text-sm bg-dash-accent text-white rounded hover:bg-dash-accent/90 transition-colors"
+              >
+                {t.save || "Save"}
+              </button>
+            </div>
           </div>
         </motion.div>
       </motion.div>
