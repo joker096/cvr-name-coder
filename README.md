@@ -17,15 +17,23 @@ An AI coding assistant that runs **entirely inside VS Code** as a sidebar extens
 
 - **Streaming** — AI output appears in real time, token by token
 - **Cancel** — Stop in-flight requests with one click
-- **Multi-session** — Switch between saved conversations
+- **Multi-session** — Switch between saved conversations with FTS5 full-text search
 - **Workspace files** — Agent reads your project files and structure
 - **Local AI** — Works offline with Ollama, llama.cpp, LM Studio
-- **Cloud AI** — Gemini, OpenAI, Anthropic, DeepSeek, Groq
+- **Cloud AI** — Gemini, OpenAI, Anthropic, DeepSeek, Groq, OpenRouter, Together, Mistral, BaseTen
 - **MCP tools** — Connect external tool servers
-- **Persistent memory** — Long-term knowledge with auto-compression
-- **Autonomous loop** — Agent triggers itself for multi-step tasks
-- **Multi-agent system** — Specialized agents for different tasks
-- **Code analysis** — Deep project structure analysis and optimization
+- **Persistent memory** — Agent-written MEMORY.md + USER.md with markdown sections
+- **Autonomous loop** — REACT cycle with true multi-step agent execution
+- **Permission system** — allow/ask/deny with glob matching for tool safety
+- **Subagent delegation** — Spawn child agents for parallel tasks
+- **Learning loop** — Auto-create skills from completed agent loops
+- **RAG memory** — Semantic search over documents with embeddings
+- **Skills system** — Markdown-defined skills with YAML frontmatter
+- **Cron tasks** — Scheduled agent runs with interval/cron expressions
+- **Plugin system** — Hook-based extensibility via manifest.json
+- **Custom tools** — JSON-defined tools without code changes
+- **Rules** — AGENTS.md / CODER.md instruction injection into system prompt
+- **Multi-agent system** — Specialized agents with `.cvr/agents/*.md` configs
 
 ## 🏗️ Architecture
 
@@ -36,90 +44,99 @@ VS Code Extension Host
   └─ Express server (internal)
      ├─ /api/chat — SSE streaming
      ├─ /api/workspace — file tree, read, write
-     ├─ /api/sessions — save/load conversations
-     ├─ /api/mcp-* — MCP tool server
+     ├─ /api/sessions — SQLite + FTS5 session storage
+     ├─ /api/memory — Persistent MEMORY.md / USER.md
+     ├─ /api/skills — Markdown skill definitions
+     ├─ /api/rag — Semantic document search
+     ├─ /api/rules — AGENTS.md / CODER.md instructions
+     ├─ /api/custom-tools — JSON-defined tools
+     ├─ /api/plugins — Plugin management
+     ├─ /api/cron — Scheduled tasks
+     ├─ /api/agent/loop — Autonomous REACT loop
+     ├─ /api/subagents — Subagent delegation
+     ├─ /api/hooks — Lifecycle hooks
      └─ Static React SPA
 ```
 
-### Component Architecture
-
-The application follows a modular component-based architecture with clear separation of concerns:
+### Project Structure
 
 ```
 src/
 ├── components/
-│   ├── chat/           # Chat-related components
+│   ├── chat/           # Chat interface
 │   │   ├── ChatContainer.tsx
 │   │   ├── MessageList.tsx
 │   │   ├── MessageItem.tsx
-│   │   └── InputArea.tsx
-│   ├── settings/       # Settings-related components
-│   │   ├── SettingsModal.tsx
-│   │   ├── SettingsTabs.tsx
-│   │   ├── ProviderSelector.tsx
-│   │   ├── ModelConfig.tsx
-│   │   ├── PresetManager.tsx
-│   │   └── ValidationMessage.tsx
-│   ├── sidebar/        # Sidebar components
+│   │   ├── InputArea.tsx
+│   │   ├── PermissionDialog.tsx
+│   │   └── SubagentTree.tsx
+│   ├── settings/       # Settings modal
+│   ├── sidebar/        # Sidebar panels
 │   │   ├── Sidebar.tsx
-│   │   ├── MemoryPanel.tsx
-│   │   └── SkillsPanel.tsx
-│   └── shared/         # Reusable components
-│       ├── Button.tsx
-│       ├── Input.tsx
-│       ├── LoadingSpinner.tsx
-│       ├── Tooltip.tsx
-│       └── MemoryCard.tsx
-├── hooks/              # Custom React hooks
+│   │   ├── MemoryPanel.tsx      # MEMORY.md / USER.md editor
+│   │   ├── SkillsPanel.tsx      # Learned + available skills
+│   │   ├── SessionsPanel.tsx    # FTS5 session search
+│   │   ├── CronPanel.tsx        # Scheduled tasks
+│   │   ├── PluginsPanel.tsx     # Plugin toggle
+│   │   └── RulesPanel.tsx       # Rule viewer
+│   └── shared/         # Reusable UI components
+├── hooks/              # React hooks
 │   ├── useSettings.ts
 │   ├── useChat.ts
-│   ├── useMemory.ts
-│   ├── useAIProviders.ts
-│   ├── useAutoDetect.ts
-│   ├── useValidation.ts
-│   └── usePresets.ts
-├── services/           # Business logic services
-│   ├── storageService.ts
-│   ├── validationService.ts
-│   └── presetService.ts
-├── types/              # TypeScript type definitions
-│   ├── chat.ts
-│   ├── settings.ts
-│   └── ai.ts
-├── utils/              # Utility functions
-│   ├── constants.ts
-│   ├── formatters.ts
-│   ├── apiHelpers.ts
-│   └── cn.ts
-└── App.tsx             # Main application component (176 lines)
+│   ├── usePersistentMemory.ts  # MEMORY.md / USER.md API
+│   ├── useSessionSearch.ts     # FTS5 search hook
+│   ├── useCron.ts              # Cron task management
+│   └── useRAG.ts               # RAG semantic search
+├── server/             # Server-side logic
+│   ├── memoryStore.ts          # MEMORY.md / USER.md parser
+│   ├── sessionStore.ts         # SQLite + FTS5 sessions
+│   ├── skillLoader.ts          # Markdown skill parser
+│   ├── skillCreator.ts         # Auto skill generation
+│   ├── ragEngine.ts            # RAG chunk + similarity
+│   ├── instructionLoader.ts    # AGENTS.md / CODER.md rules
+│   ├── customToolLoader.ts     # JSON custom tool executor
+│   ├── pluginManager.ts        # Plugin manifest loader
+│   ├── pluginAPI.ts            # Safe plugin API
+│   ├── cronScheduler.ts        # Lightweight cron engine
+│   ├── agentLoop.ts            # Autonomous REACT loop
+│   ├── subagentManager.ts      # Subagent spawn/manage
+│   ├── permissions.ts          # Permission engine
+│   ├── hooks.ts                # Lifecycle hook registry
+│   ├── agentLoader.ts          # .cvr/agents/*.md configs
+│   ├── prompts.ts              # Async system prompt builder
+│   └── tools.ts                # Tool execution dispatcher
+├── types/              # TypeScript types
+├── services/           # Business logic
+├── utils/              # Utilities
+└── App.tsx
 ```
 
-### Key Design Principles
+### The `.cvr/` Directory
 
-1. **Separation of Concerns**: Each component has a single responsibility
-2. **Reusable Components**: Shared components are in the `shared/` directory
-3. **Custom Hooks**: Business logic is encapsulated in custom hooks
-4. **Type Safety**: Full TypeScript coverage with strict type checking
-5. **Testability**: All components and hooks are designed for easy testing
+All user-configurable extensibility lives in `.cvr/`:
+
+```
+.cvr/
+├── agents/         # Agent configs (build.md, explore.md)
+│   └── *.md        # YAML frontmatter + body
+├── skills/         # Skill definitions
+│   └── *.md        # YAML frontmatter + instructions
+├── rules/          # Instruction rules
+│   └── *.md        # YAML frontmatter + priority
+├── tools/          # Custom tools
+│   └── *.json      # Tool definitions
+├── plugins/        # Plugins
+│   └── */manifest.json
+└── permissions.json # Permission rules
+```
 
 ### State Management
 
-State is managed using React hooks and localStorage for persistence:
-
-- **Settings**: `useSettings` hook manages application settings
-- **Chat**: `useChat` hook manages chat state and AI interactions
-- **Memory**: `useMemory` hook manages persistent memory clusters
-- **AI Providers**: `useAIProviders` hook manages AI provider configurations
-
-### Data Flow
-
-```
-User Input → Component → Hook → Service → localStorage/API
-                ↓
-            State Update
-                ↓
-            Component Re-render
-```
+- **Settings**: `useSettings` hook
+- **Chat**: `useChat` hook with history persistence
+- **Memory**: `usePersistentMemory` hook for MEMORY.md / USER.md
+- **Sessions**: `useSessionSearch` hook with SQLite FTS5
+- **Cron**: `useCron` hook for scheduled tasks
 
 ## 📦 Installation
 
@@ -130,7 +147,7 @@ See [VSCODE_EXTENSION.md](VSCODE_EXTENSION.md) for detailed installation instruc
 ### Setup
 
 ```bash
-# Root project (frontend)
+# Root project (frontend + server)
 npm install
 npm run dev
 
@@ -144,17 +161,11 @@ npx @vscode/vsce package
 ### Testing
 
 ```bash
-# Run all tests
+# Run tests
 npm test
-
-# Run tests with coverage
-npm test -- --coverage
 
 # Type checking
 npm run type-check
-
-# Linting
-npm run lint
 
 # Format code
 npm run format
@@ -163,38 +174,13 @@ npm run format
 ### Building
 
 ```bash
-# Development build
+# Development
 npm run dev
 
-# Production build
+# Production
 npm run build
-
-# Start production server
 npm run start
-
-# Clean build artifacts
-npm run clean
 ```
-
-### Code Quality
-
-The project follows strict code quality standards:
-
-- **TypeScript**: Strict type checking with `tsc --noEmit`
-- **ESLint**: Code linting for consistency and error detection
-- **Prettier**: Code formatting for consistent style
-- **Testing**: Comprehensive test coverage for all components and hooks
-
-### Development Workflow
-
-1. Create a new branch for your feature
-2. Write tests first (TDD approach)
-3. Implement the feature
-4. Run tests and ensure they pass
-5. Run type checking and fix any errors
-6. Format code with Prettier
-7. Commit changes with descriptive messages
-8. Create a pull request for review
 
 ## 🔧 Configuration
 
@@ -202,47 +188,131 @@ The project follows strict code quality standards:
 
 **Ollama:**
 ```bash
-# Install Ollama
-curl -fsSL https://ollama.com/install.sh | sh
-
-# Pull a model
 ollama pull llama3
-
-# Start server
 ollama serve
-```
-
-**llama.cpp:**
-```bash
-# Build llama.cpp
-git clone https://github.com/ggerganov/llama.cpp
-cd llama.cpp
-make
-
-# Start server
-./llama-server --port 8080 --model /path/to/model.gguf
 ```
 
 ### Cloud AI Setup
 
-Configure API keys in Settings:
-- **Gemini**: Get key from [AI Studio](https://makersuite.google.com/app/apikey)
-- **DeepSeek**: Get key from [platform.deepseek.com](https://platform.deepseek.com/)
-- **Groq**: Get key from [console.groq.com](https://console.groq.com/)
+Configure API keys in Settings or `.env`:
+- **Gemini**: `GEMINI_API_KEY`
+- **OpenAI**: `OPENAI_API_KEY`
+- **Anthropic**: `ANTHROPIC_API_KEY`
+- **DeepSeek**: `DEEPSEEK_API_KEY`
+- **Groq**: `GROQ_API_KEY`
+- **OpenRouter**: `OPENROUTER_API_KEY`
+- **Together**: `TOGETHER_API_KEY`
+- **Mistral**: `MISTRAL_API_KEY`
+- **BaseTen**: `BASETEN_API_KEY`
+
+### Permission Rules
+
+Create `.cvr/permissions.json`:
+
+```json
+{
+  "rules": [
+    { "pattern": "read_file", "action": "allow" },
+    { "pattern": "write_file", "action": "ask" },
+    { "pattern": "*.env*", "action": "deny" }
+  ],
+  "defaultAction": "ask"
+}
+```
+
+### Custom Agents
+
+Create `.cvr/agents/my-agent.md`:
+
+```yaml
+---
+id: my-agent
+triggers: ["/my"]
+priority: 10
+---
+# My Agent
+You are a specialized agent for...
+```
+
+### Custom Skills
+
+Create `.cvr/skills/my-skill.md`:
+
+```yaml
+---
+id: my-skill
+name: My Skill
+triggers: ["refactor", "optimize"]
+---
+# Instructions
+When triggered, follow these steps...
+```
+
+### Custom Tools
+
+Create `.cvr/tools/my-tool.json`:
+
+```json
+{
+  "id": "my-tool",
+  "name": "My Tool",
+  "description": "Does something useful",
+  "handler": { "type": "command", "command": "echo hello" },
+  "parameters": { "name": { "type": "string", "required": true } }
+}
+```
+
+### Rules / Instructions
+
+Create `.cvr/rules/AGENTS.md`:
+
+```yaml
+---
+priority: 100
+---
+# AGENTS Instructions
+Always write tests before implementation...
+```
+
+### Plugins
+
+Create `.cvr/plugins/my-plugin/manifest.json`:
+
+```json
+{
+  "id": "my-plugin",
+  "name": "My Plugin",
+  "version": "1.0.0",
+  "hooks": [
+    { "point": "loop.step", "handler": "console.log('Step:', ctx)" }
+  ]
+}
+```
+
+### Cron Tasks
+
+Via UI or API:
+
+```bash
+curl -X POST http://localhost:3000/api/cron \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Backup","schedule":"every 1 hour","command":"agent:backup","enabled":true}'
+```
 
 ## 🎨 Features
 
 ### Multi-Agent System
 - **Build Agent** — Default developer for coding tasks
-- **Research Agent** — External documentation research
-- **DevOps Agent** — CI/CD and deployment automation
-- **Scout Agent** — Codebase exploration and analysis
-- **Prometheus Agent** — Strategic planning and architecture
+- **Explore Agent** — Codebase exploration
+- **Scout Agent** — Analysis and research
+- **Prometheus Agent** — Strategic planning
+- **Custom Agents** — Define your own via `.cvr/agents/*.md`
 
 ### Memory System
-- **Persistent clusters** — Long-term knowledge storage
-- **Auto-compression** — Efficient memory management
-- **Semantic search** — Quick context retrieval
+- **Persistent Memory** — Agent-written `.opencode-infinite/MEMORY.md`
+- **User Preferences** — `.opencode-infinite/USER.md`
+- **Auto skill creation** — Completed loops become skills
+- **RAG** — Semantic search over ingested documents
 
 ### Commands
 - `/analyze` — Deep project structure analysis
@@ -252,26 +322,13 @@ Configure API keys in Settings:
 - `/explain` — Decode logic and architecture
 - `/refactor` — Optimize and clean code
 
-## 📝 Scripts
-
-```bash
-npm run dev          # Start development server
-npm run build        # Build for production
-npm run start        # Start production server
-npm run lint         # Run TypeScript linter
-npm run type-check   # Type checking only
-npm run format       # Format code with Prettier
-npm run clean        # Clean build artifacts
-```
-
 ## 🛠️ Tech Stack
 
-- **Frontend**: React 19, TypeScript, Tailwind CSS 4
-- **Backend**: Express.js, Node.js
+- **Frontend**: React 19, TypeScript, Tailwind CSS 4, Framer Motion
+- **Backend**: Express.js, Node.js, SQLite (better-sqlite3)
 - **AI Integration**: Google GenAI SDK, OpenAI-compatible APIs
-- **State Management**: React hooks, localStorage
-- **Code Highlighting**: react-syntax-highlighter
-- **Animations**: Framer Motion
+- **State Management**: React hooks, localStorage, SQLite
+- **Testing**: Vitest, @testing-library/react, jsdom
 
 ## 📄 License
 

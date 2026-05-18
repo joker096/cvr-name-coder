@@ -28,7 +28,7 @@ const AGENT_CONFIG: Record<AgentId, { label: string; icon: React.ComponentType<{
 export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
-  const [sidebarTab, setSidebarTab] = useState<"memory" | "skills">("memory");
+  const [sidebarTab, setSidebarTab] = useState<"memory" | "skills" | "sessions" | "cron" | "plugins" | "rules">("memory");
   const [input, setInput] = useState("");
   const [lang, setLang] = useState<"en" | "ru" | "es" | "zh" | "de" | "fr" | "pt" | "it" | "ja" | "ko" | "ar" | "tr" | "pl" | "uk" | "vi" | "hi">(() => {
     const saved = localStorage.getItem("cvr_lang");
@@ -273,10 +273,8 @@ export default function App() {
           isOpen={showSidebar}
           activeTab={sidebarTab}
           onTabChange={setSidebarTab}
-          memories={memories}
           skills={skills}
           onLearnSkill={handleLearnSkill}
-          lang={lang}
           t={t}
         />
 

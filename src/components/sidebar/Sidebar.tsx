@@ -1,20 +1,31 @@
 import React from "react";
 import { motion, AnimatePresence } from "motion/react";
+import { BookOpen, Rocket, Clock, Puzzle, Scale, MessageSquare } from "lucide-react";
 import { cn } from "../../utils/cn";
 import { MemoryPanel } from "./MemoryPanel";
 import { SkillsPanel, type Skill } from "./SkillsPanel";
-import type { Memory } from "../../types/chat";
+import { SessionsPanel } from "./SessionsPanel";
+import { CronPanel } from "./CronPanel";
+import { PluginsPanel } from "./PluginsPanel";
+import { RulesPanel } from "./RulesPanel";
 
-export type SidebarTab = "memory" | "skills";
+export type SidebarTab = "memory" | "skills" | "sessions" | "cron" | "plugins" | "rules";
+
+const TAB_CONFIG: Record<SidebarTab, { label: string; icon: React.ComponentType<{ className?: string }> }> = {
+  memory: { label: "Memory", icon: BookOpen },
+  skills: { label: "Skills", icon: Rocket },
+  sessions: { label: "Sessions", icon: MessageSquare },
+  cron: { label: "Cron", icon: Clock },
+  plugins: { label: "Plugins", icon: Puzzle },
+  rules: { label: "Rules", icon: Scale },
+};
 
 interface SidebarProps {
   isOpen: boolean;
   activeTab: SidebarTab;
   onTabChange: (tab: SidebarTab) => void;
-  memories: Memory[];
   skills: Skill[];
   onLearnSkill?: (skillId: string) => void;
-  lang: string;
   t: any;
   className?: string;
 }
@@ -23,13 +34,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isOpen,
   activeTab,
   onTabChange,
-  memories,
   skills,
   onLearnSkill,
-  lang,
   t,
   className,
 }) => {
+  const tabs: SidebarTab[] = ["memory", "skills", "sessions", "cron", "plugins", "rules"];
+
   return (
     <AnimatePresence>
       {isOpen && (
@@ -43,51 +54,44 @@ export const Sidebar: React.FC<SidebarProps> = ({
             className
           )}
         >
-          <div className="flex bg-neutral-900/80 border-b border-dash-border p-1 shrink-0">
-            <button
-              onClick={() => onTabChange("memory")}
-              className={cn(
-                "flex-1 py-1.5 text-[12px] uppercase font-bold tracking-widest transition-all rounded",
-                activeTab === "memory"
-                  ? "bg-dash-accent/10 text-dash-accent"
-                  : "text-dash-text-muted hover:text-white"
-              )}
-              aria-pressed={activeTab === "memory"}
-              role="tab"
-            >
-              {t.memory || "Memory"}
-            </button>
-            <button
-              onClick={() => onTabChange("skills")}
-              className={cn(
-                "flex-1 py-1.5 text-[12px] uppercase font-bold tracking-widest transition-all rounded",
-                activeTab === "skills"
-                  ? "bg-dash-accent/10 text-dash-accent"
-                  : "text-dash-text-muted hover:text-white"
-              )}
-              aria-pressed={activeTab === "skills"}
-              role="tab"
-            >
-              {t.skills || "Skills"}
-            </button>
+          <div className="flex bg-neutral-900/80 border-b border-dash-border p-1 shrink-0 gap-0.5 overflow-x-auto no-scrollbar">
+            {tabs.map((tab) => {
+              const config = TAB_CONFIG[tab];
+              const Icon = config.icon;
+              return (
+                <button
+                  key={tab}
+                  onClick={() => onTabChange(tab)}
+                  className={cn(
+                    "flex items-center gap-1 px-2 py-1.5 text-[10px] uppercase font-bold tracking-wider transition-all rounded whitespace-nowrap",
+                    activeTab === tab
+                      ? "bg-dash-accent/10 text-dash-accent"
+                      : "text-dash-text-muted hover:text-white"
+                  )}
+                  aria-pressed={activeTab === tab}
+                  role="tab"
+                  title={t[tab] || config.label}
+                >
+                  <Icon className="w-3 h-3" />
+                  <span className="hidden sm:inline">{t[tab] || config.label}</span>
+                </button>
+              );
+            })}
           </div>
 
           <div className="p-3 flex flex-col gap-3 overflow-y-auto flex-1 no-scrollbar">
             <AnimatePresence mode="wait">
-              {activeTab === "memory" ? (
+              {activeTab === "memory" && (
                 <motion.div
                   key="memory"
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: -20 }}
                 >
-                  <MemoryPanel
-                    memories={memories}
-                    lang={lang}
-                    t={t}
-                  />
+                  <MemoryPanel t={t} />
                 </motion.div>
-              ) : (
+              )}
+              {activeTab === "skills" && (
                 <motion.div
                   key="skills"
                   initial={{ opacity: 0, x: -20 }}
@@ -99,6 +103,46 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     onLearnSkill={onLearnSkill}
                     t={t}
                   />
+                </motion.div>
+              )}
+              {activeTab === "sessions" && (
+                <motion.div
+                  key="sessions"
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                >
+                  <SessionsPanel t={t} />
+                </motion.div>
+              )}
+              {activeTab === "cron" && (
+                <motion.div
+                  key="cron"
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                >
+                  <CronPanel t={t} />
+                </motion.div>
+              )}
+              {activeTab === "plugins" && (
+                <motion.div
+                  key="plugins"
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                >
+                  <PluginsPanel t={t} />
+                </motion.div>
+              )}
+              {activeTab === "rules" && (
+                <motion.div
+                  key="rules"
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                >
+                  <RulesPanel t={t} />
                 </motion.div>
               )}
             </AnimatePresence>
