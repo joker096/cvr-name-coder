@@ -29,6 +29,25 @@ import { analyzeDiff, getPendingReviews, acceptComment, rejectComment } from "./
 import { trackCost, getCosts, resetCosts, estimateTokens } from "./src/server/costTracker.js";
 import { processImages, type ProcessedImage } from "./src/server/imageProcessor.js";
 import { loadMcpConfig, startMcpStdio, mountMcpSseRoutes } from "./src/server/mcpServer.js";
+import {
+  browserNavigate,
+  browserClick,
+  browserType,
+  browserScreenshot,
+  browserEvaluate,
+  browserGetHtml,
+  browserClose,
+  getActiveBrowserSessions,
+} from "./src/server/browserTools.js";
+import {
+  initSync,
+  getSyncStatus,
+  exportSync,
+  importSync,
+  getSyncConfig,
+  saveSyncConfig,
+  resolveConflictsManually,
+} from "./src/server/teamSync.js";
 
 dotenv.config();
 
@@ -878,6 +897,98 @@ app.post("/api/review/:id/reject", (req, res) => {
   return res.json({ success });
 });
 
+// Browser API routes
+app.post("/api/browser/navigate", async (req, res) => {
+  try {
+    const { url, headless = true, sessionId = "default" } = req.body;
+    if (!url || typeof url !== "string") {
+      return res.status(400).json({ error: "url is required" });
+    }
+    const result = await browserNavigate(sessionId, url, Boolean(headless));
+    return res.json(result);
+  } catch (e: any) {
+    return res.status(500).json({ success: false, output: "", error: e.message });
+  }
+});
+
+app.post("/api/browser/click", async (req, res) => {
+  try {
+    const { selector, headless = true, sessionId = "default" } = req.body;
+    if (!selector || typeof selector !== "string") {
+      return res.status(400).json({ error: "selector is required" });
+    }
+    const result = await browserClick(sessionId, selector, Boolean(headless));
+    return res.json(result);
+  } catch (e: any) {
+    return res.status(500).json({ success: false, output: "", error: e.message });
+  }
+});
+
+app.post("/api/browser/type", async (req, res) => {
+  try {
+    const { selector, text, headless = true, sessionId = "default" } = req.body;
+    if (!selector || typeof selector !== "string" || typeof text !== "string") {
+      return res.status(400).json({ error: "selector and text are required" });
+    }
+    const result = await browserType(sessionId, selector, text, Boolean(headless));
+    return res.json(result);
+  } catch (e: any) {
+    return res.status(500).json({ success: false, output: "", error: e.message });
+  }
+});
+
+app.get("/api/browser/screenshot", async (req, res) => {
+  try {
+    const sessionId = String(req.query.sessionId || "default");
+    const headless = req.query.headless !== "false";
+    const result = await browserScreenshot(sessionId, headless);
+    if (result.success && result.base64) {
+      return res.json({ success: true, output: result.output, base64: result.base64 });
+    }
+    return res.json(result);
+  } catch (e: any) {
+    return res.status(500).json({ success: false, output: "", error: e.message });
+  }
+});
+
+app.post("/api/browser/evaluate", async (req, res) => {
+  try {
+    const { script, headless = true, sessionId = "default" } = req.body;
+    if (!script || typeof script !== "string") {
+      return res.status(400).json({ error: "script is required" });
+    }
+    const result = await browserEvaluate(sessionId, script, Boolean(headless));
+    return res.json(result);
+  } catch (e: any) {
+    return res.status(500).json({ success: false, output: "", error: e.message });
+  }
+});
+
+app.get("/api/browser/html", async (req, res) => {
+  try {
+    const sessionId = String(req.query.sessionId || "default");
+    const headless = req.query.headless !== "false";
+    const result = await browserGetHtml(sessionId, headless);
+    return res.json(result);
+  } catch (e: any) {
+    return res.status(500).json({ success: false, output: "", error: e.message });
+  }
+});
+
+app.post("/api/browser/close", async (req, res) => {
+  try {
+    const { sessionId = "default" } = req.body;
+    const result = await browserClose(sessionId);
+    return res.json(result);
+  } catch (e: any) {
+    return res.status(500).json({ success: false, output: "", error: e.message });
+  }
+});
+
+app.get("/api/browser/sessions", (_req, res) => {
+  return res.json({ sessions: getActiveBrowserSessions() });
+});
+
 // Cost tracking API routes
 app.get("/api/costs", async (_req, res) => {
   try {
@@ -936,8 +1047,47 @@ app.post("/api/hooks/unregister", (req, res) => {
   }
 });
 
+// Team Sync API routes
+app.get("/api/sync/status", (_req, res) => {
+  res.json(getSyncStatus());
+});
+
+app.post("/api/sync/export", async (_req, res) => {
+  const result = await exportSync();
+  res.json(result);
+});
+
+app.post("/api/sync/import", async (_req, res) => {
+  const result = await importSync();
+  res.json(result);
+});
+
+app.get("/api/sync/config", (_req, res) => {
+  res.json(getSyncConfig());
+});
+
+app.post("/api/sync/config", async (req, res) => {
+  try {
+    await saveSyncConfig(req.body);
+    res.json({ saved: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post("/api/sync/resolve", async (req, res) => {
+  try {
+    const { resolutions } = req.body;
+    await resolveConflictsManually(resolutions);
+    res.json({ resolved: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 async function startServer() {
   await ensureStorage();
+  await initSync();
   setSessionDbPath(STORAGE_DIR);
   setSkillsDir(path.join(process.cwd(), ".cvr", "skills"));
   setSkillCreatorDir(path.join(process.cwd(), ".cvr", "skills"));

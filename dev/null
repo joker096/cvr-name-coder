@@ -1,0 +1,157 @@
+"use strict";
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+
+// src/server/browserTools.ts
+var browserTools_exports = {};
+__export(browserTools_exports, {
+  browserClick: () => browserClick,
+  browserClose: () => browserClose,
+  browserEvaluate: () => browserEvaluate,
+  browserGetHtml: () => browserGetHtml,
+  browserNavigate: () => browserNavigate,
+  browserScreenshot: () => browserScreenshot,
+  browserType: () => browserType,
+  closeAllBrowsers: () => closeAllBrowsers,
+  closeBrowserSession: () => closeBrowserSession,
+  getActiveBrowserSessions: () => getActiveBrowserSessions
+});
+module.exports = __toCommonJS(browserTools_exports);
+var import_playwright = require("playwright");
+var browserPool = /* @__PURE__ */ new Map();
+async function getOrCreateSession(sessionId2, headless2 = true) {
+  const existing = browserPool.get(sessionId2);
+  if (existing) {
+    try {
+      await existing.page.evaluate(() => document.title);
+      return existing;
+    } catch {
+      await closeBrowserSession(sessionId2);
+    }
+  }
+  const browser = await import_playwright.chromium.launch({ headless: headless2 });
+  const context = await browser.newContext({
+    viewport: { width: 1280, height: 720 },
+    userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+  });
+  const page2 = await context.newPage();
+  const session = { browser, context, page: page2, createdAt: Date.now() };
+  browserPool.set(sessionId2, session);
+  return session;
+}
+async function closeBrowserSession(sessionId2) {
+  const session = browserPool.get(sessionId2);
+  if (!session) return;
+  try {
+    await session.context.close();
+    await session.browser.close();
+  } catch {
+  }
+  browserPool.delete(sessionId2);
+}
+async function closeAllBrowsers() {
+  for (const [sessionId2] of browserPool) {
+    await closeBrowserSession(sessionId2);
+  }
+}
+async function browserNavigate(sessionId2, url, headless2 = true) {
+  try {
+    const { page: page2 } = await getOrCreateSession(sessionId2, headless2);
+    await page2.goto(url, { waitUntil: "networkidle", timeout: 3e4 });
+    const title = await page2.title();
+    return { success: true, output: `Navigated to ${url}. Page title: "${title}"` };
+  } catch (err) {
+    return { success: false, output: "", error: err.message };
+  }
+}
+async function browserClick(sessionId2, selector, headless2 = true) {
+  try {
+    const { page: page2 } = await getOrCreateSession(sessionId2, headless2);
+    await page2.locator(selector).click({ timeout: 1e4 });
+    return { success: true, output: `Clicked element: ${selector}` };
+  } catch (err) {
+    return { success: false, output: "", error: err.message };
+  }
+}
+async function browserType(sessionId2, selector, text, headless2 = true) {
+  try {
+    const { page: page2 } = await getOrCreateSession(sessionId2, headless2);
+    await page2.locator(selector).fill(text);
+    return { success: true, output: `Typed "${text}" into ${selector}` };
+  } catch (err) {
+    return { success: false, output: "", error: err.message };
+  }
+}
+async function browserScreenshot(sessionId2, headless2 = true) {
+  try {
+    const { page: page2 } = await getOrCreateSession(sessionId2, headless2);
+    const screenshot = await page2.screenshot({ type: "png", fullPage: false });
+    const base64 = screenshot.toString("base64");
+    return { success: true, output: `Screenshot captured (${screenshot.length} bytes)`, base64 };
+  } catch (err) {
+    return { success: false, output: "", error: err.message };
+  }
+}
+async function browserEvaluate(sessionId, script, headless = true) {
+  try {
+    const { page } = await getOrCreateSession(sessionId, headless);
+    const result = await page.evaluate((code) => {
+      try {
+        return eval(code);
+      } catch (e) {
+        return { __browser_eval_error__: e.message };
+      }
+    }, script);
+    if (result && typeof result === "object" && result.__browser_eval_error__) {
+      return { success: false, output: "", error: result.__browser_eval_error__ };
+    }
+    const output = typeof result === "string" ? result : JSON.stringify(result, null, 2);
+    return { success: true, output: output || "undefined" };
+  } catch (err) {
+    return { success: false, output: "", error: err.message };
+  }
+}
+async function browserGetHtml(sessionId2, headless2 = true) {
+  try {
+    const { page: page2 } = await getOrCreateSession(sessionId2, headless2);
+    const html = await page2.content();
+    return { success: true, output: html };
+  } catch (err) {
+    return { success: false, output: "", error: err.message };
+  }
+}
+async function browserClose(sessionId2) {
+  await closeBrowserSession(sessionId2);
+  return { success: true, output: "Browser closed for session." };
+}
+function getActiveBrowserSessions() {
+  return Array.from(browserPool.keys());
+}
+// Annotate the CommonJS export names for ESM import in node:
+0 && (module.exports = {
+  browserClick,
+  browserClose,
+  browserEvaluate,
+  browserGetHtml,
+  browserNavigate,
+  browserScreenshot,
+  browserType,
+  closeAllBrowsers,
+  closeBrowserSession,
+  getActiveBrowserSessions
+});

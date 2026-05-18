@@ -10,6 +10,7 @@ import { useMemory } from "./hooks/useMemory";
 import { useChanges } from "./hooks/useChanges";
 import { usePermissions } from "./hooks/usePermissions";
 import { useAgentLoop } from "./hooks/useAgentLoop";
+import { useBrowserStatus } from "./hooks/useBrowserStatus";
 import { cn } from "./utils/cn";
 import type { Skill } from "./components/sidebar/SkillsPanel";
 import type { AgentId } from "./types/settings";
@@ -28,7 +29,7 @@ const AGENT_CONFIG: Record<AgentId, { label: string; icon: React.ComponentType<{
 export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
-  const [sidebarTab, setSidebarTab] = useState<"memory" | "skills" | "sessions" | "cron" | "plugins" | "rules" | "git">("memory");
+  const [sidebarTab, setSidebarTab] = useState<"memory" | "skills" | "sessions" | "cron" | "plugins" | "rules" | "git" | "sync">("memory");
   const [input, setInput] = useState("");
   const [lang, setLang] = useState<"en" | "ru" | "es" | "zh" | "de" | "fr" | "pt" | "it" | "ja" | "ko" | "ar" | "tr" | "pl" | "uk" | "vi" | "hi">(() => {
     const saved = localStorage.getItem("cvr_lang");
@@ -42,6 +43,7 @@ export default function App() {
   const { memories } = useMemory();
   const { undo, redo, canUndo, canRedo } = useChanges();
   const { pending, approve, deny } = usePermissions();
+  const { isActive: isBrowserActive } = useBrowserStatus();
 
   const handleModeToggle = () => {
     const modes: Array<"build" | "plan" | "review"> = ["build", "plan", "review"];
@@ -333,6 +335,11 @@ export default function App() {
               <span className="w-2 h-2 bg-dash-accent rounded-full" aria-hidden="true" /> {memories.length}
             </span>
           </div>
+          {isBrowserActive && (
+            <span className="hidden sm:inline-flex text-[9px] font-mono text-blue-400 bg-blue-400/10 px-1.5 py-0.5 rounded uppercase tracking-wider">
+              BROWSER
+            </span>
+          )}
           {settings.isAutonomous && (
             <span className="hidden sm:inline-flex text-[9px] font-mono text-dash-success bg-dash-success/10 px-1.5 py-0.5 rounded uppercase tracking-wider">
               {t.autonomyForce || "AUTO"}

@@ -15,7 +15,14 @@ export type ToolName =
   | "git_diff"
   | "git_commit"
   | "git_push"
-  | "git_log";
+  | "git_log"
+  | "browser_navigate"
+  | "browser_click"
+  | "browser_type"
+  | "browser_screenshot"
+  | "browser_evaluate"
+  | "browser_get_html"
+  | "browser_close";
 
 export interface ToolCall {
   name: ToolName;
@@ -27,6 +34,7 @@ export interface ToolResult {
   output: string;
   error?: string;
   changeId?: string;
+  base64?: string;
 }
 
 export interface ToolDefinition {
@@ -246,6 +254,93 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       required: [],
     },
     isReadOnly: true,
+  },
+  {
+    name: "browser_navigate",
+    description: "Navigate the browser to a URL.",
+    parameters: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "URL to navigate to" },
+        headless: { type: "boolean", description: "Run in headless mode (default true)" },
+      },
+      required: ["url"],
+    },
+    isReadOnly: false,
+  },
+  {
+    name: "browser_click",
+    description: "Click an element on the page by CSS selector.",
+    parameters: {
+      type: "object",
+      properties: {
+        selector: { type: "string", description: "CSS selector of the element to click" },
+        headless: { type: "boolean", description: "Run in headless mode (default true)" },
+      },
+      required: ["selector"],
+    },
+    isReadOnly: false,
+  },
+  {
+    name: "browser_type",
+    description: "Type text into an input element by CSS selector.",
+    parameters: {
+      type: "object",
+      properties: {
+        selector: { type: "string", description: "CSS selector of the input element" },
+        text: { type: "string", description: "Text to type" },
+        headless: { type: "boolean", description: "Run in headless mode (default true)" },
+      },
+      required: ["selector", "text"],
+    },
+    isReadOnly: false,
+  },
+  {
+    name: "browser_screenshot",
+    description: "Take a screenshot of the current page and return it as base64 PNG.",
+    parameters: {
+      type: "object",
+      properties: {
+        headless: { type: "boolean", description: "Run in headless mode (default true)" },
+      },
+      required: [],
+    },
+    isReadOnly: true,
+  },
+  {
+    name: "browser_evaluate",
+    description: "Execute JavaScript in the browser page context.",
+    parameters: {
+      type: "object",
+      properties: {
+        script: { type: "string", description: "JavaScript code to execute" },
+        headless: { type: "boolean", description: "Run in headless mode (default true)" },
+      },
+      required: ["script"],
+    },
+    isReadOnly: false,
+  },
+  {
+    name: "browser_get_html",
+    description: "Get the full HTML of the current page.",
+    parameters: {
+      type: "object",
+      properties: {
+        headless: { type: "boolean", description: "Run in headless mode (default true)" },
+      },
+      required: [],
+    },
+    isReadOnly: true,
+  },
+  {
+    name: "browser_close",
+    description: "Close the browser for this session.",
+    parameters: {
+      type: "object",
+      properties: {},
+      required: [],
+    },
+    isReadOnly: false,
   },
 ];
 

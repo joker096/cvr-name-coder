@@ -1,0 +1,8 @@
+{
+  "enabled": false,
+  "provider": "git",
+  "repo": "",
+  "interval": 300,
+  "encrypt": true,
+  "conflictResolution": "last-write-wins"
+}

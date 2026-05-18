@@ -76,6 +76,7 @@ SYSTEM ARCHITECTURE:
 - Recursive Task Execution Pipeline
 - Dreamer Semantic Compression Engine
 - Change History with Undo/Redo
+- Browser Automation (Playwright) for web testing, scraping, and interaction
 
 AUTONOMY PROTOCOLS:
 1. OBJECTIVE: Absolute task completion.

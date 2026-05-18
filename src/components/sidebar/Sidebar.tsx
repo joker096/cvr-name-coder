@@ -1,6 +1,6 @@
 import React from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { BookOpen, Rocket, Clock, Puzzle, Scale, MessageSquare, GitBranch } from "lucide-react";
+import { BookOpen, Rocket, Clock, Puzzle, Scale, MessageSquare, GitBranch, RefreshCw } from "lucide-react";
 import { cn } from "../../utils/cn";
 import { MemoryPanel } from "./MemoryPanel";
 import { SkillsPanel, type Skill } from "./SkillsPanel";
@@ -9,8 +9,9 @@ import { CronPanel } from "./CronPanel";
 import { PluginsPanel } from "./PluginsPanel";
 import { RulesPanel } from "./RulesPanel";
 import { GitPanel } from "./GitPanel";
+import { SyncPanel } from "./SyncPanel";
 
-export type SidebarTab = "memory" | "skills" | "sessions" | "cron" | "plugins" | "rules" | "git";
+export type SidebarTab = "memory" | "skills" | "sessions" | "cron" | "plugins" | "rules" | "git" | "sync";
 
 const TAB_CONFIG: Record<SidebarTab, { label: string; icon: React.ComponentType<{ className?: string }> }> = {
   memory: { label: "Memory", icon: BookOpen },
@@ -20,6 +21,7 @@ const TAB_CONFIG: Record<SidebarTab, { label: string; icon: React.ComponentType<
   plugins: { label: "Plugins", icon: Puzzle },
   rules: { label: "Rules", icon: Scale },
   git: { label: "Git", icon: GitBranch },
+  sync: { label: "Sync", icon: RefreshCw },
 };
 
 interface SidebarProps {
@@ -41,7 +43,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   t,
   className,
 }) => {
-  const tabs: SidebarTab[] = ["memory", "skills", "sessions", "git", "cron", "plugins", "rules"];
+  const tabs: SidebarTab[] = ["memory", "skills", "sessions", "git", "sync", "cron", "plugins", "rules"];
 
   return (
     <AnimatePresence>
@@ -155,6 +157,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   exit={{ opacity: 0, x: -20 }}
                 >
                   <GitPanel t={t} />
+                </motion.div>
+              )}
+              {activeTab === "sync" && (
+                <motion.div
+                  key="sync"
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                >
+                  <SyncPanel t={t} />
                 </motion.div>
               )}
             </AnimatePresence>

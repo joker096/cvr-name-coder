@@ -13,6 +13,15 @@ import { searchRAG } from "./ragEngine.js";
 import type { EmbedFunction } from "./ragEngine.js";
 import { loadCustomTools, executeCustomTool } from "./customToolLoader.js";
 import { getGitStatus, getGitDiff, gitCommit, gitPush, getGitLog } from "./gitTools.js";
+import {
+  browserNavigate,
+  browserClick,
+  browserType,
+  browserScreenshot,
+  browserEvaluate,
+  browserGetHtml,
+  browserClose,
+} from "./browserTools.js";
 
 const execAsync = promisify(exec);
 
@@ -308,6 +317,53 @@ export async function executeTool(
       case "git_log": {
         const commits = await getGitLog(typeof params.limit === "number" ? params.limit : 10);
         result = { success: true, output: JSON.stringify(commits, null, 2) };
+        break;
+      }
+
+      case "browser_navigate": {
+        const navResult = await browserNavigate(sessionId, String(params.url), Boolean(params.headless ?? true));
+        result = { success: navResult.success, output: navResult.output, ...(navResult.error ? { error: navResult.error } : {}) };
+        break;
+      }
+
+      case "browser_click": {
+        const clickResult = await browserClick(sessionId, String(params.selector), Boolean(params.headless ?? true));
+        result = { success: clickResult.success, output: clickResult.output, ...(clickResult.error ? { error: clickResult.error } : {}) };
+        break;
+      }
+
+      case "browser_type": {
+        const typeResult = await browserType(sessionId, String(params.selector), String(params.text), Boolean(params.headless ?? true));
+        result = { success: typeResult.success, output: typeResult.output, ...(typeResult.error ? { error: typeResult.error } : {}) };
+        break;
+      }
+
+      case "browser_screenshot": {
+        const ssResult = await browserScreenshot(sessionId, Boolean(params.headless ?? true));
+        result = {
+          success: ssResult.success,
+          output: ssResult.output,
+          ...(ssResult.error ? { error: ssResult.error } : {}),
+          ...(ssResult.base64 ? { base64: ssResult.base64 } : {}),
+        };
+        break;
+      }
+
+      case "browser_evaluate": {
+        const evalResult = await browserEvaluate(sessionId, String(params.script), Boolean(params.headless ?? true));
+        result = { success: evalResult.success, output: evalResult.output, ...(evalResult.error ? { error: evalResult.error } : {}) };
+        break;
+      }
+
+      case "browser_get_html": {
+        const htmlResult = await browserGetHtml(sessionId, Boolean(params.headless ?? true));
+        result = { success: htmlResult.success, output: htmlResult.output, ...(htmlResult.error ? { error: htmlResult.error } : {}) };
+        break;
+      }
+
+      case "browser_close": {
+        const closeResult = await browserClose(sessionId);
+        result = { success: closeResult.success, output: closeResult.output, ...(closeResult.error ? { error: closeResult.error } : {}) };
         break;
       }
 
