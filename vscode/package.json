@@ -64,6 +64,11 @@
         "command": "cvr.clearHistory",
         "title": "cvr.name: Clear History & Memory",
         "category": "cvr.name"
+      },
+      {
+        "command": "cvr.inlineEdit",
+        "title": "cvr.name: Inline Edit Selection",
+        "category": "cvr.name"
       }
     ],
     "viewsContainers": {
@@ -90,8 +95,50 @@
         "key": "ctrl+shift+c",
         "mac": "cmd+shift+c",
         "when": "editorTextFocus"
+      },
+      {
+        "command": "cvr.inlineEdit",
+        "key": "ctrl+k ctrl+k",
+        "mac": "cmd+k cmd+k",
+        "when": "editorTextFocus"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "cvr.name.coder",
+      "properties": {
+        "cvr.completion.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable inline code completion"
+        },
+        "cvr.completion.provider": {
+          "type": "string",
+          "default": "gemini",
+          "enum": ["gemini", "openai", "local", "custom"],
+          "description": "Provider for inline completions"
+        },
+        "cvr.completion.model": {
+          "type": "string",
+          "default": "gemini-2.0-flash",
+          "description": "Model for inline completions (use cheap/fast models)"
+        },
+        "cvr.completion.debounceMs": {
+          "type": "number",
+          "default": 150,
+          "description": "Debounce delay in ms before fetching completion"
+        },
+        "cvr.diff.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show diff preview before applying file changes"
+        },
+        "cvr.diagnostics.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show inline diagnostics after AI file edits"
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run build",

@@ -2,10 +2,32 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import { spawn, ChildProcess } from 'child_process';
+import { CompletionEngine } from './completion/completionEngine.js';
+import { CvrInlineCompletionProvider } from './providers/InlineCompletionProvider.js';
+import type { CompletionConfig } from './types/completion.js';
+import { registerInlineEditCommand } from './commands/InlineEditCommand.js';
+import { generateDiff } from './server/diffRoutes.js';
+import { DiffViewProvider } from './providers/DiffViewProvider.js';
+import { DiagnosticsProvider } from './providers/DiagnosticsProvider.js';
 
 const $fetch = (globalThis as any).fetch as (url: string, init?: any) => Promise<{ json(): Promise<any>; status: number }>;
 
-let serverPort: number | null = null;
+export let serverPort: number | null = null;
+
+const completionEngine = new CompletionEngine();
+let diagnosticsProvider: DiagnosticsProvider | null = null;
+
+function getCompletionConfig(): CompletionConfig {
+  const cfg = vscode.workspace.getConfiguration('cvr');
+  return {
+    provider: cfg.get<string>('completionProvider') || process.env.CVR_COMPLETION_PROVIDER || 'gemini',
+    model: cfg.get<string>('completionModel') || process.env.CVR_COMPLETION_MODEL || 'gemini-2.0-flash',
+    debounceMs: cfg.get<number>('debounceMs', 150),
+    maxPrefixLines: cfg.get<number>('maxPrefixLines', 50),
+    maxSuffixLines: cfg.get<number>('maxSuffixLines', 10),
+    enabled: cfg.get<boolean>('enabled', true),
+  };
+}
 
 // MCP Server Management
 interface McpServerConfig {
@@ -237,6 +259,20 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
   const app = express();
   app.use(express.json());
 
+  // Security: Origin validation middleware
+  app.use((req: any, res: any, next: any) => {
+    const origin = req.headers.origin || req.headers.referer || '';
+    // Allow requests from localhost/127.0.0.1 (VS Code webview) and same-origin
+    if (origin && !origin.includes('127.0.0.1') && !origin.includes('localhost')) {
+      // If no origin header (same-origin or direct curl), allow
+      if (req.headers.origin === undefined && req.headers.referer === undefined) {
+        return next();
+      }
+      return res.status(403).json({ error: 'Forbidden origin' });
+    }
+    next();
+  });
+
   const storagePath = path.join(context.globalStorageUri.fsPath, '.opencode-infinite');
   const historyFile = path.join(storagePath, 'history.json');
   const memoryFile = path.join(storagePath, 'memory.json');
@@ -245,6 +281,10 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
 
   const mcpManager = new McpManager(storagePath);
   mcpManager.startServers();
+
+  const diffViewProvider = new DiffViewProvider();
+  diagnosticsProvider = new DiagnosticsProvider();
+  context.subscriptions.push(diagnosticsProvider);
 
   let geminiClient: any = null;
   function getGemini() {
@@ -261,7 +301,7 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
     return full;
   }
 
-  async function generateContentStream(prompt: string, contents: any[], onToken: (token: string) => void, provider = 'gemini', localUrl?: string, modelName?: string, apiKey?: string, signal?: AbortSignal): Promise<void> {
+  async function generateContentStream(prompt: string, contents: any[], onToken: (token: string) => void, provider = 'gemini', localUrl?: string, modelName?: string, apiKey?: string, temperature?: number, maxTokens?: number, signal?: AbortSignal): Promise<void> {
     const msgs = [
       { role: 'system', content: prompt },
       ...contents.map((c: any) => ({ role: c.role === 'model' ? 'assistant' : c.role, content: c.parts[0].text }))
@@ -270,7 +310,10 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
     if (provider === 'local') {
       if (!localUrl) throw new Error('Local provider requires a URL. Configure it in Settings.');
       const url = `${localUrl.replace(/\/$/, '')}/chat/completions`;
-      const body = JSON.stringify({ model: modelName || 'local-model', messages: msgs, stream: true });
+      const bodyObj: any = { model: modelName || 'local-model', messages: msgs, stream: true };
+      if (temperature !== undefined) bodyObj.temperature = temperature;
+      if (maxTokens !== undefined) bodyObj.max_tokens = maxTokens;
+      const body = JSON.stringify(bodyObj);
       const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, signal });
       if (!response.ok) { const e = await response.json(); throw new Error(e.error?.message || 'Local AI Error'); }
       const reader = response.body?.getReader();
@@ -298,20 +341,27 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
       return;
     }
 
-    if (provider === 'custom' || provider === 'openai' || provider === 'deepseek' || provider === 'grok' || provider === 'groq') {
+    if (provider === 'custom' || provider === 'openai' || provider === 'deepseek' || provider === 'grok' || provider === 'groq' || provider === 'baseten' || provider === 'openrouter' || provider === 'together' || provider === 'mistral') {
       let baseUrl = localUrl;
       if (provider === 'openai') baseUrl = 'https://api.openai.com/v1';
       if (provider === 'deepseek') baseUrl = localUrl || 'https://api.deepseek.com';
       if (provider === 'grok') baseUrl = localUrl || 'https://api.x.ai/v1';
       if (provider === 'groq') baseUrl = localUrl || 'https://api.groq.com/openai/v1';
+      if (provider === 'baseten') baseUrl = 'https://api.baseten.co/v1';
+      if (provider === 'openrouter') baseUrl = 'https://openrouter.ai/api/v1';
+      if (provider === 'together') baseUrl = 'https://api.together.xyz/v1';
+      if (provider === 'mistral') baseUrl = 'https://api.mistral.ai/v1';
       if (!baseUrl) throw new Error(`Provider ${provider} requires a URL. Configure it in Settings.`);
       const key = apiKey || (provider === 'openai' ? process.env.OPENAI_API_KEY : provider === 'deepseek' ? process.env.DEEPSEEK_API_KEY : provider === 'grok' ? process.env.XAI_API_KEY : provider === 'groq' ? process.env.GROQ_API_KEY : '');
-      const model = modelName || (provider === 'openai' ? 'gpt-4o' : provider === 'deepseek' ? 'deepseek-chat' : provider === 'grok' ? 'grok-beta' : provider === 'groq' ? 'llama3-70b-8192' : 'model');
+      const model = modelName || (provider === 'openai' ? 'gpt-4o' : provider === 'deepseek' ? 'deepseek-chat' : provider === 'grok' ? 'grok-beta' : provider === 'groq' ? 'llama3-70b-8192' : provider === 'baseten' ? 'llama-3-1-70b-instruct' : provider === 'openrouter' ? 'meta-llama/llama-3.3-70b-instruct:free' : provider === 'together' ? 'meta-llama/Llama-3.3-70B-Instruct-Turbo' : provider === 'mistral' ? 'mistral-large-latest' : 'model');
 
+      const bodyObj: any = { model, messages: msgs, stream: true };
+      if (temperature !== undefined) bodyObj.temperature = temperature;
+      if (maxTokens !== undefined) bodyObj.max_tokens = maxTokens;
       const response = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-        body: JSON.stringify({ model, messages: msgs, stream: true }),
+        body: JSON.stringify(bodyObj),
         signal,
       });
       if (!response.ok) { const e = await response.json(); throw new Error(e.error?.message || 'AI Error'); }
@@ -348,7 +398,7 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
         headers: { 'Content-Type': 'application/json', 'x-api-key': apiKeyValue, 'anthropic-version': '2023-06-01' },
         body: JSON.stringify({
           model: modelName || 'claude-3-5-sonnet-20240620',
-          max_tokens: 4096,
+          max_tokens: maxTokens || 4096,
           stream: true,
           system: prompt,
           messages: contents.map((c: any) => ({ role: c.role === 'model' ? 'assistant' : c.role, content: c.parts[0].text }))
@@ -462,15 +512,27 @@ ${contextParts || 'No previous knowledge clusters found. Cold-start mode.'}
 
   app.post('/api/chat', async (req: any, res: any) => {
     try {
-      const { message, config = {}, kernelConfig = {} } = req.body;
-      const { aiProvider = 'gemini', localUrl, aiModel, apiKey } = config;
+      const { message, config = {}, kernelConfig = {}, agent: bodyAgent } = req.body;
+      const { aiProvider = 'gemini', localUrl, aiModel, apiKey, temperature, maxTokens, systemPrompt: customSystemPrompt, agent: configAgent } = config;
       const kConfig = kernelConfig.aiProvider ? kernelConfig : config;
 
       const history = JSON.parse(await fs.promises.readFile(historyFile, 'utf-8'));
       const memories = JSON.parse(await fs.promises.readFile(memoryFile, 'utf-8'));
-      const { agent = 'build' } = req.body;
+      const agent = bodyAgent || configAgent || 'build';
 
-      const systemPrompt = buildSystemPrompt(agent, memories, mcpManager.getToolsContext(), getWorkspaceContext());
+      let systemPrompt = buildSystemPrompt(agent, memories, mcpManager.getToolsContext(), getWorkspaceContext());
+      
+      if (customSystemPrompt && customSystemPrompt.trim()) {
+        const AGENT_PROMPTS: Record<string, string> = {
+          build: '[ROLE: BUILD] - DEFAULT DEVELOPER AGENT.',
+          general: '[ROLE: GENERAL] - UNIVERSAL ASSISTANT.',
+          explore: '[ROLE: EXPLORE] - CODEBASE EXPLORER.',
+          scout: '[ROLE: SCOUT] - ANALYST.',
+          prometheus: '[ROLE: PROMETHEUS] - STRATEGIC PLANNER.',
+          hephaestus: '[ROLE: HEPHAESTUS] - DEEP EXECUTOR.',
+        };
+        systemPrompt = `${customSystemPrompt}\n\n${AGENT_PROMPTS[agent] || AGENT_PROMPTS.build}\n\nWORKSPACE CONTEXT:\n${getWorkspaceContext() || 'No workspace open.'}`;
+      }
 
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
@@ -490,7 +552,7 @@ ${contextParts || 'No previous knowledge clusters found. Cold-start mode.'}
         await generateContentStream(systemPrompt, [
           ...history.slice(-10).map((m: any) => ({ role: m.role, parts: [{ text: m.content }] })),
           { role: 'user', parts: [{ text: message }] }
-        ], onToken, aiProvider, localUrl, aiModel, apiKey, req.signal);
+        ], onToken, aiProvider, localUrl, aiModel, apiKey, temperature, maxTokens, req.signal);
       } catch (e: any) {
         res.write(`data: ${JSON.stringify({ error: e.message })}\n\n`);
         res.end();
@@ -555,12 +617,19 @@ ${contextParts || 'No previous knowledge clusters found. Cold-start mode.'}
     }
   });
 
+  // Path traversal safe helper
+  function isPathSafe(requestedPath: string, workspaceRoot: string): boolean {
+    const resolvedRoot = path.resolve(workspaceRoot);
+    const resolvedPath = path.resolve(path.join(resolvedRoot, requestedPath));
+    return resolvedPath.startsWith(resolvedRoot + path.sep) || resolvedPath === resolvedRoot;
+  }
+
   app.post('/api/workspace/read', async (req: any, res: any) => {
     const { file } = req.body;
     const folders = vscode.workspace.workspaceFolders;
     if (!folders || !file) return res.status(400).json({ error: 'No workspace or file path' });
-    const fullPath = path.join(folders[0].uri.fsPath, file);
-    if (!fullPath.startsWith(folders[0].uri.fsPath)) return res.status(403).json({ error: 'Path traversal denied' });
+    if (!isPathSafe(file, folders[0].uri.fsPath)) return res.status(403).json({ error: 'Path traversal denied' });
+    const fullPath = path.resolve(path.join(folders[0].uri.fsPath, file));
     try {
       const content = await fs.promises.readFile(fullPath, 'utf-8');
       res.json({ content, path: file });
@@ -573,15 +642,51 @@ ${contextParts || 'No previous knowledge clusters found. Cold-start mode.'}
     const { file, content } = req.body;
     const folders = vscode.workspace.workspaceFolders;
     if (!folders || !file) return res.status(400).json({ error: 'No workspace or file path' });
-    const fullPath = path.join(folders[0].uri.fsPath, file);
-    if (!fullPath.startsWith(folders[0].uri.fsPath)) return res.status(403).json({ error: 'Path traversal denied' });
+    if (!isPathSafe(file, folders[0].uri.fsPath)) return res.status(403).json({ error: 'Path traversal denied' });
+    const fullPath = path.resolve(path.join(folders[0].uri.fsPath, file));
     try {
+      const cfg = vscode.workspace.getConfiguration('cvr');
+      const diffEnabled = cfg.get<boolean>('diff.enabled', true);
+      if (diffEnabled) {
+        let originalContent = '';
+        try {
+          originalContent = await fs.promises.readFile(fullPath, 'utf-8');
+        } catch {
+          // File doesn't exist yet - skip diff for new files
+        }
+        if (originalContent) {
+          const accepted = await diffViewProvider.showChangeDiff(
+            originalContent,
+            content,
+            file,
+            'Proposed change'
+          );
+          if (!accepted) {
+            return res.json({ status: 'skipped', path: file, reason: 'User skipped' });
+          }
+        }
+      }
       await fs.promises.mkdir(path.dirname(fullPath), { recursive: true });
       await fs.promises.writeFile(fullPath, content, 'utf-8');
+      diagnosticsProvider.checkFileAfterEdit(fullPath);
       res.json({ status: 'written', path: file });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
+  });
+
+  // Diff API routes
+  app.post('/api/diff', (req: any, res: any) => {
+    const { original, modified } = req.body;
+    if (typeof original !== 'string' || typeof modified !== 'string') {
+      return res.status(400).json({ error: 'original and modified strings required' });
+    }
+    const diff = generateDiff(original, modified);
+    res.json({ diff });
+  });
+
+  app.get('/api/changes/:id/diff', async (req: any, res: any) => {
+    res.json({ diff: [], id: req.params.id });
   });
 
   // Session management
@@ -667,6 +772,124 @@ ${contextParts || 'No previous knowledge clusters found. Cold-start mode.'}
     res.json({ tools: mcpManager.getTools() });
   });
 
+  app.post('/api/edit/inline', async (req: any, res: any) => {
+    try {
+      const { selectedCode, instruction, filePath, language, wholeFile } = req.body;
+
+      if (!selectedCode || !instruction) {
+        return res.status(400).json({ error: 'selectedCode and instruction are required' });
+      }
+
+      const prompt = `Apply the following instruction to the selected code.
+
+File: ${filePath}
+Language: ${language}
+
+Instruction: ${instruction}
+
+Selected code:
+\`\`\`
+${selectedCode}
+\`\`\`
+
+Full file context:
+\`\`\`
+${wholeFile}
+\`\`\`
+
+Return ONLY the replacement code for the selection. No explanations, no markdown.`;
+
+      const provider = process.env.CVR_COMPLETION_PROVIDER || 'gemini';
+      const modelName = process.env.CVR_COMPLETION_MODEL || 'gemini-2.0-flash';
+      const apiKey = process.env.CVR_COMPLETION_API_KEY || undefined;
+
+      let fullText = '';
+      const onToken = (token: string) => { fullText += token; };
+
+      await generateContentStream(
+        prompt,
+        [],
+        onToken,
+        provider,
+        undefined,
+        modelName,
+        apiKey,
+        0.3,
+        2048,
+        req.signal,
+      );
+
+      let cleanText = fullText.replace(/^```[\s\S]*?\n/, '').replace(/\n```$/, '').replace(/^```/, '').replace(/```$/, '').trim();
+
+      if (!cleanText) {
+        cleanText = fullText.trim();
+      }
+
+      res.json({ replacement: cleanText });
+    } catch (e: any) {
+      console.error('Inline edit error:', e);
+      if (!res.headersSent) res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post('/api/completions', async (req: any, res: any) => {
+    try {
+      const { textBeforeCursor, textAfterCursor, filePath, language, maxLines } = req.body;
+
+      if (!textBeforeCursor) {
+        return res.json({ items: [] });
+      }
+
+      const lines = textBeforeCursor.split('\n');
+      const recentLines = lines.slice(-(maxLines || 50)).join('\n');
+      const afterLines = textAfterCursor ? textAfterCursor.split('\n').slice(0, 10).join('\n') : '';
+
+      const prompt = `You are a code completion engine. Complete the code at the cursor position marked by <CURSOR>.
+Only output the completion text, no explanations or markdown code fences.
+Language: ${language || 'unknown'}
+File: ${filePath || 'unknown'}
+
+Code before cursor:
+\`\`\`
+${recentLines}
+\`\`\`
+
+${afterLines ? `Code after cursor:\n\`\`\`\n${afterLines}\n\`\`\`\n` : ''}
+Complete the code at the cursor position:`;
+
+      const provider = process.env.CVR_COMPLETION_PROVIDER || 'gemini';
+      const modelName = process.env.CVR_COMPLETION_MODEL || 'gemini-2.0-flash';
+      const apiKey = process.env.CVR_COMPLETION_API_KEY || undefined;
+
+      let completionText = '';
+      const onToken = (token: string) => { completionText += token; };
+
+      await generateContentStream(
+        prompt,
+        [],
+        onToken,
+        provider,
+        undefined,
+        modelName,
+        apiKey,
+        0.2,
+        256,
+        req.signal,
+      );
+
+      let cleanText = completionText.replace(/^```[\s\S]*?\n/, '').replace(/\n```$/, '').replace(/^```/, '').replace(/```$/, '');
+
+      if (!cleanText.trim()) {
+        return res.json({ items: [] });
+      }
+
+      res.json({ items: [{ text: cleanText }] });
+    } catch (e: any) {
+      console.error('Completion error:', e);
+      if (!res.headersSent) res.json({ items: [] });
+    }
+  });
+
   const appDir = path.join(getServerDir(context), 'app');
   app.use(express.static(appDir));
   app.get('*', (_req: any, res: any) => {
@@ -678,6 +901,7 @@ ${contextParts || 'No previous knowledge clusters found. Cold-start mode.'}
       const addr = server.address();
       const port = typeof addr === 'object' && addr ? addr.port : 3000;
       serverPort = port;
+      completionEngine.setPort(port);
       console.log(`cvr.name server running on http://127.0.0.1:${port}`);
       resolve(port);
     });
@@ -728,6 +952,26 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.window.registerWebviewViewProvider(CvrWebviewViewProvider.viewType, provider)
   );
 
+  // Inline completion provider
+  const inlineCompletionProvider = new CvrInlineCompletionProvider(completionEngine, getCompletionConfig());
+  context.subscriptions.push(
+    vscode.languages.registerInlineCompletionItemProvider(
+      { pattern: '**' },
+      inlineCompletionProvider
+    )
+  );
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration(e => {
+      if (e.affectsConfiguration('cvr')) {
+        inlineCompletionProvider.updateConfig(getCompletionConfig());
+      }
+      if (e.affectsConfiguration('cvr.diagnostics')) {
+        const enabled = vscode.workspace.getConfiguration('cvr').get<boolean>('diagnostics.enabled', true);
+        diagnosticsProvider?.setEnabled(enabled);
+      }
+    })
+  );
+
   // Launch dashboard command
   context.subscriptions.push(
     vscode.commands.registerCommand('cvr.launch', async () => {
@@ -768,6 +1012,9 @@ export function activate(context: vscode.ExtensionContext) {
       }
     })
   );
+
+  // Inline edit command
+  registerInlineEditCommand(context, () => serverPort);
 
   // Deferred start after 2s (don't block VS Code startup)
   setTimeout(() => {
