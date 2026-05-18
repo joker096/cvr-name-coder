@@ -34,6 +34,14 @@ An AI coding assistant that runs **entirely inside VS Code** as a sidebar extens
 - **Custom tools** — JSON-defined tools without code changes
 - **Rules** — AGENTS.md / CODER.md instruction injection into system prompt
 - **Multi-agent system** — Specialized agents with `.cvr/agents/*.md` configs
+- **Git automation** — Auto-commit/push, diff viewer, status panel
+- **Cost tracking** — Per-provider token/cost monitoring with budgets
+- **Voice input** — Web Speech API for hands-free chatting
+- **MCP server** — Expose cvr as MCP server for Claude/Cursor
+- **Code review mode** — AI reviews diffs with inline comments
+- **Vision support** — Upload images to Gemini/OpenAI/Anthropic
+- **Browser use** — Playwright automation for web testing/scraping
+- **Team sync** — Sync MEMORY.md across team via git/cloud
 
 ## 🏗️ Architecture
 
@@ -298,6 +306,66 @@ curl -X POST http://localhost:3000/api/cron \
   -H "Content-Type: application/json" \
   -d '{"name":"Backup","schedule":"every 1 hour","command":"agent:backup","enabled":true}'
 ```
+
+### Git Automation
+
+The Git panel shows repository status, diff, and commit history. Enable auto-commit in Settings to automatically commit after agent loop completion.
+
+### Cost Tracking
+
+Costs are tracked automatically per provider. Set a budget in the Costs panel to get warnings. View breakdown by provider and time period.
+
+### Voice Input
+
+Enable in Settings → Voice Input. Click the microphone button in the chat input to dictate. Supports auto-send after silence.
+
+### MCP Server
+
+Configure `.cvr/mcp.json`:
+
+```json
+{
+  "enabled": true,
+  "transport": "sse",
+  "basePath": "/mcp"
+}
+```
+
+Use the VS Code command `cvr.name: Start MCP Server` to get the endpoint URL. Connect Claude Desktop or Cursor.
+
+### Code Review Mode
+
+Toggle to REVIEW mode or type `/review` to analyze the current git diff. The AI returns categorized comments (style, bug, security, performance, architecture) with severity levels. Accept or reject each suggestion inline.
+
+### Vision Support
+
+Enable in Settings → Vision. Click the image icon in the chat input to upload images. Supports drag-and-drop. Works with Gemini, OpenAI GPT-4o, and Anthropic Claude vision models.
+
+### Browser Use
+
+The agent can control a browser via Playwright tools:
+- `browser_navigate` — go to URL
+- `browser_click` — click element
+- `browser_screenshot` — capture page
+- `browser_evaluate` — run JavaScript
+
+Requires: `npx playwright install chromium`
+
+### Team Sync
+
+Configure `.cvr/sync.json`:
+
+```json
+{
+  "enabled": true,
+  "provider": "git",
+  "repo": "git@github.com:team/cvr-sync.git",
+  "interval": 300,
+  "encrypt": true
+}
+```
+
+Syncs MEMORY.md, USER.md, sessions, and history across team members via git or cloud storage.
 
 ## 🎨 Features
 
