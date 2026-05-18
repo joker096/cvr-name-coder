@@ -1,12 +1,30 @@
 import { useState, useCallback, useRef } from "react";
 import type { Message } from "../types/chat";
 import type { ChatConfig } from "../types/settings";
+import type { ToolCall } from "../types/tools";
+import { parseCommand, getCommandPrompt, getCommandAgent } from "../utils/commands";
 
 interface ChatState {
   messages: Message[];
   isLoading: boolean;
   error: string | null;
   isStreaming: boolean;
+}
+
+function parseToolCalls(content: string): ToolCall[] {
+  const calls: ToolCall[] = [];
+  const regex = /<tool_call>\s*<name>(\w+)<\/name>\s*<params>([\s\S]*?)<\/params>\s*<\/tool_call>/g;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(content)) !== null) {
+    try {
+      const name = match[1] as ToolCall["name"];
+      const params = JSON.parse(match[2].trim());
+      calls.push({ name, params });
+    } catch {
+      // skip malformed tool calls
+    }
+  }
+  return calls;
 }
 
 export const useChat = (config: ChatConfig) => {
@@ -23,6 +41,11 @@ export const useChat = (config: ChatConfig) => {
     if (!content.trim()) {
       return;
     }
+
+    // Parse slash commands
+    const { command, args } = parseCommand(content);
+    const agent = command ? getCommandAgent(command) : undefined;
+    const messageContent = command ? getCommandPrompt(command, args) : content;
 
     const userMessage: Message = {
       id: crypto.randomUUID(),
@@ -47,8 +70,9 @@ export const useChat = (config: ChatConfig) => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          messages: [...state.messages, userMessage],
+          message: messageContent,
           config,
+          agent,
         }),
         signal: abortControllerRef.current.signal,
       });
@@ -192,6 +216,48 @@ export const useChat = (config: ChatConfig) => {
     }
   }, [state.messages, sendMessage]);
 
+  const executeToolCalls = useCallback(async (messageId: string, mode: "plan" | "build" = "build") => {
+    const message = state.messages.find((m) => m.id === messageId);
+    if (!message || message.role !== "assistant") return;
+
+    const toolCalls = parseToolCalls(message.content);
+    if (toolCalls.length === 0) return;
+
+    const results: string[] = [];
+    for (const toolCall of toolCalls) {
+      try {
+        const response = await fetch("/api/tools/execute", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ toolCall, mode }),
+        });
+        const result = await response.json();
+        results.push(`Tool: ${toolCall.name}\nSuccess: ${result.success}\nOutput: ${result.output}${result.error ? "\nError: " + result.error : ""}`);
+      } catch (err: any) {
+        results.push(`Tool: ${toolCall.name}\nError: ${err.message}`);
+      }
+    }
+
+    const toolMessage: Message = {
+      id: crypto.randomUUID(),
+      role: "assistant",
+      content: `[TOOL_RESULTS]\n${results.join("\n---\n")}`,
+      timestamp: Date.now(),
+    };
+
+    setState((prev) => ({
+      ...prev,
+      messages: [...prev.messages, toolMessage],
+    }));
+  }, [state.messages]);
+
+  const addMessage = useCallback((message: Message) => {
+    setState((prev) => ({
+      ...prev,
+      messages: [...prev.messages, message],
+    }));
+  }, []);
+
   return {
     messages: state.messages,
     isLoading: state.isLoading,
@@ -203,5 +269,7 @@ export const useChat = (config: ChatConfig) => {
     deleteMessage,
     updateMessage,
     retryMessage,
+    executeToolCalls,
+    addMessage,
   };
 };
