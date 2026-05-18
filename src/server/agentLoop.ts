@@ -3,6 +3,7 @@ import type { PermissionEngine } from "./permissions";
 import type { ToolCall } from "../types/tools";
 import type { LoopStep, LoopState } from "../types/agent";
 import { hookRegistry } from "./hooks";
+import { maybeCreateSkill } from "./skillCreator";
 
 export type ThinkFunction = (prompt: string) => Promise<string>;
 export type ExecuteToolFunction = (toolCall: ToolCall, mode?: "plan" | "build") => Promise<import("../types/tools").ToolResult>;
@@ -109,6 +110,19 @@ export class AgentLoop {
       this.onStatus?.(this.state.status);
 
       await hookRegistry.execute("loop.complete", { state: this.state }, this.sessionId);
+
+      // Auto skill creation on successful multi-step tasks
+      if (this.state.status === "completed" && this.state.steps.length >= 3) {
+        const toolNames = this.state.steps.map((s) => s.action?.tool || "");
+        maybeCreateSkill({
+          goal: this.state.goal,
+          steps: this.state.steps.map((s) => ({ thought: s.thought, action: s.action, observation: s.observation })),
+          toolNames,
+          durationMs: this.state.steps[this.state.steps.length - 1].timestamp - this.state.steps[0].timestamp,
+          success: true,
+        }).catch(() => {});
+      }
+
       return this.state;
     } catch (err: any) {
       this.state.status = "error";

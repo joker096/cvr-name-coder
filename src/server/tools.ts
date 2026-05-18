@@ -7,10 +7,20 @@ import { READ_ONLY_TOOLS } from "../types/tools";
 import { PermissionEngine } from "./permissions.js";
 import type { PermissionRequest } from "../types/permissions.js";
 import { hookRegistry } from "./hooks.js";
+import { readMemory, writeMemory, readUser, writeUser } from "./memoryStore.js";
+import { loadSkills, getSkillById } from "./skillLoader.js";
+import { searchRAG } from "./ragEngine.js";
+import type { EmbedFunction } from "./ragEngine.js";
 
 const execAsync = promisify(exec);
 
 const PROJECT_ROOT = process.cwd();
+
+let ragEmbedFn: EmbedFunction | null = null;
+
+export function setRagEmbedFn(fn: EmbedFunction): void {
+  ragEmbedFn = fn;
+}
 
 function resolveProjectPath(requestedPath: string): string {
   const resolved = path.resolve(PROJECT_ROOT, requestedPath);
@@ -179,6 +189,78 @@ export async function executeTool(
         const command = String(params.command);
         const { stdout, stderr } = await execAsync(command, { cwd, timeout: 30000 });
         result = { success: true, output: stdout + (stderr ? "\n" + stderr : "") };
+        break;
+      }
+
+      case "memory_read": {
+        const memoryType = String(params.type);
+        if (memoryType === "user") {
+          const userData = await readUser();
+          result = { success: true, output: userData.raw };
+        } else {
+          const memData = await readMemory();
+          result = { success: true, output: memData.raw };
+        }
+        break;
+      }
+
+      case "memory_write": {
+        const memoryType = String(params.type);
+        const content = String(params.content);
+        const section = params.section ? String(params.section) : undefined;
+        if (memoryType === "user") {
+          await writeUser(content, section);
+          result = { success: true, output: "User preference recorded." };
+        } else {
+          await writeMemory(content, section);
+          result = { success: true, output: "Project memory recorded." };
+        }
+        break;
+      }
+
+      case "skill_list": {
+        const skills = await loadSkills();
+        const list = skills.map((s) => ({ id: s.id, name: s.name, description: s.description, triggers: s.triggers }));
+        result = { success: true, output: JSON.stringify(list, null, 2) };
+        break;
+      }
+
+      case "skill_read": {
+        const skillId = String(params.id);
+        const skill = await getSkillById(skillId);
+        if (!skill) {
+          result = { success: false, output: "", error: `Skill not found: ${skillId}` };
+        } else {
+          result = { success: true, output: `## ${skill.name}\n${skill.description}\n\n${skill.content}` };
+        }
+        break;
+      }
+
+      case "skill_run": {
+        const runId = String(params.id);
+        const runSkill = await getSkillById(runId);
+        if (!runSkill) {
+          result = { success: false, output: "", error: `Skill not found: ${runId}` };
+        } else {
+          result = { success: true, output: `[SKILL: ${runSkill.name}]\nFollow these instructions:\n${runSkill.content}` };
+        }
+        break;
+      }
+
+      case "rag_search": {
+        const query = String(params.query);
+        const topK = typeof params.topK === "number" ? params.topK : 3;
+        if (!ragEmbedFn) {
+          result = { success: false, output: "", error: "RAG embedding function not configured" };
+        } else {
+          const ragResults = await searchRAG(query, ragEmbedFn, topK);
+          if (ragResults.length === 0) {
+            result = { success: true, output: "No relevant RAG context found." };
+          } else {
+            const formatted = ragResults.map((r, i) => `[${i + 1}] ${r.source} (score: ${r.score.toFixed(3)})\n${r.content}`).join("\n\n");
+            result = { success: true, output: `RAG Results:\n${formatted}` };
+          }
+        }
         break;
       }
 

@@ -16,6 +16,12 @@ import { createPlan } from '../../src/server/planner.js';
 import { SubagentManager } from '../../src/server/subagentManager.js';
 import { loadAgents, setAgentsDir, getAgentById } from '../../src/server/agentLoader.js';
 import { randomUUID } from 'crypto';
+import { readMemory, writeMemory, readUser, writeUser, setMemoryDir } from '../../src/server/memoryStore.js';
+import { createSession, addMessage, getSession, listSessions, searchSessions, deleteSession, setSessionDbPath } from '../../src/server/sessionStore.js';
+import { loadSkills, getSkillById, setSkillsDir } from '../../src/server/skillLoader.js';
+import { setSkillCreatorDir } from '../../src/server/skillCreator.js';
+import { ingestDocument, searchRAG, listSources, clearSource, setRagDbPath } from '../../src/server/ragEngine.js';
+import { setRagEmbedFn } from '../../src/server/tools.js';
 
 const $fetch = (globalThis as any).fetch as (url: string, init?: any) => Promise<{ json(): Promise<any>; status: number }>;
 
@@ -285,6 +291,11 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
   const memoryFile = path.join(storagePath, 'memory.json');
 
   await ensureStorage(storagePath);
+  setMemoryDir(storagePath);
+  setSessionDbPath(storagePath);
+  setSkillsDir(path.join(storagePath, 'skills'));
+  setSkillCreatorDir(path.join(storagePath, 'skills'));
+  setRagDbPath(storagePath);
 
   // Initialize Permission Engine
   let permissionEngine: PermissionEngine | undefined;
@@ -487,6 +498,27 @@ ${messages.slice(-10).map((m: any) => `${m.role}: ${m.content}`).join('\n')}`;
     try { return await generateAIContent(instruction, [], provider, localUrl, modelName, apiKey); }
     catch (e) { console.error('Summarization failed:', e); return null; }
   }
+
+  async function generateEmbeddings(texts: string[]): Promise<number[][]> {
+    try {
+      const result = await getGemini().models.embedContent({
+        model: 'text-embedding-004',
+        contents: texts.map((t) => ({ role: 'user', parts: [{ text: t }] })),
+      });
+      if (Array.isArray(result.embeddings)) {
+        return result.embeddings.map((e: any) => e.values as number[]);
+      }
+      if (result.embeddings && Array.isArray((result.embeddings as any).values)) {
+        return [(result.embeddings as any).values as number[]];
+      }
+      return texts.map(() => []);
+    } catch (e) {
+      console.error('Embedding generation failed:', e);
+      return texts.map(() => []);
+    }
+  }
+
+  setRagEmbedFn(generateEmbeddings);
 
   const AGENT_PROMPTS: Record<string, string> = {
     build: '[ROLE: BUILD] - DEFAULT DEVELOPER AGENT. You have full access to developer tools (read/write files, execute bash). Focus on iterative coding, bug fixing, and implementation.',
@@ -1030,6 +1062,162 @@ Complete the code at the cursor position:`;
   app.post('/api/subagents/:id/abort', async (req: any, res: any) => {
     await subagentManager.abort(req.params.id);
     res.json({ aborted: true });
+  });
+
+  // Memory API routes
+  app.get('/api/memory', async (_req: any, res: any) => {
+    try {
+      const data = await readMemory();
+      res.json({ raw: data.raw, sections: data.sections });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post('/api/memory', async (req: any, res: any) => {
+    try {
+      const { content, section } = req.body;
+      await writeMemory(content, section);
+      res.json({ saved: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get('/api/user', async (_req: any, res: any) => {
+    try {
+      const data = await readUser();
+      res.json({ raw: data.raw, sections: data.sections });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post('/api/user', async (req: any, res: any) => {
+    try {
+      const { content, section } = req.body;
+      await writeUser(content, section);
+      res.json({ saved: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Session API routes
+  app.post('/api/sessions', async (req: any, res: any) => {
+    try {
+      const { title } = req.body;
+      const session = createSession(title || 'New Session');
+      res.json(session);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get('/api/sessions', async (_req: any, res: any) => {
+    try {
+      const sessions = listSessions();
+      res.json({ sessions });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get('/api/sessions/:id', async (req: any, res: any) => {
+    try {
+      const result = getSession(req.params.id);
+      if (!result) return res.status(404).json({ error: 'Session not found' });
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post('/api/sessions/:id/messages', async (req: any, res: any) => {
+    try {
+      const { role, content } = req.body;
+      const message = addMessage(req.params.id, role, content);
+      res.json(message);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get('/api/sessions/search', async (req: any, res: any) => {
+    try {
+      const { q, limit } = req.query;
+      const results = searchSessions(String(q || ''), limit ? parseInt(String(limit), 10) : 20);
+      res.json({ results });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.delete('/api/sessions/:id', async (req: any, res: any) => {
+    try {
+      deleteSession(req.params.id);
+      res.json({ deleted: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Skill API routes
+  app.get('/api/skills', async (_req: any, res: any) => {
+    try {
+      const skills = await loadSkills();
+      res.json({ skills: skills.map((s: any) => ({ id: s.id, name: s.name, description: s.description, triggers: s.triggers })) });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get('/api/skills/:id', async (req: any, res: any) => {
+    try {
+      const skill = await getSkillById(req.params.id);
+      if (!skill) return res.status(404).json({ error: 'Skill not found' });
+      res.json({ id: skill.id, name: skill.name, description: skill.description, triggers: skill.triggers, content: skill.content });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // RAG API routes
+  app.post('/api/rag/ingest', async (req: any, res: any) => {
+    try {
+      const { source, content } = req.body;
+      await ingestDocument(source || 'unknown', content || '', generateEmbeddings);
+      res.json({ ingested: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get('/api/rag/search', async (req: any, res: any) => {
+    try {
+      const { q, topK } = req.query;
+      const results = await searchRAG(String(q || ''), generateEmbeddings, topK ? parseInt(String(topK), 10) : 3);
+      res.json({ results });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get('/api/rag/sources', async (_req: any, res: any) => {
+    try {
+      res.json({ sources: listSources() });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.delete('/api/rag/sources/:source', async (req: any, res: any) => {
+    try {
+      clearSource(req.params.source);
+      res.json({ cleared: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
   });
 
   const appDir = path.join(getServerDir(context), 'app');

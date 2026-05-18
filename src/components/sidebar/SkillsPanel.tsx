@@ -1,5 +1,5 @@
-import React from "react";
-import { Rocket, Compass, Search, Brain, Zap, Shield, Terminal } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { Rocket, Compass, Search, Brain, Zap, Shield, Terminal, FileText } from "lucide-react";
 import { cn } from "../../utils/cn";
 import { COMMAND_LIST } from "../../utils/commands";
 
@@ -10,6 +10,13 @@ export interface Skill {
   icon: React.ComponentType<{ className?: string }>;
   status: "learned" | "available";
   category: "research" | "devops" | "content" | "knowledge";
+}
+
+interface ApiSkill {
+  id: string;
+  name: string;
+  description: string;
+  triggers: string[];
 }
 
 interface SkillsPanelProps {
@@ -45,6 +52,17 @@ export const SkillsPanel: React.FC<SkillsPanelProps> = ({
   t,
   className,
 }) => {
+  const [apiSkills, setApiSkills] = useState<ApiSkill[]>([]);
+
+  useEffect(() => {
+    fetch("/api/skills")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.skills) setApiSkills(data.skills);
+      })
+      .catch(() => {});
+  }, []);
+
   // Build skills from real commands
   const commandSkills: Skill[] = COMMAND_LIST.map((cmd) => ({
     id: cmd.command,
@@ -55,7 +73,16 @@ export const SkillsPanel: React.FC<SkillsPanelProps> = ({
     category: (COMMAND_CATEGORIES[cmd.command] || "knowledge") as any,
   }));
 
-  const allSkills = externalSkills && externalSkills.length > 0 ? externalSkills : commandSkills;
+  const mappedApiSkills: Skill[] = apiSkills.map((s) => ({
+    id: s.id,
+    name: s.name,
+    description: s.description,
+    icon: FileText,
+    status: "available" as const,
+    category: "knowledge" as any,
+  }));
+
+  const allSkills = externalSkills && externalSkills.length > 0 ? externalSkills : [...commandSkills, ...mappedApiSkills];
   const learnedSkills = allSkills.filter((s) => s.status === "learned");
   const availableSkills = allSkills.filter((s) => s.status === "available");
 

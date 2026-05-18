@@ -1,6 +1,7 @@
 import { TOOL_DEFINITIONS } from "../types/tools";
 import type { AgentId } from "../types/settings";
 import { getAgentById } from "./agentLoader.js";
+import { getMemoryContext } from "./memoryStore.js";
 
 const AGENT_PROMPTS: Record<string, string> = {
   build: `[ROLE: BUILD] - DEFAULT DEVELOPER AGENT. You have full access to developer tools (read/write files, execute bash). Focus on iterative coding, bug fixing, and implementation.`,
@@ -11,12 +12,12 @@ const AGENT_PROMPTS: Record<string, string> = {
   hephaestus: `[ROLE: HEPHAESTUS] - DEEP EXECUTOR. Autonomous specialist. Given a goal, independently research patterns, write code, and finish the task without requiring step-by-step guidance.`,
 };
 
-export function buildSystemPrompt(options: {
+export async function buildSystemPrompt(options: {
   agent: AgentId;
   mode: "plan" | "build";
   contextParts?: string;
   customSystemPrompt?: string;
-}): string {
+}): Promise<string> {
   const { agent, mode, contextParts, customSystemPrompt } = options;
 
   const customAgent = getAgentById(agent);
@@ -31,6 +32,9 @@ export function buildSystemPrompt(options: {
     (t) =>
       `- ${t.name}${t.isReadOnly ? " (read-only)" : ""}: ${t.description}\n  params: ${JSON.stringify(t.parameters.properties)}`
   ).join("\n");
+
+  const memoryContext = await getMemoryContext();
+  const persistentContext = contextParts || memoryContext || "No previous knowledge clusters found. Kernel is in cold-start mode.";
 
   const basePrompt = `You are "cvr.name", the world's most advanced autonomous coding kernel.
 
@@ -68,11 +72,11 @@ AUTONOMY PROTOCOLS:
 3. TERMINATION: "CONTINUE_NEEDED" for next cycles. "TASK_COMPLETE" for final success.
 
 PERSISTENT CONTEXT CLUSTERS:
-${contextParts || "No previous knowledge clusters found. Kernel is in cold-start mode."}
+${persistentContext}
 `;
 
   if (customSystemPrompt && customSystemPrompt.trim()) {
-    return `${customSystemPrompt.trim()}\n\n${modeDirective}\n\nAVAILABLE TOOLS:\n${toolDescriptions}\n\nPERSISTENT CONTEXT CLUSTERS:\n${contextParts || "No previous knowledge clusters found. Kernel is in cold-start mode."}`;
+    return `${customSystemPrompt.trim()}\n\n${modeDirective}\n\nAVAILABLE TOOLS:\n${toolDescriptions}\n\nPERSISTENT CONTEXT CLUSTERS:\n${persistentContext}`;
   }
 
   return basePrompt;
