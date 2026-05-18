@@ -9,6 +9,13 @@ import { registerInlineEditCommand } from './commands/InlineEditCommand.js';
 import { generateDiff } from './server/diffRoutes.js';
 import { DiffViewProvider } from './providers/DiffViewProvider.js';
 import { DiagnosticsProvider } from './providers/DiagnosticsProvider.js';
+import { PermissionEngine } from '../../src/server/permissions.js';
+import type { PermissionConfig } from '../../src/types/permissions.js';
+import { AgentLoop } from '../../src/server/agentLoop.js';
+import { createPlan } from '../../src/server/planner.js';
+import { SubagentManager } from '../../src/server/subagentManager.js';
+import { loadAgents, setAgentsDir, getAgentById } from '../../src/server/agentLoader.js';
+import { randomUUID } from 'crypto';
 
 const $fetch = (globalThis as any).fetch as (url: string, init?: any) => Promise<{ json(): Promise<any>; status: number }>;
 
@@ -279,6 +286,30 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
 
   await ensureStorage(storagePath);
 
+  // Initialize Permission Engine
+  let permissionEngine: PermissionEngine | undefined;
+  try {
+    const configData = await fs.promises.readFile('.cvr/permissions.json', 'utf-8');
+    const config: PermissionConfig = JSON.parse(configData);
+    permissionEngine = new PermissionEngine(config);
+  } catch {
+    permissionEngine = new PermissionEngine({
+      rules: [
+        { pattern: 'read_file', action: 'allow' },
+        { pattern: 'list_directory', action: 'allow' },
+        { pattern: 'search_files', action: 'allow' },
+        { pattern: 'write_file', action: 'ask' },
+        { pattern: 'edit_file', action: 'ask' },
+        { pattern: 'execute_command', action: 'ask' },
+        { pattern: '*.env*', action: 'deny' },
+        { pattern: '*/secrets/*', action: 'deny' },
+        { pattern: 'bash:rm -rf *', action: 'deny' },
+        { pattern: 'bash:git push *', action: 'ask' },
+      ],
+      defaultAction: 'ask',
+    });
+  }
+
   const mcpManager = new McpManager(storagePath);
   mcpManager.startServers();
 
@@ -468,10 +499,12 @@ ${messages.slice(-10).map((m: any) => `${m.role}: ${m.content}`).join('\n')}`;
 
   function buildSystemPrompt(agent: string, memories: any[], mcpCtx: string, workspaceCtx: string): string {
     const contextParts = memories.slice(-5).map((m: any) => `[CLUSTER_DATA]: ${m.content}`).join('\n');
+    const customAgent = getAgentById(agent);
+    const agentIdentity = customAgent?.systemPrompt || AGENT_PROMPTS[agent] || AGENT_PROMPTS.build;
     return `You are "cvr.name", the world's most advanced autonomous coding kernel. 
 
 CURRENT_AGENT_IDENTITY:
-${AGENT_PROMPTS[agent] || AGENT_PROMPTS.build}
+${agentIdentity}
 
 INTEGRATED PROTOCOLS:
 - [COMPLEXITY_OPTIMIZER]: When analyzing or refactoring, apply Algorithmic Complexity Evaluation.
@@ -523,15 +556,9 @@ ${contextParts || 'No previous knowledge clusters found. Cold-start mode.'}
       let systemPrompt = buildSystemPrompt(agent, memories, mcpManager.getToolsContext(), getWorkspaceContext());
       
       if (customSystemPrompt && customSystemPrompt.trim()) {
-        const AGENT_PROMPTS: Record<string, string> = {
-          build: '[ROLE: BUILD] - DEFAULT DEVELOPER AGENT.',
-          general: '[ROLE: GENERAL] - UNIVERSAL ASSISTANT.',
-          explore: '[ROLE: EXPLORE] - CODEBASE EXPLORER.',
-          scout: '[ROLE: SCOUT] - ANALYST.',
-          prometheus: '[ROLE: PROMETHEUS] - STRATEGIC PLANNER.',
-          hephaestus: '[ROLE: HEPHAESTUS] - DEEP EXECUTOR.',
-        };
-        systemPrompt = `${customSystemPrompt}\n\n${AGENT_PROMPTS[agent] || AGENT_PROMPTS.build}\n\nWORKSPACE CONTEXT:\n${getWorkspaceContext() || 'No workspace open.'}`;
+        const customAgent = getAgentById(agent);
+        const agentIdentity = customAgent?.systemPrompt || AGENT_PROMPTS[agent] || AGENT_PROMPTS.build;
+        systemPrompt = `${customSystemPrompt}\n\n${agentIdentity}\n\nWORKSPACE CONTEXT:\n${getWorkspaceContext() || 'No workspace open.'}`;
       }
 
       res.writeHead(200, {
@@ -890,6 +917,121 @@ Complete the code at the cursor position:`;
     }
   });
 
+  // Permission API routes
+  app.post('/api/permissions/check', (req: any, res: any) => {
+    if (!permissionEngine) return res.status(503).json({ error: 'Permission engine not initialized' });
+    const result = permissionEngine.check(req.body);
+    return res.json(result);
+  });
+
+  app.post('/api/permissions/ask', (req: any, res: any) => {
+    if (!permissionEngine) return res.status(503).json({ error: 'Permission engine not initialized' });
+    const request = req.body;
+    const check = permissionEngine.check(request);
+    if (check.action === 'allow') {
+      return res.json({ action: 'allow' });
+    }
+    if (check.action === 'deny') {
+      return res.json({ action: 'deny' });
+    }
+    const pending = permissionEngine.createPending(request);
+    return res.json({ action: 'ask', pending });
+  });
+
+  app.get('/api/permissions/pending', (_req: any, res: any) => {
+    if (!permissionEngine) return res.json({ pending: [] });
+    return res.json({ pending: permissionEngine.listPending() });
+  });
+
+  app.get('/api/permissions/pending/:id', (req: any, res: any) => {
+    if (!permissionEngine) return res.status(503).json({ error: 'Permission engine not initialized' });
+    const pending = permissionEngine.getPending(req.params.id);
+    if (!pending) return res.status(404).json({ error: 'Not found' });
+    return res.json(pending);
+  });
+
+  app.post('/api/permissions/resolve/:id', (req: any, res: any) => {
+    if (!permissionEngine) return res.status(503).json({ error: 'Permission engine not initialized' });
+    const { approved } = req.body;
+    permissionEngine.resolve(req.params.id, approved === true);
+    return res.json({ resolved: true });
+  });
+
+  // Agent Loop API routes
+  const activeLoops = new Map<string, AgentLoop>();
+  const subagentManager = new SubagentManager();
+
+  app.post('/api/agent/loop', async (req: any, res: any) => {
+    try {
+      const { goal, provider, model } = req.body;
+      const id = randomUUID();
+
+      const loop = new AgentLoop(goal, {
+        maxSteps: 20,
+        permissionEngine,
+        thinkFn: (prompt: string) => generateAIContent(prompt, [], provider, undefined, model),
+      });
+
+      activeLoops.set(id, loop);
+      loop.run().catch((err: any) => console.error('Agent loop error:', err));
+
+      res.json({ id, state: loop.getState() });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get('/api/agent/loop/:id', (req: any, res: any) => {
+    const loop = activeLoops.get(req.params.id);
+    if (!loop) return res.status(404).json({ error: 'Loop not found' });
+    return res.json(loop.getState());
+  });
+
+  app.post('/api/agent/loop/:id/abort', (req: any, res: any) => {
+    const loop = activeLoops.get(req.params.id);
+    if (!loop) return res.status(404).json({ error: 'Loop not found' });
+    loop.abort();
+    return res.json({ aborted: true });
+  });
+
+  app.post('/api/agent/plan', async (req: any, res: any) => {
+    try {
+      const { goal, provider, model } = req.body;
+      const plan = await createPlan(goal, (prompt: string) =>
+        generateAIContent(prompt, [], provider, undefined, model)
+      );
+      res.json(plan);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Subagent API routes
+  app.post('/api/subagents/spawn', async (req: any, res: any) => {
+    try {
+      const { goal, agentConfig, provider, model } = req.body;
+      const task = await subagentManager.spawn(
+        req.body.parentId || 'main',
+        goal,
+        agentConfig,
+        (prompt: string) => generateAIContent(prompt, [], provider, undefined, model)
+      );
+      res.json(task);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get('/api/subagents', (_req: any, res: any) => {
+    const tasks = subagentManager.listTasks();
+    res.json({ tasks });
+  });
+
+  app.post('/api/subagents/:id/abort', async (req: any, res: any) => {
+    await subagentManager.abort(req.params.id);
+    res.json({ aborted: true });
+  });
+
   const appDir = path.join(getServerDir(context), 'app');
   app.use(express.static(appDir));
   app.get('*', (_req: any, res: any) => {
@@ -935,8 +1077,15 @@ function ensureServer(context: vscode.ExtensionContext): Promise<void> {
   return serverStartPromise;
 }
 
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext) {
   console.log('cvr.name extension activating...');
+
+  // Load custom agent configurations
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (workspaceRoot) {
+    setAgentsDir(path.join(workspaceRoot, '.cvr', 'agents'));
+  }
+  await loadAgents();
 
   // Status bar
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);

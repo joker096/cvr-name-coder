@@ -18,7 +18,9 @@ function parseToolCalls(content: string): ToolCall[] {
   while ((match = regex.exec(content)) !== null) {
     try {
       const name = match[1] as ToolCall["name"];
-      const params = JSON.parse(match[2].trim());
+      const paramStr = match[2];
+      if (!paramStr) continue;
+      const params = JSON.parse(paramStr.trim());
       calls.push({ name, params });
     } catch {
       // skip malformed tool calls
@@ -37,9 +39,9 @@ export const useChat = (config: ChatConfig) => {
 
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  const sendMessage = useCallback(async (content: string) => {
+  const sendMessage = useCallback(async (content: string): Promise<{ content: string; continueNeeded: boolean } | null> => {
     if (!content.trim()) {
-      return;
+      return null;
     }
 
     // Parse slash commands
@@ -81,6 +83,28 @@ export const useChat = (config: ChatConfig) => {
         throw new Error(`Failed to send message: ${response.statusText}`);
       }
 
+      const contentType = response.headers.get("content-type") || "";
+      const isJson = contentType.includes("application/json");
+
+      if (isJson) {
+        // Standalone server returns JSON
+        const data = await response.json();
+        const assistantMessage: Message = {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: data.content || "",
+          timestamp: Date.now(),
+        };
+        setState((prev) => ({
+          ...prev,
+          messages: [...prev.messages, assistantMessage],
+          isLoading: false,
+          isStreaming: false,
+        }));
+        return { content: assistantMessage.content, continueNeeded: !!data.continueNeeded };
+      }
+
+      // VS Code extension server returns SSE
       const reader = response.body?.getReader();
       if (!reader) {
         throw new Error("No response body");
@@ -101,6 +125,8 @@ export const useChat = (config: ChatConfig) => {
 
       const decoder = new TextDecoder();
       let buffer = "";
+      let fullContent = "";
+      let continueNeeded = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -122,7 +148,18 @@ export const useChat = (config: ChatConfig) => {
 
             try {
               const parsed = JSON.parse(data);
-              if (parsed.content) {
+              if (typeof parsed === "string") {
+                fullContent += parsed;
+                setState((prev) => ({
+                  ...prev,
+                  messages: prev.messages.map((msg) =>
+                    msg.id === assistantMessage.id
+                      ? { ...msg, content: msg.content + parsed }
+                      : msg
+                  ),
+                }));
+              } else if (parsed.content) {
+                fullContent += parsed.content;
                 setState((prev) => ({
                   ...prev,
                   messages: prev.messages.map((msg) =>
@@ -131,6 +168,8 @@ export const useChat = (config: ChatConfig) => {
                       : msg
                   ),
                 }));
+              } else if (parsed.done) {
+                continueNeeded = !!parsed.continueNeeded;
               }
             } catch (e) {
               console.error("Failed to parse SSE data:", e);
@@ -139,11 +178,17 @@ export const useChat = (config: ChatConfig) => {
         }
       }
 
+      if (!continueNeeded) {
+        continueNeeded = fullContent.includes("CONTINUE_NEEDED");
+      }
+
       setState((prev) => ({
         ...prev,
         isLoading: false,
         isStreaming: false,
       }));
+
+      return { content: fullContent, continueNeeded };
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") {
         setState((prev) => ({
@@ -160,6 +205,7 @@ export const useChat = (config: ChatConfig) => {
           error: errorMessage,
         }));
       }
+      return null;
     }
   }, [config, state.messages]);
 

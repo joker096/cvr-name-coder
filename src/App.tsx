@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Menu, Settings as SettingsIcon, X, Cpu, Compass, Search, Brain, Zap, Shield, Undo2, Redo2, Lightbulb, Hammer } from "lucide-react";
+import { Menu, Settings as SettingsIcon, X, Cpu, Compass, Search, Brain, Zap, Shield, Undo2, Redo2, Lightbulb, Hammer, Loader2, Square } from "lucide-react";
 import { TRANSLATIONS } from "./i18n";
 import { ChatContainer } from "./components/chat/ChatContainer";
 import { SettingsModal } from "./components/settings/SettingsModal";
@@ -8,10 +8,13 @@ import { useSettings } from "./hooks/useSettings";
 import { useChat } from "./hooks/useChat";
 import { useMemory } from "./hooks/useMemory";
 import { useChanges } from "./hooks/useChanges";
+import { usePermissions } from "./hooks/usePermissions";
+import { useAgentLoop } from "./hooks/useAgentLoop";
 import { cn } from "./utils/cn";
 import type { Skill } from "./components/sidebar/SkillsPanel";
 import type { AgentId } from "./types/settings";
 import type { Message } from "./types/chat";
+import { PermissionDialog } from "./components/chat/PermissionDialog";
 
 const AGENT_CONFIG: Record<AgentId, { label: string; icon: React.ComponentType<{ className?: string }>; color: string }> = {
   build: { label: "BUILD", icon: Cpu, color: "text-dash-accent" },
@@ -34,9 +37,11 @@ export default function App() {
   });
 
   const { settings, updateChatConfig, toggleAutonomous, updateAutoLoopDelay } = useSettings();
+  const { state: agentState, isRunning: isAgentRunning, startLoop, abortLoop } = useAgentLoop();
   const { messages, isLoading, sendMessage, cancelMessage, addMessage } = useChat(settings.chat);
   const { memories } = useMemory();
   const { undo, redo, canUndo, canRedo } = useChanges();
+  const { pending, approve, deny } = usePermissions();
 
   const handleModeToggle = () => {
     const newMode = settings.chat.mode === "plan" ? "build" : "plan";
@@ -77,8 +82,12 @@ export default function App() {
       return;
     }
 
-    sendMessage(input);
+    const result = await sendMessage(input);
     setInput("");
+
+    if (result?.continueNeeded && settings.isAutonomous) {
+      startLoop(input, settings.chat.aiProvider, settings.chat.aiModel);
+    }
   };
 
   const handleCancelMessage = () => {
@@ -235,6 +244,19 @@ export default function App() {
               {t.autonomyForce || "AUTO"}
             </span>
           )}
+          {isAgentRunning && (
+            <div className="hidden sm:flex items-center gap-1.5 text-[9px] font-mono text-dash-accent bg-dash-accent/10 px-2 py-0.5 rounded uppercase tracking-wider">
+              <Loader2 className="w-3 h-3 animate-spin" />
+              <span>AGENT {agentState ? `${agentState.currentStep}/${agentState.maxSteps}` : ""}</span>
+              <button
+                onClick={abortLoop}
+                className="ml-1 hover:text-red-400 transition-colors"
+                title="Abort loop"
+              >
+                <Square className="w-2.5 h-2.5" />
+              </button>
+            </div>
+          )}
           <button
             onClick={() => setShowSettings(true)}
             className="p-1 hover:bg-neutral-800 rounded transition-colors text-dash-text-muted"
@@ -295,6 +317,9 @@ export default function App() {
         t={t}
         lang={lang}
       />
+
+      {/* Permission Dialog */}
+      <PermissionDialog pending={pending} onApprove={approve} onDeny={deny} />
     </div>
   );
 }

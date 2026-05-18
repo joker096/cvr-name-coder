@@ -1,0 +1,15 @@
+{
+  "rules": [
+    { "pattern": "read_file", "action": "allow" },
+    { "pattern": "list_directory", "action": "allow" },
+    { "pattern": "search_files", "action": "allow" },
+    { "pattern": "write_file", "action": "ask" },
+    { "pattern": "edit_file", "action": "ask" },
+    { "pattern": "execute_command", "action": "ask" },
+    { "pattern": "*.env*", "action": "deny" },
+    { "pattern": "*/secrets/*", "action": "deny" },
+    { "pattern": "bash:rm -rf *", "action": "deny" },
+    { "pattern": "bash:git push *", "action": "ask" }
+  ],
+  "defaultAction": "ask"
+}

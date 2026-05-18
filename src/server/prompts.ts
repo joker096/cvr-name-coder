@@ -1,5 +1,6 @@
 import { TOOL_DEFINITIONS } from "../types/tools";
 import type { AgentId } from "../types/settings";
+import { getAgentById } from "./agentLoader.js";
 
 const AGENT_PROMPTS: Record<string, string> = {
   build: `[ROLE: BUILD] - DEFAULT DEVELOPER AGENT. You have full access to developer tools (read/write files, execute bash). Focus on iterative coding, bug fixing, and implementation.`,
@@ -18,6 +19,9 @@ export function buildSystemPrompt(options: {
 }): string {
   const { agent, mode, contextParts, customSystemPrompt } = options;
 
+  const customAgent = getAgentById(agent);
+  const agentIdentity = customAgent?.systemPrompt || AGENT_PROMPTS[agent] || AGENT_PROMPTS.build;
+
   const modeDirective =
     mode === "plan"
       ? `[PLANNING MODE ACTIVE]\nYou are in PLANNING mode. You may ONLY use read_file, list_directory, and search_files.\nDo NOT write files, edit files, or execute commands. Provide a detailed implementation plan with specific file paths and changes.`
@@ -31,7 +35,7 @@ export function buildSystemPrompt(options: {
   const basePrompt = `You are "cvr.name", the world's most advanced autonomous coding kernel.
 
 CURRENT_AGENT_IDENTITY:
-${AGENT_PROMPTS[agent] || AGENT_PROMPTS.build}
+${agentIdentity}
 
 ${modeDirective}
 

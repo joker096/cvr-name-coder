@@ -7,6 +7,14 @@ import dotenv from "dotenv";
 import { executeTool } from "./src/server/tools.js";
 import { recordChange, undoChange, redoChange, getChangeState } from "./src/server/changes.js";
 import { buildSystemPrompt } from "./src/server/prompts.js";
+import { PermissionEngine } from "./src/server/permissions.js";
+import type { PermissionConfig } from "./src/types/permissions.js";
+import { randomUUID } from "crypto";
+import { AgentLoop } from "./src/server/agentLoop.js";
+import { createPlan } from "./src/server/planner.js";
+import { SubagentManager } from "./src/server/subagentManager.js";
+import { hookRegistry, registerBuiltinHooks } from "./src/server/hooks.js";
+import { loadAgents } from "./src/server/agentLoader.js";
 
 dotenv.config();
 
@@ -29,6 +37,30 @@ const app = express();
 const PORT = 3000;
 
 app.use(express.json());
+
+// Initialize Permission Engine
+let permissionEngine: PermissionEngine | undefined;
+try {
+  const configData = await readFile(".cvr/permissions.json", "utf-8");
+  const config: PermissionConfig = JSON.parse(configData);
+  permissionEngine = new PermissionEngine(config);
+} catch {
+  permissionEngine = new PermissionEngine({
+    rules: [
+      { pattern: "read_file", action: "allow" },
+      { pattern: "list_directory", action: "allow" },
+      { pattern: "search_files", action: "allow" },
+      { pattern: "write_file", action: "ask" },
+      { pattern: "edit_file", action: "ask" },
+      { pattern: "execute_command", action: "ask" },
+      { pattern: "*.env*", action: "deny" },
+      { pattern: "*/secrets/*", action: "deny" },
+      { pattern: "bash:rm -rf *", action: "deny" },
+      { pattern: "bash:git push *", action: "ask" },
+    ],
+    defaultAction: "ask",
+  });
+}
 
 // Initialize Gemini
 const ai = new GoogleGenAI({
@@ -216,8 +248,8 @@ app.post("/api/clear", async (_req, res) => {
 // Tool execution endpoint
 app.post("/api/tools/execute", async (req, res) => {
   try {
-    const { toolCall, mode = "build" } = req.body;
-    const result = await executeTool(toolCall, mode);
+    const { toolCall, mode = "build", sessionId = randomUUID() } = req.body;
+    const result = await executeTool(toolCall, mode, permissionEngine, sessionId);
 
     // Snapshot for undo if write tool succeeded
     if (
@@ -262,8 +294,165 @@ app.get("/api/changes", async (_req, res) => {
   res.json(state);
 });
 
+// Permission API routes
+app.post("/api/permissions/check", (req, res) => {
+  if (!permissionEngine) return res.status(503).json({ error: "Permission engine not initialized" });
+  const result = permissionEngine.check(req.body);
+  return res.json(result);
+});
+
+app.post("/api/permissions/ask", (req, res) => {
+  if (!permissionEngine) return res.status(503).json({ error: "Permission engine not initialized" });
+  const request = req.body;
+  const check = permissionEngine.check(request);
+  if (check.action === "allow") {
+    return res.json({ action: "allow" });
+  }
+  if (check.action === "deny") {
+    return res.json({ action: "deny" });
+  }
+  const pending = permissionEngine.createPending(request);
+  return res.json({ action: "ask", pending });
+});
+
+app.get("/api/permissions/pending", (_req, res) => {
+  if (!permissionEngine) return res.json({ pending: [] });
+  return res.json({ pending: permissionEngine.listPending() });
+});
+
+app.get("/api/permissions/pending/:id", (req, res) => {
+  if (!permissionEngine) return res.status(503).json({ error: "Permission engine not initialized" });
+  const pending = permissionEngine.getPending(req.params.id);
+  if (!pending) return res.status(404).json({ error: "Not found" });
+  return res.json(pending);
+});
+
+app.post("/api/permissions/resolve/:id", (req, res) => {
+  if (!permissionEngine) return res.status(503).json({ error: "Permission engine not initialized" });
+  const { approved } = req.body;
+  permissionEngine.resolve(req.params.id, approved === true);
+  return res.json({ resolved: true });
+});
+
+// Agent Loop API routes
+const activeLoops = new Map<string, AgentLoop>();
+const subagentManager = new SubagentManager();
+
+app.post("/api/agent/loop", async (req, res) => {
+  try {
+    const { goal, provider, model } = req.body;
+    const id = randomUUID();
+
+    const loop = new AgentLoop(goal, {
+      maxSteps: 20,
+      permissionEngine,
+      thinkFn: (prompt) => generateAIContent(prompt, [], provider, undefined, model),
+      sessionId: id,
+    });
+
+    activeLoops.set(id, loop);
+    loop.run().catch((err) => console.error(`Agent loop ${id} error:`, err));
+
+    res.json({ id, state: loop.getState() });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/agent/loop/:id", (req, res) => {
+  const loop = activeLoops.get(req.params.id);
+  if (!loop) return res.status(404).json({ error: "Loop not found" });
+  return res.json(loop.getState());
+});
+
+app.post("/api/agent/loop/:id/abort", (req, res) => {
+  const loop = activeLoops.get(req.params.id);
+  if (!loop) return res.status(404).json({ error: "Loop not found" });
+  loop.abort();
+  return res.json({ aborted: true });
+});
+
+app.post("/api/agent/plan", async (req, res) => {
+  try {
+    const { goal, provider, model } = req.body;
+    const plan = await createPlan(goal, (prompt) =>
+      generateAIContent(prompt, [], provider, undefined, model)
+    );
+    res.json(plan);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Subagent API routes
+app.post("/api/subagents/spawn", async (req, res) => {
+  try {
+    const { goal, agentConfig, provider, model } = req.body;
+    const task = await subagentManager.spawn(
+      req.body.parentId || "main",
+      goal,
+      agentConfig,
+      (prompt) => generateAIContent(prompt, [], provider, undefined, model)
+    );
+    res.json(task);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/subagents", (_req, res) => {
+  const tasks = subagentManager.listTasks();
+  res.json({ tasks });
+});
+
+app.post("/api/subagents/:id/abort", async (req, res) => {
+  await subagentManager.abort(req.params.id);
+  res.json({ aborted: true });
+});
+
+// Hook API routes
+app.get("/api/hooks", (_req, res) => {
+  res.json({ hooks: hookRegistry.list() });
+});
+
+app.post("/api/hooks/register", (req, res) => {
+  if (process.env.NODE_ENV === "production") {
+    return res.status(403).json({ error: "Hook registration disabled in production" });
+  }
+  try {
+    const { id, hookPoint, handler, priority = 0 } = req.body;
+    if (!id || !hookPoint || !handler) {
+      return res.status(400).json({ error: "Missing id, hookPoint, or handler" });
+    }
+    // Note: handler is a string representation; in a real scenario, this would be a function reference
+    // For dev API, we accept it but log a warning that runtime function registration is limited
+    hookRegistry.register({ id, hookPoint, handler: () => {}, priority });
+    return res.json({ registered: true, id, hookPoint });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/hooks/unregister", (req, res) => {
+  if (process.env.NODE_ENV === "production") {
+    return res.status(403).json({ error: "Hook unregistration disabled in production" });
+  }
+  try {
+    const { id } = req.body;
+    if (!id) {
+      return res.status(400).json({ error: "Missing id" });
+    }
+    hookRegistry.unregister(id);
+    return res.json({ unregistered: true, id });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 async function startServer() {
   await ensureStorage();
+  await loadAgents();
+  registerBuiltinHooks();
 
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
