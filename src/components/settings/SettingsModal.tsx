@@ -18,13 +18,21 @@ interface SettingsModalProps {
   presets: Preset[];
   isAutonomous: boolean;
   autoLoopDelay: number;
+  autoCommit: boolean;
+  voiceEnabled: boolean;
+  voiceLanguage: string;
+  voiceAutoSend: boolean;
   onSave: (config: ChatConfig, kernelConfig: ChatConfig) => void;
   onPresetSave?: (preset: any) => void;
   onPresetApply?: (preset: any) => void;
   onPresetDelete?: (id: string) => void;
   onToggleAutonomous?: () => void;
+  onToggleAutoCommit?: () => void;
   onChangeAutoLoopDelay?: (delay: number) => void;
   onLanguageChange?: (lang: string) => void;
+  onToggleVoiceEnabled?: () => void;
+  onChangeVoiceLanguage?: (lang: string) => void;
+  onToggleVoiceAutoSend?: () => void;
   t: any;
   lang?: string;
   className?: string;
@@ -46,10 +54,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   kernelConfig,
   isAutonomous,
   autoLoopDelay,
+  autoCommit,
+  voiceEnabled,
+  voiceLanguage,
+  voiceAutoSend,
   onSave,
   onToggleAutonomous,
+  onToggleAutoCommit,
   onChangeAutoLoopDelay,
   onLanguageChange,
+  onToggleVoiceEnabled,
+  onChangeVoiceLanguage,
+  onToggleVoiceAutoSend,
   t,
   lang = "en",
   className,
@@ -269,6 +285,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   />
                 </button>
               </div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-medium text-dash-text-primary">{t.autoCommit || "Auto-Commit"}</div>
+                  <div className="text-[11px] text-dash-text-muted">{t.autoCommitDesc || "Automatically commit changes after successful agent loop"}</div>
+                </div>
+                <button
+                  onClick={onToggleAutoCommit}
+                  className={cn(
+                    "relative inline-flex h-5 w-9 items-center rounded-full transition-colors",
+                    autoCommit ? "bg-dash-accent" : "bg-neutral-700"
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform",
+                      autoCommit ? "translate-x-5" : "translate-x-1"
+                    )}
+                  />
+                </button>
+              </div>
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <div>
@@ -291,6 +327,81 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <span>Normal (2000ms)</span>
                   <span>Slow (10s)</span>
                 </div>
+              </div>
+
+              {/* Voice Input Settings */}
+              <div className="pt-4 border-t border-dash-border space-y-4">
+                <h3 className="text-sm font-bold text-dash-text-muted uppercase tracking-widest">{t.voiceSettings || "Voice Input"}</h3>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-sm font-medium text-dash-text-primary">{t.voiceEnabled || "Enable Voice Input"}</div>
+                    <div className="text-[11px] text-dash-text-muted">{t.voiceEnabledDesc || "Show microphone button in chat input"}</div>
+                  </div>
+                  <button
+                    onClick={onToggleVoiceEnabled}
+                    className={cn(
+                      "relative inline-flex h-5 w-9 items-center rounded-full transition-colors",
+                      voiceEnabled ? "bg-dash-accent" : "bg-neutral-700"
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform",
+                        voiceEnabled ? "translate-x-5" : "translate-x-1"
+                      )}
+                    />
+                  </button>
+                </div>
+                {voiceEnabled && (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-dash-text-primary mb-2">{t.voiceLanguage || "Speech Recognition Language"}</label>
+                      <select
+                        value={voiceLanguage}
+                        onChange={(e) => onChangeVoiceLanguage?.(e.target.value)}
+                        className="w-full px-3 py-2 bg-dash-bg border border-dash-border rounded text-dash-text-primary focus:outline-none focus:ring-2 focus:ring-dash-accent text-sm"
+                      >
+                        <option value="en-US">English (US)</option>
+                        <option value="en-GB">English (UK)</option>
+                        <option value="ru-RU">Russian</option>
+                        <option value="es-ES">Spanish</option>
+                        <option value="fr-FR">French</option>
+                        <option value="de-DE">German</option>
+                        <option value="it-IT">Italian</option>
+                        <option value="pt-BR">Portuguese (Brazil)</option>
+                        <option value="ja-JP">Japanese</option>
+                        <option value="ko-KR">Korean</option>
+                        <option value="zh-CN">Chinese (Simplified)</option>
+                        <option value="ar-SA">Arabic</option>
+                        <option value="tr-TR">Turkish</option>
+                        <option value="pl-PL">Polish</option>
+                        <option value="uk-UA">Ukrainian</option>
+                        <option value="vi-VN">Vietnamese</option>
+                        <option value="hi-IN">Hindi</option>
+                      </select>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-sm font-medium text-dash-text-primary">{t.voiceAutoSend || "Auto-Send After Silence"}</div>
+                        <div className="text-[11px] text-dash-text-muted">{t.voiceAutoSendDesc || "Automatically send message after detecting silence"}</div>
+                      </div>
+                      <button
+                        onClick={onToggleVoiceAutoSend}
+                        className={cn(
+                          "relative inline-flex h-5 w-9 items-center rounded-full transition-colors",
+                          voiceAutoSend ? "bg-dash-accent" : "bg-neutral-700"
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform",
+                            voiceAutoSend ? "translate-x-5" : "translate-x-1"
+                          )}
+                        />
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>

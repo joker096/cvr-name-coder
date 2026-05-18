@@ -17,6 +17,9 @@ interface ChatContainerProps {
   placeholder?: string;
   disabled?: boolean;
   className?: string;
+  voiceEnabled?: boolean;
+  voiceLanguage?: string;
+  voiceAutoSend?: boolean;
 }
 
 export const ChatContainer: React.FC<ChatContainerProps> = ({
@@ -33,6 +36,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   placeholder,
   disabled = false,
   className,
+  voiceEnabled,
+  voiceLanguage,
+  voiceAutoSend,
 }) => {
   return (
     <div className={cn("flex flex-col h-full", className)}>
@@ -53,6 +59,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
           placeholder={placeholder || t.promptPlaceholder}
           lang={lang}
           disabled={disabled}
+          voiceEnabled={voiceEnabled}
+          voiceLanguage={voiceLanguage}
+          voiceAutoSend={voiceAutoSend}
         />
       </div>
     </div>

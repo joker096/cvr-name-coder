@@ -9,7 +9,11 @@ interface Settings {
   presets: Preset[];
   autoLoopDelay: number;
   isAutonomous: boolean;
+  autoCommit: boolean;
   lang: "en" | "ru";
+  voiceEnabled: boolean;
+  voiceLanguage: string;
+  voiceAutoSend: boolean;
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -27,6 +31,10 @@ const DEFAULT_SETTINGS: Settings = {
   presets: [],
   autoLoopDelay: 2000,
   isAutonomous: true,
+  autoCommit: false,
+  voiceEnabled: false,
+  voiceLanguage: "en",
+  voiceAutoSend: false,
   lang: "en",
 };
 
@@ -57,8 +65,24 @@ export const useSettings = () => {
     setSettings((prev) => ({ ...prev, isAutonomous: !prev.isAutonomous }));
   };
 
+  const toggleAutoCommit = () => {
+    setSettings((prev) => ({ ...prev, autoCommit: !prev.autoCommit }));
+  };
+
   const setLanguage = (lang: "en" | "ru") => {
     setSettings((prev) => ({ ...prev, lang }));
+  };
+
+  const toggleVoiceEnabled = () => {
+    setSettings((prev) => ({ ...prev, voiceEnabled: !prev.voiceEnabled }));
+  };
+
+  const setVoiceLanguage = (voiceLanguage: string) => {
+    setSettings((prev) => ({ ...prev, voiceLanguage }));
+  };
+
+  const toggleVoiceAutoSend = () => {
+    setSettings((prev) => ({ ...prev, voiceAutoSend: !prev.voiceAutoSend }));
   };
 
   const addPreset = (preset: Omit<Preset, "id" | "createdAt">) => {
@@ -108,7 +132,11 @@ export const useSettings = () => {
     updateChatConfig,
     updateAutoLoopDelay,
     toggleAutonomous,
+    toggleAutoCommit,
     setLanguage,
+    toggleVoiceEnabled,
+    setVoiceLanguage,
+    toggleVoiceAutoSend,
     addPreset,
     updatePreset,
     deletePreset,

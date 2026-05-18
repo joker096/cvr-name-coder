@@ -1,7 +1,8 @@
-import React, { useState, useRef, useEffect } from "react";
-import { CornerDownLeft, X, Terminal } from "lucide-react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
+import { CornerDownLeft, X, Terminal, Mic, MicOff } from "lucide-react";
 import { cn } from "../../utils/cn";
 import { COMMAND_LIST, type SlashCommand } from "../../utils/commands";
+import { useVoiceInput } from "../../hooks/useVoiceInput";
 
 interface InputAreaProps {
   value: string;
@@ -13,6 +14,9 @@ interface InputAreaProps {
   lang?: string;
   disabled?: boolean;
   className?: string;
+  voiceEnabled?: boolean | undefined;
+  voiceLanguage?: string | undefined;
+  voiceAutoSend?: boolean | undefined;
 }
 
 export const InputArea: React.FC<InputAreaProps> = ({
@@ -25,10 +29,42 @@ export const InputArea: React.FC<InputAreaProps> = ({
   lang = "en",
   disabled = false,
   className,
+  voiceEnabled = false,
+  voiceLanguage = "en-US",
+  voiceAutoSend = false,
 }) => {
   const [showCommands, setShowCommands] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
+  const committedTextRef = useRef(value);
+
+  const handleTranscript = useCallback(
+    (transcript: string, isFinal: boolean) => {
+      if (isFinal) {
+        committedTextRef.current += transcript;
+        onChange(committedTextRef.current);
+      } else {
+        onChange(committedTextRef.current + transcript);
+      }
+    },
+    [onChange]
+  );
+
+  const { isListening, isSupported, error, startListening, stopListening } = useVoiceInput({
+    language: voiceLanguage,
+    autoSend: voiceAutoSend,
+    onTranscript: handleTranscript,
+    onSend,
+  });
+
+  const handleMicClick = () => {
+    if (isListening) {
+      stopListening();
+    } else {
+      committedTextRef.current = value;
+      startListening();
+    }
+  };
 
   // Filter commands based on current input
   const filteredCommands = React.useMemo(() => {
@@ -138,6 +174,39 @@ export const InputArea: React.FC<InputAreaProps> = ({
           </div>
         )}
       </div>
+      {!isLooming && voiceEnabled && isSupported && (
+        <button
+          onClick={handleMicClick}
+          disabled={disabled}
+          className={cn(
+            "p-1 rounded-md transition-all relative",
+            isListening
+              ? "bg-red-500/20 hover:bg-red-500/30 text-red-500"
+              : "bg-neutral-800 hover:bg-neutral-700 text-dash-text-muted"
+          )}
+          title={
+            isListening
+              ? lang === "ru"
+                ? "Остановить запись"
+                : "Stop recording"
+              : lang === "ru"
+                ? "Голосовой ввод"
+                : "Voice input"
+          }
+        >
+          {isListening ? (
+            <>
+              <MicOff className="w-3 h-3" />
+              <span className="absolute top-0 right-0 w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse" />
+            </>
+          ) : (
+            <Mic className="w-3 h-3" />
+          )}
+          {error && (
+            <span className="sr-only">{error.message}</span>
+          )}
+        </button>
+      )}
       {isLooming ? (
         <button
           onClick={onCancel}

@@ -12,6 +12,7 @@ import { loadSkills, getSkillById } from "./skillLoader.js";
 import { searchRAG } from "./ragEngine.js";
 import type { EmbedFunction } from "./ragEngine.js";
 import { loadCustomTools, executeCustomTool } from "./customToolLoader.js";
+import { getGitStatus, getGitDiff, gitCommit, gitPush, getGitLog } from "./gitTools.js";
 
 const execAsync = promisify(exec);
 
@@ -269,6 +270,44 @@ export async function executeTool(
             result = { success: true, output: `RAG Results:\n${formatted}` };
           }
         }
+        break;
+      }
+
+      case "git_status": {
+        const status = await getGitStatus();
+        result = { success: true, output: JSON.stringify(status, null, 2) };
+        break;
+      }
+
+      case "git_diff": {
+        const diffs = await getGitDiff(Boolean(params.staged));
+        result = { success: true, output: JSON.stringify(diffs, null, 2) };
+        break;
+      }
+
+      case "git_commit": {
+        const commitResult = await gitCommit(String(params.message));
+        result = {
+          success: commitResult.success,
+          output: commitResult.output,
+          ...(commitResult.error ? { error: commitResult.error } : {}),
+        };
+        break;
+      }
+
+      case "git_push": {
+        const pushResult = await gitPush();
+        result = {
+          success: pushResult.success,
+          output: pushResult.output,
+          ...(pushResult.error ? { error: pushResult.error } : {}),
+        };
+        break;
+      }
+
+      case "git_log": {
+        const commits = await getGitLog(typeof params.limit === "number" ? params.limit : 10);
+        result = { success: true, output: JSON.stringify(commits, null, 2) };
         break;
       }
 

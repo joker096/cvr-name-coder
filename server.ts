@@ -24,6 +24,8 @@ import { loadInstructions, getInstructionsContext, setRulesDir } from "./src/ser
 import { loadCustomTools, setCustomToolsDir } from "./src/server/customToolLoader.js";
 import { registerPlugins, getPlugins, enablePlugin, disablePlugin, setPluginsDir } from "./src/server/pluginManager.js";
 import { cronScheduler } from "./src/server/cronScheduler.js";
+import { getGitStatus, getGitDiff, gitCommit, gitPush, getGitLog } from "./src/server/gitTools.js";
+import { trackCost, getCosts, resetCosts, estimateTokens } from "./src/server/costTracker.js";
 
 dotenv.config();
 
@@ -78,6 +80,11 @@ const ai = new GoogleGenAI({
 
 // Gemini Logic
 async function generateAIContent(prompt: string, contents: any[] = [], provider: string = "gemini", localUrl?: string, modelName?: string, apiKey?: string, temperature?: number, maxTokens?: number) {
+  const requestText = prompt + " " + contents.map(c => c.parts?.[0]?.text || "").join(" ");
+  let responseText = "";
+  let inputTokens = 0;
+  let outputTokens = 0;
+
   if ((provider === "local" || provider === "custom" || provider === "openai" || provider === "deepseek" || provider === "grok" || provider === "baseten" || provider === "openrouter" || provider === "together" || provider === "mistral") && (localUrl || apiKey)) {
     try {
       let baseUrl = localUrl;
@@ -112,7 +119,15 @@ async function generateAIContent(prompt: string, contents: any[] = [], provider:
         });
       const data: any = await response.json();
       if (data.error) throw new Error(data.error.message || "AI Provider Error");
-      return data.choices[0].message.content;
+      responseText = data.choices[0].message.content;
+      if (data.usage) {
+        inputTokens = data.usage.prompt_tokens || 0;
+        outputTokens = data.usage.completion_tokens || 0;
+      }
+      if (!inputTokens) inputTokens = estimateTokens(requestText);
+      if (!outputTokens) outputTokens = estimateTokens(responseText);
+      await trackCost(provider, modelName || body.model, inputTokens, outputTokens);
+      return responseText;
     } catch (e: any) {
       console.error(`${provider} AI Error:`, e);
       throw new Error(`${provider} AI error: ` + e.message);
@@ -140,7 +155,15 @@ async function generateAIContent(prompt: string, contents: any[] = [], provider:
       });
       const data: any = await response.json();
       if (data.error) throw new Error(data.error.message || "Anthropic Error");
-      return data.content[0].text;
+      responseText = data.content[0].text;
+      if (data.usage) {
+        inputTokens = data.usage.input_tokens || 0;
+        outputTokens = data.usage.output_tokens || 0;
+      }
+      if (!inputTokens) inputTokens = estimateTokens(requestText);
+      if (!outputTokens) outputTokens = estimateTokens(responseText);
+      await trackCost(provider, modelName || "claude-3-5-sonnet-20240620", inputTokens, outputTokens);
+      return responseText;
     } catch (e: any) {
       console.error("Anthropic Error:", e);
       throw new Error("Anthropic error: " + e.message);
@@ -155,7 +178,11 @@ async function generateAIContent(prompt: string, contents: any[] = [], provider:
         ...contents
       ]
     });
-    return result.text;
+    responseText = result.text || "";
+    inputTokens = estimateTokens(requestText);
+    outputTokens = estimateTokens(responseText);
+    await trackCost(provider, modelName || "gemini-2.0-flash", inputTokens, outputTokens);
+    return responseText;
   } catch (error) {
     console.error("Gemini Generation Error:", error);
     throw error;
@@ -533,6 +560,58 @@ app.post("/api/cron/:id/disable", (req, res) => {
   return res.json({ disabled: true });
 });
 
+// Git API routes
+app.get("/api/git/status", async (_req, res) => {
+  try {
+    const status = await getGitStatus();
+    return res.json(status);
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/api/git/diff", async (req, res) => {
+  try {
+    const staged = req.query.staged === "true";
+    const diffs = await getGitDiff(staged);
+    return res.json({ diffs });
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+app.post("/api/git/commit", async (req, res) => {
+  try {
+    const { message } = req.body;
+    if (!message || typeof message !== "string") {
+      return res.status(400).json({ error: "Commit message is required" });
+    }
+    const result = await gitCommit(message);
+    return res.json(result);
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+app.post("/api/git/push", async (_req, res) => {
+  try {
+    const result = await gitPush();
+    return res.json(result);
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/api/git/log", async (req, res) => {
+  try {
+    const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : 10;
+    const commits = await getGitLog(limit);
+    return res.json({ commits });
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
 // Tool execution endpoint
 app.post("/api/tools/execute", async (req, res) => {
   try {
@@ -696,6 +775,25 @@ app.get("/api/subagents", (_req, res) => {
 app.post("/api/subagents/:id/abort", async (req, res) => {
   await subagentManager.abort(req.params.id);
   res.json({ aborted: true });
+});
+
+// Cost tracking API routes
+app.get("/api/costs", async (_req, res) => {
+  try {
+    const costs = await getCosts();
+    return res.json(costs);
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+app.post("/api/costs/reset", async (_req, res) => {
+  try {
+    await resetCosts();
+    return res.json({ reset: true });
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message });
+  }
 });
 
 // Hook API routes

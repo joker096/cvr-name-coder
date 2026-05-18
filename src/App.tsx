@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Menu, Settings as SettingsIcon, X, Cpu, Compass, Search, Brain, Zap, Shield, Undo2, Redo2, Lightbulb, Hammer, Loader2, Square } from "lucide-react";
 import { TRANSLATIONS } from "./i18n";
 import { ChatContainer } from "./components/chat/ChatContainer";
@@ -28,7 +28,7 @@ const AGENT_CONFIG: Record<AgentId, { label: string; icon: React.ComponentType<{
 export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
-  const [sidebarTab, setSidebarTab] = useState<"memory" | "skills" | "sessions" | "cron" | "plugins" | "rules">("memory");
+  const [sidebarTab, setSidebarTab] = useState<"memory" | "skills" | "sessions" | "cron" | "plugins" | "rules" | "git">("memory");
   const [input, setInput] = useState("");
   const [lang, setLang] = useState<"en" | "ru" | "es" | "zh" | "de" | "fr" | "pt" | "it" | "ja" | "ko" | "ar" | "tr" | "pl" | "uk" | "vi" | "hi">(() => {
     const saved = localStorage.getItem("cvr_lang");
@@ -36,7 +36,7 @@ export default function App() {
     return validLangs.includes(saved || "") ? (saved as any) : "en";
   });
 
-  const { settings, updateChatConfig, toggleAutonomous, updateAutoLoopDelay } = useSettings();
+  const { settings, updateChatConfig, toggleAutonomous, updateAutoLoopDelay, toggleAutoCommit, toggleVoiceEnabled, setVoiceLanguage, toggleVoiceAutoSend } = useSettings();
   const { state: agentState, isRunning: isAgentRunning, startLoop, abortLoop } = useAgentLoop();
   const { messages, isLoading, sendMessage, cancelMessage, addMessage } = useChat(settings.chat);
   const { memories } = useMemory();
@@ -114,6 +114,46 @@ export default function App() {
   const handleLearnSkill = (skillId: string) => {
     console.log("Learn skill:", skillId);
   };
+
+  // Auto-commit after successful agent loop
+  const prevAgentRunningRef = useRef(false);
+  useEffect(() => {
+    if (prevAgentRunningRef.current && !isAgentRunning && agentState?.status === "completed") {
+      if (settings.autoCommit) {
+        const message = `Auto-commit: Agent loop completed — ${agentState.goal.slice(0, 50)}`;
+        fetch("/api/git/commit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message }),
+        }).then(async (res) => {
+          const result = await res.json();
+          addMessage({
+            id: crypto.randomUUID(),
+            role: "assistant",
+            content: result.success
+              ? `✓ Auto-committed: ${result.output || "Changes committed"}`
+              : `Auto-commit failed: ${result.error || "Unknown error"}`,
+            timestamp: Date.now(),
+          } as Message);
+        }).catch((err) => {
+          addMessage({
+            id: crypto.randomUUID(),
+            role: "assistant",
+            content: `Auto-commit failed: ${err.message}`,
+            timestamp: Date.now(),
+          } as Message);
+        });
+      } else {
+        addMessage({
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: `Agent loop completed. Use the Git panel to commit changes.`,
+          timestamp: Date.now(),
+        } as Message);
+      }
+    }
+    prevAgentRunningRef.current = isAgentRunning;
+  }, [isAgentRunning, agentState, settings.autoCommit, addMessage]);
 
   const activeAgent = settings.chat.agent || "build";
   const agentConfig = AGENT_CONFIG[activeAgent];
@@ -292,6 +332,9 @@ export default function App() {
             lang={lang}
             loadingText={t.processing}
             placeholder={t.promptPlaceholder}
+            voiceEnabled={settings.voiceEnabled}
+            voiceLanguage={settings.voiceLanguage}
+            voiceAutoSend={settings.voiceAutoSend}
           />
         </div>
       </main>
@@ -305,13 +348,21 @@ export default function App() {
         presets={settings.presets}
         isAutonomous={settings.isAutonomous}
         autoLoopDelay={settings.autoLoopDelay}
+        autoCommit={settings.autoCommit}
+        voiceEnabled={settings.voiceEnabled}
+        voiceLanguage={settings.voiceLanguage}
+        voiceAutoSend={settings.voiceAutoSend}
         onSave={handleSaveSettings}
         onPresetSave={(preset) => console.log("Save preset:", preset)}
         onPresetApply={(preset) => console.log("Apply preset:", preset)}
         onPresetDelete={(id) => console.log("Delete preset:", id)}
         onToggleAutonomous={toggleAutonomous}
+        onToggleAutoCommit={toggleAutoCommit}
         onChangeAutoLoopDelay={updateAutoLoopDelay}
         onLanguageChange={handleLanguageChange}
+        onToggleVoiceEnabled={toggleVoiceEnabled}
+        onChangeVoiceLanguage={setVoiceLanguage}
+        onToggleVoiceAutoSend={toggleVoiceAutoSend}
         t={t}
         lang={lang}
       />

@@ -1,6 +1,6 @@
 import React from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { BookOpen, Rocket, Clock, Puzzle, Scale, MessageSquare } from "lucide-react";
+import { BookOpen, Rocket, Clock, Puzzle, Scale, MessageSquare, GitBranch } from "lucide-react";
 import { cn } from "../../utils/cn";
 import { MemoryPanel } from "./MemoryPanel";
 import { SkillsPanel, type Skill } from "./SkillsPanel";
@@ -8,8 +8,9 @@ import { SessionsPanel } from "./SessionsPanel";
 import { CronPanel } from "./CronPanel";
 import { PluginsPanel } from "./PluginsPanel";
 import { RulesPanel } from "./RulesPanel";
+import { GitPanel } from "./GitPanel";
 
-export type SidebarTab = "memory" | "skills" | "sessions" | "cron" | "plugins" | "rules";
+export type SidebarTab = "memory" | "skills" | "sessions" | "cron" | "plugins" | "rules" | "git";
 
 const TAB_CONFIG: Record<SidebarTab, { label: string; icon: React.ComponentType<{ className?: string }> }> = {
   memory: { label: "Memory", icon: BookOpen },
@@ -18,6 +19,7 @@ const TAB_CONFIG: Record<SidebarTab, { label: string; icon: React.ComponentType<
   cron: { label: "Cron", icon: Clock },
   plugins: { label: "Plugins", icon: Puzzle },
   rules: { label: "Rules", icon: Scale },
+  git: { label: "Git", icon: GitBranch },
 };
 
 interface SidebarProps {
@@ -39,7 +41,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   t,
   className,
 }) => {
-  const tabs: SidebarTab[] = ["memory", "skills", "sessions", "cron", "plugins", "rules"];
+  const tabs: SidebarTab[] = ["memory", "skills", "sessions", "git", "cron", "plugins", "rules"];
 
   return (
     <AnimatePresence>
@@ -143,6 +145,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   exit={{ opacity: 0, x: -20 }}
                 >
                   <RulesPanel t={t} />
+                </motion.div>
+              )}
+              {activeTab === "git" && (
+                <motion.div
+                  key="git"
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                >
+                  <GitPanel t={t} />
                 </motion.div>
               )}
             </AnimatePresence>

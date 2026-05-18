@@ -10,7 +10,12 @@ export type ToolName =
   | "skill_list"
   | "skill_read"
   | "skill_run"
-  | "rag_search";
+  | "rag_search"
+  | "git_status"
+  | "git_diff"
+  | "git_commit"
+  | "git_push"
+  | "git_log";
 
 export interface ToolCall {
   name: ToolName;
@@ -183,6 +188,62 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         topK: { type: "number", description: "Number of results (default 3)" },
       },
       required: ["query"],
+    },
+    isReadOnly: true,
+  },
+  {
+    name: "git_status",
+    description: "Get the current git status of the repository.",
+    parameters: {
+      type: "object",
+      properties: {},
+      required: [],
+    },
+    isReadOnly: true,
+  },
+  {
+    name: "git_diff",
+    description: "Get the git diff for staged or unstaged changes.",
+    parameters: {
+      type: "object",
+      properties: {
+        staged: { type: "boolean", description: "Show diff for staged changes only" },
+      },
+      required: [],
+    },
+    isReadOnly: true,
+  },
+  {
+    name: "git_commit",
+    description: "Commit staged changes with a message.",
+    parameters: {
+      type: "object",
+      properties: {
+        message: { type: "string", description: "Commit message" },
+      },
+      required: ["message"],
+    },
+    isReadOnly: false,
+  },
+  {
+    name: "git_push",
+    description: "Push the current branch to the remote.",
+    parameters: {
+      type: "object",
+      properties: {},
+      required: [],
+    },
+    isReadOnly: false,
+  },
+  {
+    name: "git_log",
+    description: "Get recent git commit history.",
+    parameters: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "Number of commits to return (default 10)" },
+      },
+      required: [],
     },
     isReadOnly: true,
   },
