@@ -25,10 +25,5 @@ export const StatusSection: React.FC<StatusSectionProps> = ({
         {serverRunning ? "Online" : "Offline"}
       </span>
     </div>
-    <div className="grid grid-cols-2 gap-2">
-      <StatCard label="Skills" value={skillsCount} />
-      <StatCard label="Tools" value={toolsCount} />
-      <StatCard label="Memory" value={`${memoryCount} items`} />
-    </div>
   </div>
 );
