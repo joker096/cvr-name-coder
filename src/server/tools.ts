@@ -13,15 +13,19 @@ import { searchRAG } from "./ragEngine.js";
 import type { EmbedFunction } from "./ragEngine.js";
 import { loadCustomTools, executeCustomTool } from "./customToolLoader.js";
 import { getGitStatus, getGitDiff, gitCommit, gitPush, getGitLog } from "./gitTools.js";
-import {
-  browserNavigate,
-  browserClick,
-  browserType,
-  browserScreenshot,
-  browserEvaluate,
-  browserGetHtml,
-  browserClose,
-} from "./browserTools.js";
+// Browser tools loaded dynamically to avoid bundling playwright-core
+let browserTools: any = null;
+async function getBrowserTools() {
+  if (!browserTools) {
+    try {
+      const modulePath = "./browserTools.js";
+      browserTools = await import(modulePath);
+    } catch {
+      return null;
+    }
+  }
+  return browserTools;
+}
 
 const execAsync = promisify(exec);
 
@@ -35,7 +39,8 @@ export function setRagEmbedFn(fn: EmbedFunction): void {
 
 function resolveProjectPath(requestedPath: string): string {
   const resolved = path.resolve(PROJECT_ROOT, requestedPath);
-  if (!resolved.startsWith(PROJECT_ROOT)) {
+  const relative = path.relative(PROJECT_ROOT, resolved);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
     throw new Error("Path escapes project root: " + requestedPath);
   }
   return resolved;
@@ -121,27 +126,12 @@ export async function executeTool(
     }
     if (checkResult.action === "ask") {
       const pending = permissionEngine.createPending(permissionRequest);
-      const TIMEOUT = 5 * 60 * 1000; // 5 minutes
-      const startTime = Date.now();
-      while (Date.now() - startTime < TIMEOUT) {
-        const current = permissionEngine.getPending(pending.id);
-        if (current?.resolved) {
-          if (current.approved) break;
-          result = {
-            success: false,
-            output: "",
-            error: `Permission denied by user: ${name}`,
-          };
-          await hookRegistry.execute("tool.after", { tool: name, params, result }, sessionId);
-          return result;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 500));
-      }
-      if (!permissionEngine.getPending(pending.id)?.resolved) {
+      const approved = await permissionEngine.waitForResolution(pending.id, 5 * 60 * 1000);
+      if (!approved) {
         result = {
           success: false,
           output: "",
-          error: `Permission request timed out: ${name}`,
+          error: `Permission denied or timed out: ${name}`,
         };
         await hookRegistry.execute("tool.after", { tool: name, params, result }, sessionId);
         return result;
@@ -321,25 +311,33 @@ export async function executeTool(
       }
 
       case "browser_navigate": {
-        const navResult = await browserNavigate(sessionId, String(params.url), Boolean(params.headless ?? true));
+        const bt = await getBrowserTools();
+        if (!bt) { result = { success: false, output: "", error: "playwright-core not installed" }; break; }
+        const navResult = await bt.browserNavigate(sessionId, String(params.url), Boolean(params.headless ?? true));
         result = { success: navResult.success, output: navResult.output, ...(navResult.error ? { error: navResult.error } : {}) };
         break;
       }
 
       case "browser_click": {
-        const clickResult = await browserClick(sessionId, String(params.selector), Boolean(params.headless ?? true));
+        const bt = await getBrowserTools();
+        if (!bt) { result = { success: false, output: "", error: "playwright-core not installed" }; break; }
+        const clickResult = await bt.browserClick(sessionId, String(params.selector), Boolean(params.headless ?? true));
         result = { success: clickResult.success, output: clickResult.output, ...(clickResult.error ? { error: clickResult.error } : {}) };
         break;
       }
 
       case "browser_type": {
-        const typeResult = await browserType(sessionId, String(params.selector), String(params.text), Boolean(params.headless ?? true));
+        const bt = await getBrowserTools();
+        if (!bt) { result = { success: false, output: "", error: "playwright-core not installed" }; break; }
+        const typeResult = await bt.browserType(sessionId, String(params.selector), String(params.text), Boolean(params.headless ?? true));
         result = { success: typeResult.success, output: typeResult.output, ...(typeResult.error ? { error: typeResult.error } : {}) };
         break;
       }
 
       case "browser_screenshot": {
-        const ssResult = await browserScreenshot(sessionId, Boolean(params.headless ?? true));
+        const bt = await getBrowserTools();
+        if (!bt) { result = { success: false, output: "", error: "playwright-core not installed" }; break; }
+        const ssResult = await bt.browserScreenshot(sessionId, Boolean(params.headless ?? true));
         result = {
           success: ssResult.success,
           output: ssResult.output,
@@ -350,19 +348,25 @@ export async function executeTool(
       }
 
       case "browser_evaluate": {
-        const evalResult = await browserEvaluate(sessionId, String(params.script), Boolean(params.headless ?? true));
+        const bt = await getBrowserTools();
+        if (!bt) { result = { success: false, output: "", error: "playwright-core not installed" }; break; }
+        const evalResult = await bt.browserEvaluate(sessionId, String(params.script), Boolean(params.headless ?? true));
         result = { success: evalResult.success, output: evalResult.output, ...(evalResult.error ? { error: evalResult.error } : {}) };
         break;
       }
 
       case "browser_get_html": {
-        const htmlResult = await browserGetHtml(sessionId, Boolean(params.headless ?? true));
+        const bt = await getBrowserTools();
+        if (!bt) { result = { success: false, output: "", error: "playwright-core not installed" }; break; }
+        const htmlResult = await bt.browserGetHtml(sessionId, Boolean(params.headless ?? true));
         result = { success: htmlResult.success, output: htmlResult.output, ...(htmlResult.error ? { error: htmlResult.error } : {}) };
         break;
       }
 
       case "browser_close": {
-        const closeResult = await browserClose(sessionId);
+        const bt = await getBrowserTools();
+        if (!bt) { result = { success: false, output: "", error: "playwright-core not installed" }; break; }
+        const closeResult = await bt.browserClose(sessionId);
         result = { success: closeResult.success, output: closeResult.output, ...(closeResult.error ? { error: closeResult.error } : {}) };
         break;
       }
@@ -372,7 +376,7 @@ export async function executeTool(
         const customTools = await loadCustomTools();
         const customTool = customTools.find((t) => t.id === name);
         if (customTool) {
-          result = executeCustomTool(customTool, params);
+          result = await executeCustomTool(customTool, params);
         } else {
           result = { success: false, output: "", error: `Unknown tool: ${name}` };
         }

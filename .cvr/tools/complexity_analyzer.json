@@ -1,0 +1,16 @@
+{
+  "id": "complexity_analyzer",
+  "name": "complexity_analyzer",
+  "description": "Scan a codebase for algorithmic complexity and performance hotspots. Supports markdown and json output.",
+  "parameters": [
+    { "name": "directory", "type": "string", "description": "Directory to scan", "required": true },
+    { "name": "format", "type": "string", "description": "Output format: markdown or json", "required": false, "default": "markdown" },
+    { "name": "exclude", "type": "string", "description": "Additional directories to exclude (comma-separated)", "required": false },
+    { "name": "max_findings", "type": "number", "description": "Maximum findings to report", "required": false, "default": 50 }
+  ],
+  "handler": {
+    "type": "command",
+    "template": "python3 <cvr:tools>/analyze_complexity.py \"{directory}\" --format {format} --max-findings {max_findings}"
+  },
+  "readOnly": true
+}

@@ -1,9 +1,8 @@
 import { useState, useEffect, useRef } from "react";
-import { Menu, Settings as SettingsIcon, X, Cpu, Compass, Search, Brain, Zap, Shield, Undo2, Redo2, Lightbulb, Hammer, Loader2, Square, Eye } from "lucide-react";
+import { Settings as SettingsIcon, Cpu, Compass, Search, Brain, Zap, Shield, Undo2, Redo2, Lightbulb, Hammer, Loader2, Square, Eye } from "lucide-react";
 import { TRANSLATIONS } from "./i18n";
 import { ChatContainer } from "./components/chat/ChatContainer";
 import { SettingsModal } from "./components/settings/SettingsModal";
-import { Sidebar } from "./components/sidebar/Sidebar";
 import { useSettings } from "./hooks/useSettings";
 import { useChat } from "./hooks/useChat";
 import { useMemory } from "./hooks/useMemory";
@@ -11,6 +10,7 @@ import { useChanges } from "./hooks/useChanges";
 import { usePermissions } from "./hooks/usePermissions";
 import { useAgentLoop } from "./hooks/useAgentLoop";
 import { useBrowserStatus } from "./hooks/useBrowserStatus";
+import { DashboardPanel } from "./components/dashboard/DashboardPanel";
 import { cn } from "./utils/cn";
 import type { Skill } from "./components/sidebar/SkillsPanel";
 import type { AgentId } from "./types/settings";
@@ -26,15 +26,21 @@ const AGENT_CONFIG: Record<AgentId, { label: string; icon: React.ComponentType<{
   hephaestus: { label: "EXECUTE", icon: Shield, color: "text-red-400" },
 };
 
+interface DashboardSkill {
+  id: string;
+  name: string;
+  description: string;
+  status: string;
+}
+
 export default function App() {
   const [showSettings, setShowSettings] = useState(false);
-  const [showSidebar, setShowSidebar] = useState(false);
-  const [sidebarTab, setSidebarTab] = useState<"memory" | "skills" | "sessions" | "cron" | "plugins" | "rules" | "git" | "sync">("memory");
   const [input, setInput] = useState("");
-  const [lang, setLang] = useState<"en" | "ru" | "es" | "zh" | "de" | "fr" | "pt" | "it" | "ja" | "ko" | "ar" | "tr" | "pl" | "uk" | "vi" | "hi">(() => {
+  const ALL_LANGS = ["en", "ru", "es", "zh", "de", "fr", "pt", "it", "ja", "ko", "ar", "tr", "pl", "uk", "vi", "hi"] as const;
+  type Lang = (typeof ALL_LANGS)[number];
+  const [lang, setLang] = useState<Lang>(() => {
     const saved = localStorage.getItem("cvr_lang");
-    const validLangs = ["en", "ru", "es", "zh", "de", "fr", "pt", "it", "ja", "ko", "ar", "tr", "pl", "uk", "vi", "hi"];
-    return validLangs.includes(saved || "") ? (saved as any) : "en";
+    return saved && (ALL_LANGS as readonly string[]).includes(saved) ? (saved as Lang) : "en";
   });
 
   const { settings, updateChatConfig, toggleAutonomous, updateAutoLoopDelay, toggleAutoCommit, toggleVoiceEnabled, setVoiceLanguage, toggleVoiceAutoSend } = useSettings();
@@ -147,16 +153,14 @@ export default function App() {
   };
 
   const handleLanguageChange = (newLang: string) => {
-    setLang(newLang as any);
-    localStorage.setItem("cvr_lang", newLang);
+    if ((ALL_LANGS as readonly string[]).includes(newLang)) {
+      setLang(newLang as Lang);
+      localStorage.setItem("cvr_lang", newLang);
+    }
   };
 
   const handleAgentChange = (agent: AgentId) => {
     updateChatConfig({ agent });
-  };
-
-  const handleLearnSkill = (skillId: string) => {
-    console.log("Learn skill:", skillId);
   };
 
   // Auto-commit after successful agent loop
@@ -229,30 +233,15 @@ export default function App() {
   return (
     <div className="h-screen w-screen bg-dash-bg text-dash-text-primary overflow-hidden flex flex-col">
       {/* Top Header */}
-      <header className="flex items-center justify-between px-2 md:px-3 py-0.5 bg-dash-header border-b border-dash-border shrink-0">
-        <div className="flex items-center gap-1.5">
-          <button
-            onClick={() => setShowSidebar(!showSidebar)}
-            className="md:hidden p-1 hover:bg-neutral-800 rounded transition-colors text-dash-text-muted"
-          >
-            <Menu className="w-3.5 h-3.5" />
-          </button>
-          {showSidebar && (
-            <button
-              onClick={() => setShowSidebar(false)}
-              className="hidden md:block p-1 hover:bg-neutral-800 rounded transition-colors text-dash-text-muted"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          )}
-          <div className="flex items-center gap-1">
-            <div className="flex items-center gap-1 cursor-default select-none">
-              <span className="w-1.5 h-1.5 rounded-full bg-dash-success animate-pulse" aria-hidden="true" />
-              <span className="text-[11px] font-mono text-dash-text-muted uppercase tracking-wider">
-                cvr
-              </span>
-            </div>
-          </div>
+      <header className="flex items-center justify-between px-3 py-1 bg-dash-elevated border-b border-dash-border shrink-0">
+        <div className="flex items-center gap-2">
+          <span className="text-[12px] font-mono text-dash-text-primary font-bold tracking-wide">
+            cvr.name<span className="text-dash-accent">.coder</span>
+          </span>
+          <span className="flex items-center gap-1 text-[9px] font-mono text-dash-success bg-dash-success/10 px-1.5 py-0.5 rounded uppercase">
+            <span className="w-1.5 h-1.5 rounded-full bg-dash-success animate-pulse" />
+            Online
+          </span>
         </div>
         <div className="flex items-center gap-2 md:gap-3">
           {/* Agent Selector */}
@@ -367,16 +356,15 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main Content */}
+      {/* Main Content — split layout */}
       <main className="flex-1 flex overflow-hidden relative">
-        {/* Sidebar */}
-        <Sidebar
-          isOpen={showSidebar}
-          activeTab={sidebarTab}
-          onTabChange={setSidebarTab}
-          skills={skills}
-          onLearnSkill={handleLearnSkill}
-          t={t}
+        {/* Dashboard — permanent left panel */}
+        <DashboardPanel
+          skills={skills as DashboardSkill[]}
+          skillsCount={skills.length}
+          toolsCount={3}
+          memoryCount={memories.length}
+          serverRunning={true}
         />
 
         {/* Chat Area */}

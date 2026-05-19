@@ -9,7 +9,7 @@ export function setSkillCreatorDir(dir: string): void {
 
 export interface SkillCreationInput {
   goal: string;
-  steps: Array<{ thought: string; action?: any; observation?: string }>;
+  steps: Array<{ thought: string; action?: any; observation?: string | undefined }>;
   toolNames: string[];
   durationMs: number;
   success: boolean;

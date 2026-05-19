@@ -2,11 +2,10 @@ import express from "express";
 import * as path from "path";
 import { readFile, writeFile, mkdir, access } from "fs/promises";
 import { createServer as createViteServer } from "vite";
-import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
-import { executeTool } from "./src/server/tools.js";
+import { executeTool, setRagEmbedFn } from "./src/server/tools.js";
 import { recordChange, undoChange, redoChange, getChangeState } from "./src/server/changes.js";
 import { buildSystemPrompt } from "./src/server/prompts.js";
 import { PermissionEngine } from "./src/server/permissions.js";
@@ -28,7 +27,7 @@ import { registerPlugins, getPlugins, enablePlugin, disablePlugin, setPluginsDir
 import { cronScheduler } from "./src/server/cronScheduler.js";
 import { getGitStatus, getGitDiff, gitCommit, gitPush, getGitLog } from "./src/server/gitTools.js";
 import { analyzeDiff, getPendingReviews, acceptComment, rejectComment } from "./src/server/codeReview.js";
-import { trackCost, getCosts, resetCosts, estimateTokens } from "./src/server/costTracker.js";
+import { getCosts, resetCosts } from "./src/server/costTracker.js";
 import { processImages, type ProcessedImage } from "./src/server/imageProcessor.js";
 import { loadMcpConfig, startMcpStdio, mountMcpSseRoutes } from "./src/server/mcpServer.js";
 import {
@@ -40,6 +39,7 @@ import {
   browserGetHtml,
   browserClose,
   getActiveBrowserSessions,
+  closeAllBrowsers,
 } from "./src/server/browserTools.js";
 import {
   initSync,
@@ -133,169 +133,19 @@ try {
   });
 }
 
-// Initialize Gemini
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY!,
-});
+import { generateAIContent, generateEmbeddings } from "./src/server/providers.js";
+import {
+  validateBody,
+  ChatRequestSchema,
+  ToolExecuteSchema,
+  ReviewRequestSchema,
+  AgentLoopSchema,
+  CronTaskSchema,
+  GitCommitSchema,
+  BrowserNavigateSchema,
+  BrowserActionSchema,
+} from "./src/server/validation.js";
 
-// Gemini Logic
-async function generateAIContent(prompt: string, contents: any[] = [], provider: string = "gemini", localUrl?: string, modelName?: string, apiKey?: string, temperature?: number, maxTokens?: number) {
-  const requestText = prompt + " " + contents.map(c => c.parts?.[0]?.text || "").join(" ");
-  let responseText = "";
-  let inputTokens = 0;
-  let outputTokens = 0;
-
-  if ((provider === "local" || provider === "custom" || provider === "openai" || provider === "deepseek" || provider === "grok" || provider === "baseten" || provider === "openrouter" || provider === "together" || provider === "mistral") && (localUrl || apiKey)) {
-    try {
-      let baseUrl = localUrl;
-      if (provider === "openai") baseUrl = "https://api.openai.com/v1";
-      if (provider === "deepseek") baseUrl = localUrl || "https://api.deepseek.com";
-      if (provider === "grok") baseUrl = localUrl || "https://api.x.ai/v1";
-      if (provider === "baseten") baseUrl = "https://api.baseten.co/v1";
-      if (provider === "openrouter") baseUrl = "https://openrouter.ai/api/v1";
-      if (provider === "together") baseUrl = "https://api.together.xyz/v1";
-      if (provider === "mistral") baseUrl = "https://api.mistral.ai/v1";
-
-        const body: any = {
-          model: modelName || (provider === "openai" ? "gpt-4o" : provider === "deepseek" ? "deepseek-chat" : provider === "grok" ? "grok-beta" : provider === "baseten" ? "llama-3-1-70b-instruct" : provider === "openrouter" ? "meta-llama/llama-3.3-70b-instruct:free" : provider === "together" ? "meta-llama/Llama-3.3-70B-Instruct-Turbo" : provider === "mistral" ? "mistral-large-latest" : "local-model"),
-          messages: [
-            { role: 'system', content: prompt },
-            ...contents.map(c => {
-              const hasImages = c.parts.some((p: any) => p.inlineData);
-              if (hasImages) {
-                return {
-                  role: c.role === 'model' ? 'assistant' : c.role,
-                  content: c.parts.map((p: any) => {
-                    if (p.text) return { type: 'text', text: p.text };
-                    if (p.inlineData) return { type: 'image_url', image_url: { url: `data:${p.inlineData.mimeType};base64,${p.inlineData.data}` } };
-                    return null;
-                  }).filter((x: any) => x !== null)
-                };
-              }
-              return {
-                role: c.role === 'model' ? 'assistant' : c.role,
-                content: c.parts[0].text
-              };
-            })
-          ]
-        };
-        if (temperature !== undefined) body.temperature = temperature;
-        if (maxTokens !== undefined) body.max_tokens = maxTokens;
-
-        const response = await fetch(`${(baseUrl || '').replace(/\/$/, '')}/v1/chat/completions`, {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey || (provider === "openai" ? process.env.OPENAI_API_KEY : provider === "deepseek" ? process.env.DEEPSEEK_API_KEY : provider === "grok" ? process.env.XAI_API_KEY : provider === "baseten" ? process.env.BASETEN_API_KEY : provider === "openrouter" ? process.env.OPENROUTER_API_KEY : provider === "together" ? process.env.TOGETHER_API_KEY : provider === "mistral" ? process.env.MISTRAL_API_KEY : provider === "custom" ? process.env.CUSTOM_API_KEY : "")}`
-          },
-          body: JSON.stringify(body)
-        });
-      const data: any = await response.json();
-      if (data.error) throw new Error(data.error.message || "AI Provider Error");
-      responseText = data.choices[0].message.content;
-      if (data.usage) {
-        inputTokens = data.usage.prompt_tokens || 0;
-        outputTokens = data.usage.completion_tokens || 0;
-      }
-      if (!inputTokens) inputTokens = estimateTokens(requestText);
-      if (!outputTokens) outputTokens = estimateTokens(responseText);
-      await trackCost(provider, modelName || body.model, inputTokens, outputTokens);
-      return responseText;
-    } catch (e: any) {
-      console.error(`${provider} AI Error:`, e);
-      throw new Error(`${provider} AI error: ` + e.message);
-    }
-  }
-
-  if (provider === "anthropic") {
-    try {
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey || process.env.ANTHROPIC_API_KEY || "",
-          'anthropic-version': '2023-06-01'
-        },
-        body: JSON.stringify({
-          model: modelName || "claude-3-5-sonnet-20240620",
-          max_tokens: 4096,
-          system: prompt,
-          messages: contents.map(c => {
-            const hasImages = c.parts.some((p: any) => p.inlineData);
-            if (hasImages) {
-              return {
-                role: c.role === 'model' ? 'assistant' : c.role,
-                content: c.parts.map((p: any) => {
-                  if (p.text) return { type: 'text', text: p.text };
-                  if (p.inlineData) return { type: 'image', source: { type: 'base64', media_type: p.inlineData.mimeType, data: p.inlineData.data } };
-                  return null;
-                }).filter((x: any) => x !== null)
-              };
-            }
-            return {
-              role: c.role === 'model' ? 'assistant' : c.role,
-              content: c.parts[0].text
-            };
-          })
-        })
-      });
-      const data: any = await response.json();
-      if (data.error) throw new Error(data.error.message || "Anthropic Error");
-      responseText = data.content[0].text;
-      if (data.usage) {
-        inputTokens = data.usage.input_tokens || 0;
-        outputTokens = data.usage.output_tokens || 0;
-      }
-      if (!inputTokens) inputTokens = estimateTokens(requestText);
-      if (!outputTokens) outputTokens = estimateTokens(responseText);
-      await trackCost(provider, modelName || "claude-3-5-sonnet-20240620", inputTokens, outputTokens);
-      return responseText;
-    } catch (e: any) {
-      console.error("Anthropic Error:", e);
-      throw new Error("Anthropic error: " + e.message);
-    }
-  }
-
-  try {
-    const result = await ai.models.generateContent({
-      model: modelName || "gemini-2.0-flash",
-      contents: [
-        { role: 'user', parts: [{ text: prompt }] },
-        ...contents
-      ]
-    });
-    responseText = result.text || "";
-    inputTokens = estimateTokens(requestText);
-    outputTokens = estimateTokens(responseText);
-    await trackCost(provider, modelName || "gemini-2.0-flash", inputTokens, outputTokens);
-    return responseText;
-  } catch (error) {
-    console.error("Gemini Generation Error:", error);
-    throw error;
-  }
-}
-
-async function generateEmbeddings(texts: string[]): Promise<number[][]> {
-  try {
-    const result = await ai.models.embedContent({
-      model: "text-embedding-004",
-      contents: texts.map((t) => ({ role: "user", parts: [{ text: t }] })),
-    });
-    // Gemini v1 returns embeddings per content
-    if (Array.isArray(result.embeddings)) {
-      return result.embeddings.map((e: any) => e.values as number[]);
-    }
-    if (result.embeddings && Array.isArray((result.embeddings as any).values)) {
-      return [(result.embeddings as any).values as number[]];
-    }
-    return texts.map(() => []);
-  } catch (e) {
-    console.error("Embedding generation failed:", e);
-    return texts.map(() => []);
-  }
-}
-
-import { setRagEmbedFn } from "./src/server/tools.js";
 setRagEmbedFn(generateEmbeddings);
 
 // Memory Engine
@@ -322,7 +172,7 @@ async function summarizeLongHistory(messages: any[], provider: string = "gemini"
 }
 
 // API Routes
-app.post("/api/chat", async (req, res) => {
+app.post("/api/chat", validateBody(ChatRequestSchema), async (req, res) => {
   try {
     const { message, config = {}, kernelConfig = {}, agent: bodyAgent } = req.body;
     const { aiProvider = "gemini", localUrl, aiModel, apiKey, temperature, maxTokens, systemPrompt: customSystemPrompt, agent: configAgent, maxImageSize } = config;
@@ -656,7 +506,7 @@ app.get("/api/cron", (_req, res) => {
   return res.json({ tasks: cronScheduler.getTasks() });
 });
 
-app.post("/api/cron", (req, res) => {
+app.post("/api/cron", validateBody(CronTaskSchema), (req, res) => {
   try {
     const task = cronScheduler.addTask(req.body);
     return res.json(task);
@@ -700,7 +550,7 @@ app.get("/api/git/diff", async (req, res) => {
   }
 });
 
-app.post("/api/git/commit", async (req, res) => {
+app.post("/api/git/commit", validateBody(GitCommitSchema), async (req, res) => {
   try {
     const { message } = req.body;
     if (!message || typeof message !== "string") {
@@ -733,7 +583,7 @@ app.get("/api/git/log", async (req, res) => {
 });
 
 // Tool execution endpoint
-app.post("/api/tools/execute", async (req, res) => {
+app.post("/api/tools/execute", validateBody(ToolExecuteSchema), async (req, res) => {
   try {
     const { toolCall, mode = "build", sessionId = randomUUID() } = req.body;
     const result = await executeTool(toolCall, mode, permissionEngine, sessionId);
@@ -825,7 +675,7 @@ app.post("/api/permissions/resolve/:id", (req, res) => {
 const activeLoops = new Map<string, AgentLoop>();
 const subagentManager = new SubagentManager();
 
-app.post("/api/agent/loop", async (req, res) => {
+app.post("/api/agent/loop", validateBody(AgentLoopSchema), async (req, res) => {
   try {
     const { goal, provider, model } = req.body;
     const id = randomUUID();
@@ -838,7 +688,12 @@ app.post("/api/agent/loop", async (req, res) => {
     });
 
     activeLoops.set(id, loop);
-    loop.run().catch((err) => console.error(`Agent loop ${id} error:`, err));
+    loop.run()
+      .then(() => activeLoops.delete(id))
+      .catch((err) => {
+        console.error(`Agent loop ${id} error:`, err);
+        activeLoops.delete(id);
+      });
 
     res.json({ id, state: loop.getState() });
   } catch (error: any) {
@@ -898,7 +753,7 @@ app.post("/api/subagents/:id/abort", async (req, res) => {
 });
 
 // Review API routes
-app.post("/api/review", async (req, res) => {
+app.post("/api/review", validateBody(ReviewRequestSchema), async (req, res) => {
   try {
     const { diff, config = {} } = req.body;
     const { aiProvider = "gemini", localUrl, aiModel, apiKey, temperature, maxTokens } = config;
@@ -936,7 +791,7 @@ app.post("/api/review/:id/reject", (req, res) => {
 });
 
 // Browser API routes
-app.post("/api/browser/navigate", async (req, res) => {
+app.post("/api/browser/navigate", validateBody(BrowserNavigateSchema), async (req, res) => {
   try {
     const { url, headless = true, sessionId = "default" } = req.body;
     if (!url || typeof url !== "string") {
@@ -949,7 +804,7 @@ app.post("/api/browser/navigate", async (req, res) => {
   }
 });
 
-app.post("/api/browser/click", async (req, res) => {
+app.post("/api/browser/click", validateBody(BrowserActionSchema), async (req, res) => {
   try {
     const { selector, headless = true, sessionId = "default" } = req.body;
     if (!selector || typeof selector !== "string") {
@@ -962,7 +817,7 @@ app.post("/api/browser/click", async (req, res) => {
   }
 });
 
-app.post("/api/browser/type", async (req, res) => {
+app.post("/api/browser/type", validateBody(BrowserActionSchema), async (req, res) => {
   try {
     const { selector, text, headless = true, sessionId = "default" } = req.body;
     if (!selector || typeof selector !== "string" || typeof text !== "string") {
@@ -1162,9 +1017,29 @@ async function startServer() {
   }
 
   // SECURITY: Bind to localhost only to prevent remote exposure
-  app.listen(PORT, "127.0.0.1", () => {
+  const server = app.listen(PORT, "127.0.0.1", () => {
     console.log(`Server running on http://127.0.0.1:${PORT}`);
   });
+
+  // Graceful shutdown
+  const shutdown = async (signal: string) => {
+    console.log(`Received ${signal}, shutting down gracefully...`);
+    server.close(() => {
+      console.log("HTTP server closed");
+    });
+    await closeAllBrowsers();
+    // Close SQLite if open
+    try {
+      const { getDb } = await import("./src/server/sessionStore.js");
+      getDb().close();
+    } catch {
+      // ignore
+    }
+    process.exit(0);
+  };
+
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
 }
 
 startServer();

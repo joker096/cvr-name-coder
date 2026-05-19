@@ -150,6 +150,8 @@ export async function getGitDiff(stagedOnly = false): Promise<GitDiff[]> {
 export async function gitCommit(message: string): Promise<{ success: boolean; output: string; error?: string }> {
   try {
     await runGit(["rev-parse", "--git-dir"]);
+    // Stage all changes before committing
+    await runGit(["add", "-A"]);
     const output = await runGit(["commit", "-m", message]);
     return { success: true, output };
   } catch (err: any) {

@@ -5,10 +5,12 @@ import {
   PendingPermission,
 } from "../types/permissions";
 import { randomUUID } from "crypto";
+import { EventEmitter } from "events";
 
 export class PermissionEngine {
   private config: PermissionConfig;
   private pending = new Map<string, PendingPermission>();
+  private emitter = new EventEmitter();
 
   constructor(config: PermissionConfig) {
     this.config = config;
@@ -68,9 +70,30 @@ export class PermissionEngine {
     if (pending) {
       pending.resolved = true;
       pending.approved = approved;
+      this.emitter.emit(`resolved:${id}`, approved);
       // Auto-delete after a short delay to prevent memory accumulation
       setTimeout(() => this.pending.delete(id), 300000); // 5 minutes
     }
+  }
+
+  async waitForResolution(id: string, timeoutMs: number): Promise<boolean> {
+    const pending = this.pending.get(id);
+    if (!pending) return false;
+    if (pending.resolved) return pending.approved ?? false;
+
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.emitter.off(`resolved:${id}`, onResolved);
+        resolve(false);
+      }, timeoutMs);
+
+      const onResolved = (approved: boolean) => {
+        clearTimeout(timer);
+        resolve(approved);
+      };
+
+      this.emitter.once(`resolved:${id}`, onResolved);
+    });
   }
 
   getPending(id: string): PendingPermission | undefined {

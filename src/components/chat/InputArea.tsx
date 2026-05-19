@@ -228,7 +228,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
             className="w-full bg-transparent border-none focus:ring-0 text-[15px] font-mono p-1 min-h-[32px] max-h-24 resize-none no-scrollbar text-dash-text-primary placeholder:text-dash-text-label disabled:opacity-50"
           />
           {showCommands && filteredCommands.length > 0 && (
-            <div className="absolute bottom-full left-0 mb-1 w-full bg-dash-header border border-dash-border rounded-lg shadow-2xl overflow-hidden z-50">
+            <div className="absolute bottom-full left-0 mb-1 w-full bg-dash-elevated border border-dash-border rounded-lg shadow-2xl overflow-hidden z-50">
               {filteredCommands.map((cmd, index) => (
                 <button
                   key={cmd.command}

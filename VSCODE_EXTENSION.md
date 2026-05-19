@@ -34,7 +34,7 @@ Run an **autonomous AI coding agent** directly inside VS Code. Fully self-contai
 1. Build the extension (or use pre-built `.vsix`):
    ```bash
    cd vscode
-   npm install
+   
    npm run build
    npx @vscode/vsce package
    ```

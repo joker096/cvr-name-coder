@@ -46,7 +46,13 @@
     "color": "#0F0F11",
     "theme": "dark"
   },
-  "activationEvents": [],
+  "activationEvents": [
+    "onStartupFinished",
+    "onView:cvr.webview",
+    "onCommand:cvr.launch",
+    "onCommand:cvr.openSidebar",
+    "onCommand:cvr.inlineEdit"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [

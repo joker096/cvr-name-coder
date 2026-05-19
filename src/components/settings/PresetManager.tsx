@@ -67,7 +67,7 @@ export const PresetManager: React.FC<PresetManagerProps> = ({
       </div>
 
       {showCreateForm && (
-        <div className="space-y-2 p-3 bg-dash-card border border-dash-border rounded-lg">
+        <div className="space-y-2 p-3 bg-dash-surface border border-dash-border rounded-lg">
           <input
             type="text"
             value={presetName}
@@ -106,7 +106,7 @@ export const PresetManager: React.FC<PresetManagerProps> = ({
               "p-3 border rounded-lg transition-all",
               isCurrentConfig(preset)
                 ? "bg-dash-accent/10 border-dash-accent/30"
-                : "bg-dash-card border-dash-border hover:border-dash-accent/30"
+                : "bg-dash-surface border-dash-border hover:border-dash-accent/30"
             )}
           >
             <div className="flex items-start justify-between gap-2">

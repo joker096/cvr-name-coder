@@ -2,9 +2,10 @@ import express from "express";
 import * as path from "path";
 import { readFile, writeFile, mkdir, access } from "fs/promises";
 import { createServer as createViteServer } from "vite";
-import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
-import { executeTool } from "./src/server/tools.js";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
+import { executeTool, setRagEmbedFn } from "./src/server/tools.js";
 import { recordChange, undoChange, redoChange, getChangeState } from "./src/server/changes.js";
 import { buildSystemPrompt } from "./src/server/prompts.js";
 import { PermissionEngine } from "./src/server/permissions.js";
@@ -25,8 +26,11 @@ import { registerPlugins, getPlugins, enablePlugin, disablePlugin, setPluginsDir
 import { cronScheduler } from "./src/server/cronScheduler.js";
 import { getGitStatus, getGitDiff, gitCommit, gitPush, getGitLog } from "./src/server/gitTools.js";
 import { analyzeDiff, getPendingReviews, acceptComment, rejectComment } from "./src/server/codeReview.js";
-import { trackCost, getCosts, resetCosts, estimateTokens } from "./src/server/costTracker.js";
+import { getCosts, resetCosts } from "./src/server/costTracker.js";
 import { processImages } from "./src/server/imageProcessor.js";
+import { loadMcpConfig, startMcpStdio, mountMcpSseRoutes } from "./src/server/mcpServer.js";
+import { browserNavigate, browserClick, browserType, browserScreenshot, browserEvaluate, browserGetHtml, browserClose, getActiveBrowserSessions, closeAllBrowsers, } from "./src/server/browserTools.js";
+import { initSync, getSyncStatus, exportSync, importSync, getSyncConfig, saveSyncConfig, resolveConflictsManually, } from "./src/server/teamSync.js";
 dotenv.config();
 // Local Storage Path
 const STORAGE_DIR = path.join(process.cwd(), ".opencode-infinite");
@@ -55,6 +59,39 @@ async function ensureStorage() {
 const app = express();
 const PORT = 3000;
 app.use(express.json());
+// ─── Security Middleware ───
+app.use(helmet({
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'", "'unsafe-inline'"], // Allow inline scripts for SPA
+            styleSrc: ["'self'", "'unsafe-inline'"],
+            imgSrc: ["'self'", "data:", "blob:"],
+        },
+    },
+}));
+const limiter = rateLimit({
+    windowMs: 1 * 60 * 1000, // 1 minute
+    max: 120, // 120 requests per minute per IP
+    message: { error: "Too many requests, please try again later." },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+app.use(limiter);
+// API key authentication for non-development environments
+const API_KEY = process.env.CVR_API_KEY || (process.env.NODE_ENV === "production" ? null : "dev");
+function requireApiKey(req, res, next) {
+    if (!API_KEY || API_KEY === "dev") {
+        return next();
+    }
+    const headerKey = req.headers["x-api-key"];
+    if (headerKey !== API_KEY) {
+        return res.status(401).json({ error: "Unauthorized: invalid or missing x-api-key header" });
+    }
+    next();
+}
+app.use("/api", requireApiKey);
+app.use("/mcp", requireApiKey);
 // Initialize Permission Engine
 let permissionEngine;
 try {
@@ -79,184 +116,8 @@ catch {
         defaultAction: "ask",
     });
 }
-// Initialize Gemini
-const ai = new GoogleGenAI({
-    apiKey: process.env.GEMINI_API_KEY,
-});
-// Gemini Logic
-async function generateAIContent(prompt, contents = [], provider = "gemini", localUrl, modelName, apiKey, temperature, maxTokens) {
-    const requestText = prompt + " " + contents.map(c => c.parts?.[0]?.text || "").join(" ");
-    let responseText = "";
-    let inputTokens = 0;
-    let outputTokens = 0;
-    if ((provider === "local" || provider === "custom" || provider === "openai" || provider === "deepseek" || provider === "grok" || provider === "baseten" || provider === "openrouter" || provider === "together" || provider === "mistral") && (localUrl || apiKey)) {
-        try {
-            let baseUrl = localUrl;
-            if (provider === "openai")
-                baseUrl = "https://api.openai.com/v1";
-            if (provider === "deepseek")
-                baseUrl = localUrl || "https://api.deepseek.com";
-            if (provider === "grok")
-                baseUrl = localUrl || "https://api.x.ai/v1";
-            if (provider === "baseten")
-                baseUrl = "https://api.baseten.co/v1";
-            if (provider === "openrouter")
-                baseUrl = "https://openrouter.ai/api/v1";
-            if (provider === "together")
-                baseUrl = "https://api.together.xyz/v1";
-            if (provider === "mistral")
-                baseUrl = "https://api.mistral.ai/v1";
-            const body = {
-                model: modelName || (provider === "openai" ? "gpt-4o" : provider === "deepseek" ? "deepseek-chat" : provider === "grok" ? "grok-beta" : provider === "baseten" ? "llama-3-1-70b-instruct" : provider === "openrouter" ? "meta-llama/llama-3.3-70b-instruct:free" : provider === "together" ? "meta-llama/Llama-3.3-70B-Instruct-Turbo" : provider === "mistral" ? "mistral-large-latest" : "local-model"),
-                messages: [
-                    { role: 'system', content: prompt },
-                    ...contents.map(c => {
-                        const hasImages = c.parts.some((p) => p.inlineData);
-                        if (hasImages) {
-                            return {
-                                role: c.role === 'model' ? 'assistant' : c.role,
-                                content: c.parts.map((p) => {
-                                    if (p.text)
-                                        return { type: 'text', text: p.text };
-                                    if (p.inlineData)
-                                        return { type: 'image_url', image_url: { url: `data:${p.inlineData.mimeType};base64,${p.inlineData.data}` } };
-                                    return null;
-                                }).filter((x) => x !== null)
-                            };
-                        }
-                        return {
-                            role: c.role === 'model' ? 'assistant' : c.role,
-                            content: c.parts[0].text
-                        };
-                    })
-                ]
-            };
-            if (temperature !== undefined)
-                body.temperature = temperature;
-            if (maxTokens !== undefined)
-                body.max_tokens = maxTokens;
-            const response = await fetch(`${(baseUrl || '').replace(/\/$/, '')}/v1/chat/completions`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${apiKey || (provider === "openai" ? process.env.OPENAI_API_KEY : provider === "deepseek" ? process.env.DEEPSEEK_API_KEY : provider === "grok" ? process.env.XAI_API_KEY : provider === "baseten" ? process.env.BASETEN_API_KEY : provider === "openrouter" ? process.env.OPENROUTER_API_KEY : provider === "together" ? process.env.TOGETHER_API_KEY : provider === "mistral" ? process.env.MISTRAL_API_KEY : provider === "custom" ? process.env.CUSTOM_API_KEY : "")}`
-                },
-                body: JSON.stringify(body)
-            });
-            const data = await response.json();
-            if (data.error)
-                throw new Error(data.error.message || "AI Provider Error");
-            responseText = data.choices[0].message.content;
-            if (data.usage) {
-                inputTokens = data.usage.prompt_tokens || 0;
-                outputTokens = data.usage.completion_tokens || 0;
-            }
-            if (!inputTokens)
-                inputTokens = estimateTokens(requestText);
-            if (!outputTokens)
-                outputTokens = estimateTokens(responseText);
-            await trackCost(provider, modelName || body.model, inputTokens, outputTokens);
-            return responseText;
-        }
-        catch (e) {
-            console.error(`${provider} AI Error:`, e);
-            throw new Error(`${provider} AI error: ` + e.message);
-        }
-    }
-    if (provider === "anthropic") {
-        try {
-            const response = await fetch("https://api.anthropic.com/v1/messages", {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'x-api-key': apiKey || process.env.ANTHROPIC_API_KEY || "",
-                    'anthropic-version': '2023-06-01'
-                },
-                body: JSON.stringify({
-                    model: modelName || "claude-3-5-sonnet-20240620",
-                    max_tokens: 4096,
-                    system: prompt,
-                    messages: contents.map(c => {
-                        const hasImages = c.parts.some((p) => p.inlineData);
-                        if (hasImages) {
-                            return {
-                                role: c.role === 'model' ? 'assistant' : c.role,
-                                content: c.parts.map((p) => {
-                                    if (p.text)
-                                        return { type: 'text', text: p.text };
-                                    if (p.inlineData)
-                                        return { type: 'image', source: { type: 'base64', media_type: p.inlineData.mimeType, data: p.inlineData.data } };
-                                    return null;
-                                }).filter((x) => x !== null)
-                            };
-                        }
-                        return {
-                            role: c.role === 'model' ? 'assistant' : c.role,
-                            content: c.parts[0].text
-                        };
-                    })
-                })
-            });
-            const data = await response.json();
-            if (data.error)
-                throw new Error(data.error.message || "Anthropic Error");
-            responseText = data.content[0].text;
-            if (data.usage) {
-                inputTokens = data.usage.input_tokens || 0;
-                outputTokens = data.usage.output_tokens || 0;
-            }
-            if (!inputTokens)
-                inputTokens = estimateTokens(requestText);
-            if (!outputTokens)
-                outputTokens = estimateTokens(responseText);
-            await trackCost(provider, modelName || "claude-3-5-sonnet-20240620", inputTokens, outputTokens);
-            return responseText;
-        }
-        catch (e) {
-            console.error("Anthropic Error:", e);
-            throw new Error("Anthropic error: " + e.message);
-        }
-    }
-    try {
-        const result = await ai.models.generateContent({
-            model: modelName || "gemini-2.0-flash",
-            contents: [
-                { role: 'user', parts: [{ text: prompt }] },
-                ...contents
-            ]
-        });
-        responseText = result.text || "";
-        inputTokens = estimateTokens(requestText);
-        outputTokens = estimateTokens(responseText);
-        await trackCost(provider, modelName || "gemini-2.0-flash", inputTokens, outputTokens);
-        return responseText;
-    }
-    catch (error) {
-        console.error("Gemini Generation Error:", error);
-        throw error;
-    }
-}
-async function generateEmbeddings(texts) {
-    try {
-        const result = await ai.models.embedContent({
-            model: "text-embedding-004",
-            contents: texts.map((t) => ({ role: "user", parts: [{ text: t }] })),
-        });
-        // Gemini v1 returns embeddings per content
-        if (Array.isArray(result.embeddings)) {
-            return result.embeddings.map((e) => e.values);
-        }
-        if (result.embeddings && Array.isArray(result.embeddings.values)) {
-            return [result.embeddings.values];
-        }
-        return texts.map(() => []);
-    }
-    catch (e) {
-        console.error("Embedding generation failed:", e);
-        return texts.map(() => []);
-    }
-}
-import { setRagEmbedFn } from "./src/server/tools.js";
+import { generateAIContent, generateEmbeddings } from "./src/server/providers.js";
+import { validateBody, ChatRequestSchema, ToolExecuteSchema, ReviewRequestSchema, AgentLoopSchema, CronTaskSchema, GitCommitSchema, BrowserNavigateSchema, BrowserActionSchema, } from "./src/server/validation.js";
 setRagEmbedFn(generateEmbeddings);
 // Memory Engine
 async function summarizeLongHistory(messages, provider = "gemini", localUrl, modelName, apiKey) {
@@ -281,7 +142,7 @@ async function summarizeLongHistory(messages, provider = "gemini", localUrl, mod
     }
 }
 // API Routes
-app.post("/api/chat", async (req, res) => {
+app.post("/api/chat", validateBody(ChatRequestSchema), async (req, res) => {
     try {
         const { message, config = {}, kernelConfig = {}, agent: bodyAgent } = req.body;
         const { aiProvider = "gemini", localUrl, aiModel, apiKey, temperature, maxTokens, systemPrompt: customSystemPrompt, agent: configAgent, maxImageSize } = config;
@@ -604,7 +465,7 @@ app.post("/api/plugins/:id/disable", (req, res) => {
 app.get("/api/cron", (_req, res) => {
     return res.json({ tasks: cronScheduler.getTasks() });
 });
-app.post("/api/cron", (req, res) => {
+app.post("/api/cron", validateBody(CronTaskSchema), (req, res) => {
     try {
         const task = cronScheduler.addTask(req.body);
         return res.json(task);
@@ -645,7 +506,7 @@ app.get("/api/git/diff", async (req, res) => {
         return res.status(500).json({ error: e.message });
     }
 });
-app.post("/api/git/commit", async (req, res) => {
+app.post("/api/git/commit", validateBody(GitCommitSchema), async (req, res) => {
     try {
         const { message } = req.body;
         if (!message || typeof message !== "string") {
@@ -678,7 +539,7 @@ app.get("/api/git/log", async (req, res) => {
     }
 });
 // Tool execution endpoint
-app.post("/api/tools/execute", async (req, res) => {
+app.post("/api/tools/execute", validateBody(ToolExecuteSchema), async (req, res) => {
     try {
         const { toolCall, mode = "build", sessionId = randomUUID() } = req.body;
         const result = await executeTool(toolCall, mode, permissionEngine, sessionId);
@@ -757,7 +618,7 @@ app.post("/api/permissions/resolve/:id", (req, res) => {
 // Agent Loop API routes
 const activeLoops = new Map();
 const subagentManager = new SubagentManager();
-app.post("/api/agent/loop", async (req, res) => {
+app.post("/api/agent/loop", validateBody(AgentLoopSchema), async (req, res) => {
     try {
         const { goal, provider, model } = req.body;
         const id = randomUUID();
@@ -768,7 +629,12 @@ app.post("/api/agent/loop", async (req, res) => {
             sessionId: id,
         });
         activeLoops.set(id, loop);
-        loop.run().catch((err) => console.error(`Agent loop ${id} error:`, err));
+        loop.run()
+            .then(() => activeLoops.delete(id))
+            .catch((err) => {
+            console.error(`Agent loop ${id} error:`, err);
+            activeLoops.delete(id);
+        });
         res.json({ id, state: loop.getState() });
     }
     catch (error) {
@@ -818,7 +684,7 @@ app.post("/api/subagents/:id/abort", async (req, res) => {
     res.json({ aborted: true });
 });
 // Review API routes
-app.post("/api/review", async (req, res) => {
+app.post("/api/review", validateBody(ReviewRequestSchema), async (req, res) => {
     try {
         const { diff, config = {} } = req.body;
         const { aiProvider = "gemini", localUrl, aiModel, apiKey, temperature, maxTokens } = config;
@@ -847,6 +713,97 @@ app.post("/api/review/:id/reject", (req, res) => {
     const { commentId } = req.body;
     const success = rejectComment(req.params.id, commentId);
     return res.json({ success });
+});
+// Browser API routes
+app.post("/api/browser/navigate", validateBody(BrowserNavigateSchema), async (req, res) => {
+    try {
+        const { url, headless = true, sessionId = "default" } = req.body;
+        if (!url || typeof url !== "string") {
+            return res.status(400).json({ error: "url is required" });
+        }
+        const result = await browserNavigate(sessionId, url, Boolean(headless));
+        return res.json(result);
+    }
+    catch (e) {
+        return res.status(500).json({ success: false, output: "", error: e.message });
+    }
+});
+app.post("/api/browser/click", validateBody(BrowserActionSchema), async (req, res) => {
+    try {
+        const { selector, headless = true, sessionId = "default" } = req.body;
+        if (!selector || typeof selector !== "string") {
+            return res.status(400).json({ error: "selector is required" });
+        }
+        const result = await browserClick(sessionId, selector, Boolean(headless));
+        return res.json(result);
+    }
+    catch (e) {
+        return res.status(500).json({ success: false, output: "", error: e.message });
+    }
+});
+app.post("/api/browser/type", validateBody(BrowserActionSchema), async (req, res) => {
+    try {
+        const { selector, text, headless = true, sessionId = "default" } = req.body;
+        if (!selector || typeof selector !== "string" || typeof text !== "string") {
+            return res.status(400).json({ error: "selector and text are required" });
+        }
+        const result = await browserType(sessionId, selector, text, Boolean(headless));
+        return res.json(result);
+    }
+    catch (e) {
+        return res.status(500).json({ success: false, output: "", error: e.message });
+    }
+});
+app.get("/api/browser/screenshot", async (req, res) => {
+    try {
+        const sessionId = String(req.query.sessionId || "default");
+        const headless = req.query.headless !== "false";
+        const result = await browserScreenshot(sessionId, headless);
+        if (result.success && result.base64) {
+            return res.json({ success: true, output: result.output, base64: result.base64 });
+        }
+        return res.json(result);
+    }
+    catch (e) {
+        return res.status(500).json({ success: false, output: "", error: e.message });
+    }
+});
+app.post("/api/browser/evaluate", async (req, res) => {
+    try {
+        const { script, headless = true, sessionId = "default" } = req.body;
+        if (!script || typeof script !== "string") {
+            return res.status(400).json({ error: "script is required" });
+        }
+        const result = await browserEvaluate(sessionId, script, Boolean(headless));
+        return res.json(result);
+    }
+    catch (e) {
+        return res.status(500).json({ success: false, output: "", error: e.message });
+    }
+});
+app.get("/api/browser/html", async (req, res) => {
+    try {
+        const sessionId = String(req.query.sessionId || "default");
+        const headless = req.query.headless !== "false";
+        const result = await browserGetHtml(sessionId, headless);
+        return res.json(result);
+    }
+    catch (e) {
+        return res.status(500).json({ success: false, output: "", error: e.message });
+    }
+});
+app.post("/api/browser/close", async (req, res) => {
+    try {
+        const { sessionId = "default" } = req.body;
+        const result = await browserClose(sessionId);
+        return res.json(result);
+    }
+    catch (e) {
+        return res.status(500).json({ success: false, output: "", error: e.message });
+    }
+});
+app.get("/api/browser/sessions", (_req, res) => {
+    return res.json({ sessions: getActiveBrowserSessions() });
 });
 // Cost tracking API routes
 app.get("/api/costs", async (_req, res) => {
@@ -905,8 +862,43 @@ app.post("/api/hooks/unregister", (req, res) => {
         return res.status(500).json({ error: error.message });
     }
 });
+// Team Sync API routes
+app.get("/api/sync/status", (_req, res) => {
+    res.json(getSyncStatus());
+});
+app.post("/api/sync/export", async (_req, res) => {
+    const result = await exportSync();
+    res.json(result);
+});
+app.post("/api/sync/import", async (_req, res) => {
+    const result = await importSync();
+    res.json(result);
+});
+app.get("/api/sync/config", (_req, res) => {
+    res.json(getSyncConfig());
+});
+app.post("/api/sync/config", async (req, res) => {
+    try {
+        await saveSyncConfig(req.body);
+        res.json({ saved: true });
+    }
+    catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+app.post("/api/sync/resolve", async (req, res) => {
+    try {
+        const { resolutions } = req.body;
+        await resolveConflictsManually(resolutions);
+        res.json({ resolved: true });
+    }
+    catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
 async function startServer() {
     await ensureStorage();
+    await initSync();
     setSessionDbPath(STORAGE_DIR);
     setSkillsDir(path.join(process.cwd(), ".cvr", "skills"));
     setSkillCreatorDir(path.join(process.cwd(), ".cvr", "skills"));
@@ -917,6 +909,14 @@ async function startServer() {
     await loadAgents();
     await registerPlugins();
     registerBuiltinHooks();
+    const mcpConfig = await loadMcpConfig();
+    if (mcpConfig.enabled && mcpConfig.transport === "stdio") {
+        await startMcpStdio();
+        return;
+    }
+    if (mcpConfig.enabled && (mcpConfig.transport === "http" || mcpConfig.transport === "sse")) {
+        mountMcpSseRoutes(app, mcpConfig.basePath || "/mcp");
+    }
     if (process.env.NODE_ENV !== "production") {
         const vite = await createViteServer({
             server: { middlewareMode: true },
@@ -931,8 +931,28 @@ async function startServer() {
             res.sendFile(path.join(distPath, 'index.html'));
         });
     }
-    app.listen(PORT, "0.0.0.0", () => {
-        console.log(`Server running on http://localhost:${PORT}`);
+    // SECURITY: Bind to localhost only to prevent remote exposure
+    const server = app.listen(PORT, "127.0.0.1", () => {
+        console.log(`Server running on http://127.0.0.1:${PORT}`);
     });
+    // Graceful shutdown
+    const shutdown = async (signal) => {
+        console.log(`Received ${signal}, shutting down gracefully...`);
+        server.close(() => {
+            console.log("HTTP server closed");
+        });
+        await closeAllBrowsers();
+        // Close SQLite if open
+        try {
+            const { getDb } = await import("./src/server/sessionStore.js");
+            getDb().close();
+        }
+        catch {
+            // ignore
+        }
+        process.exit(0);
+    };
+    process.on("SIGTERM", () => shutdown("SIGTERM"));
+    process.on("SIGINT", () => shutdown("SIGINT"));
 }
 startServer();

@@ -84,7 +84,7 @@ export const ReviewMessage: React.FC<ReviewMessageProps> = ({ message }) => {
       className="flex flex-col gap-2"
     >
       {/* Header */}
-      <div className="flex items-center gap-2 px-2 py-1.5 bg-dash-card/50 rounded border border-dash-border">
+      <div className="flex items-center gap-2 px-2 py-1.5 bg-dash-surface/50 rounded border border-dash-border">
         <GitPullRequest className="w-4 h-4 text-dash-accent" />
         <span className="text-[11px] font-mono uppercase tracking-wider text-dash-accent">
           Code Review
@@ -109,7 +109,7 @@ export const ReviewMessage: React.FC<ReviewMessageProps> = ({ message }) => {
       </div>
 
       {/* Summary */}
-      <div className="px-2 py-1.5 text-[12px] text-dash-text-secondary italic border-l-2 border-dash-accent bg-dash-card/20">
+      <div className="px-2 py-1.5 text-[12px] text-dash-text-secondary italic border-l-2 border-dash-accent bg-dash-surface/20">
         {summary}
       </div>
 
@@ -178,7 +178,7 @@ export const ReviewMessage: React.FC<ReviewMessageProps> = ({ message }) => {
 
                 {comment.codeExample && (
                   <div className="relative group">
-                    <div className="flex items-center justify-between px-2 py-0.5 bg-dash-header border border-dash-border rounded-t text-[8px] font-mono text-dash-text-muted uppercase tracking-wider">
+                    <div className="flex items-center justify-between px-2 py-0.5 bg-dash-elevated border border-dash-border rounded-t text-[8px] font-mono text-dash-text-muted uppercase tracking-wider">
                       <span>suggested fix</span>
                     </div>
                     <SyntaxHighlighter

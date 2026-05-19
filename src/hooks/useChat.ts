@@ -39,6 +39,10 @@ export const useChat = (config: ChatConfig) => {
   });
 
   const abortControllerRef = useRef<AbortController | null>(null);
+  const configRef = useRef(config);
+  configRef.current = config;
+  const messagesRef = useRef(state.messages);
+  messagesRef.current = state.messages;
 
   const sendMessage = useCallback(async (content: string, images?: string[]): Promise<{ content: string; continueNeeded: boolean } | null> => {
     if (!content.trim() && (!images || images.length === 0)) {
@@ -76,7 +80,7 @@ export const useChat = (config: ChatConfig) => {
         body: JSON.stringify({
           message: messageContent,
           images,
-          config,
+          config: configRef.current,
           agent,
         }),
         signal: abortControllerRef.current.signal,
@@ -210,7 +214,7 @@ export const useChat = (config: ChatConfig) => {
       }
       return null;
     }
-  }, [config, state.messages]);
+  }, []);
 
   const cancelMessage = useCallback(() => {
     if (abortControllerRef.current) {
@@ -245,12 +249,13 @@ export const useChat = (config: ChatConfig) => {
   }, []);
 
   const retryMessage = useCallback(async (id: string) => {
-    const messageIndex = state.messages.findIndex((msg) => msg.id === id);
+    const currentMessages = messagesRef.current;
+    const messageIndex = currentMessages.findIndex((msg) => msg.id === id);
     if (messageIndex === -1) {
       return;
     }
 
-    const previousMessages = state.messages.slice(0, messageIndex);
+    const previousMessages = currentMessages.slice(0, messageIndex);
     setState((prev) => ({
       ...prev,
       messages: previousMessages,
@@ -263,10 +268,10 @@ export const useChat = (config: ChatConfig) => {
     if (lastUserMessage) {
       await sendMessage(lastUserMessage.content, lastUserMessage.images);
     }
-  }, [state.messages, sendMessage]);
+  }, [sendMessage]);
 
   const executeToolCalls = useCallback(async (messageId: string, mode: "plan" | "build" | "review" = "build") => {
-    const message = state.messages.find((m) => m.id === messageId);
+    const message = messagesRef.current.find((m) => m.id === messageId);
     if (!message || message.role !== "assistant") return;
 
     const toolCalls = parseToolCalls(message.content);
@@ -298,7 +303,7 @@ export const useChat = (config: ChatConfig) => {
       ...prev,
       messages: [...prev.messages, toolMessage],
     }));
-  }, [state.messages]);
+  }, []);
 
   const addMessage = useCallback((message: Message) => {
     setState((prev) => ({

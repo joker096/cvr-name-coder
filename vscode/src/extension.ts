@@ -298,12 +298,33 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
   await ensureStorage(storagePath);
   setMemoryDir(storagePath);
   setSessionDbPath(storagePath);
-  setSkillsDir(path.join(storagePath, 'skills'));
-  setSkillCreatorDir(path.join(storagePath, 'skills'));
+
+  // Auto-resolve workspace .cvr/ directories with fallback to extension storage
+  const workspaceRoot = (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0)
+    ? vscode.workspace.workspaceFolders[0].uri.fsPath
+    : null;
+
+  function resolveCvrDir(name: string): string {
+    if (workspaceRoot) {
+      const workspaceDir = path.join(workspaceRoot, '.cvr', name);
+      if (fs.existsSync(workspaceDir)) {
+        return workspaceDir;
+      }
+    }
+    const fallback = path.join(storagePath, name);
+    if (!fs.existsSync(fallback)) {
+      fs.mkdirSync(fallback, { recursive: true });
+    }
+    return fallback;
+  }
+
+  setSkillsDir(resolveCvrDir('skills'));
+  setSkillCreatorDir(resolveCvrDir('skills'));
   setRagDbPath(storagePath);
-  setRulesDir(path.join(storagePath, 'rules'));
-  setCustomToolsDir(path.join(storagePath, 'tools'));
-  setPluginsDir(path.join(storagePath, 'plugins'));
+  setRulesDir(resolveCvrDir('rules'));
+  setCustomToolsDir(resolveCvrDir('tools'));
+  setPluginsDir(resolveCvrDir('plugins'));
+  setAgentsDir(resolveCvrDir('agents'));
 
   // Initialize Permission Engine
   let permissionEngine: PermissionEngine | undefined;

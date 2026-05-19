@@ -1,24 +1,97 @@
-import Database from "better-sqlite3";
 import * as path from "path";
+import * as fs from "fs";
 
 let _dbPath = path.resolve(process.cwd(), ".opencode-infinite", "rag.db");
-let _db: Database.Database | null = null;
+let _db: any = null;
+let _useFallback = false;
+
+// Fallback JSON storage
+let _chunks: Array<{ id: number; source: string; content: string; embedding: string }> = [];
+let _jsonPath = "";
+let _nextId = 1;
+
+function loadJson() {
+  try {
+    if (fs.existsSync(_jsonPath)) {
+      const data = JSON.parse(fs.readFileSync(_jsonPath, "utf-8"));
+      _chunks = data.chunks || [];
+      _nextId = data.nextId || 1;
+    }
+  } catch { /* ignore */ }
+}
+
+function saveJson() {
+  try {
+    fs.mkdirSync(path.dirname(_jsonPath), { recursive: true });
+    fs.writeFileSync(_jsonPath, JSON.stringify({ chunks: _chunks, nextId: _nextId }, null, 2));
+  } catch { /* ignore */ }
+}
+
+function fallbackGetDb(): any {
+  if (!_jsonPath) {
+    _jsonPath = _dbPath.replace(/\.db$/, '') + '-fallback.json';
+    loadJson();
+  }
+  return {
+    prepare: (sql: string) => {
+      const trimmed = sql.trim().toLowerCase();
+      if (trimmed.startsWith('insert into chunks')) {
+        return {
+          run: (source: string, content: string, embedding: string) => {
+            _chunks.push({ id: _nextId++, source, content, embedding });
+            saveJson();
+            return { lastInsertRowid: _nextId - 1 };
+          },
+        };
+      }
+      if (trimmed.startsWith('select') && trimmed.includes('from chunks')) {
+        return {
+          all: () => [..._chunks],
+          get: () => undefined,
+        };
+      }
+      if (trimmed.startsWith('delete from chunks where source =')) {
+        return {
+          run: (source: string) => {
+            _chunks = _chunks.filter(c => c.source !== source);
+            saveJson();
+            return {};
+          },
+        };
+      }
+      return { run: () => ({}), get: () => undefined, all: () => [] };
+    },
+    exec: () => {},
+    pragma: () => {},
+  };
+}
 
 export function setRagDbPath(dir: string): void {
   _dbPath = path.join(dir, "rag.db");
   _db = null;
+  if (_useFallback) {
+    _jsonPath = path.join(dir, "rag-fallback.json");
+    loadJson();
+  }
 }
 
-function getDb(): Database.Database {
+function getDb(): any {
   if (!_db) {
-    _db = new Database(_dbPath);
-    _db.pragma("journal_mode = WAL");
-    initSchema(_db);
+    try {
+      const Database = require("better-sqlite3");
+      _db = new Database(_dbPath);
+      _db.pragma("journal_mode = WAL");
+      initSchema(_db);
+    } catch {
+      _useFallback = true;
+      _db = fallbackGetDb();
+    }
   }
   return _db;
 }
 
-function initSchema(db: Database.Database): void {
+function initSchema(db: any): void {
+  if (_useFallback) return;
   db.exec(`
     CREATE TABLE IF NOT EXISTS chunks (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -34,7 +107,6 @@ export type EmbedFunction = (texts: string[]) => Promise<number[][]>;
 
 function chunkText(text: string, maxChars = 500): string[] {
   const chunks: string[] = [];
-  // Simple sentence-based chunking
   const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
   let current = "";
   for (const sentence of sentences) {
@@ -77,6 +149,7 @@ export async function ingestDocument(
   for (let i = 0; i < chunks.length; i++) {
     insert.run(source, chunks[i], JSON.stringify(embeddings[i]));
   }
+  if (_useFallback) saveJson();
 }
 
 export interface RagResult {
@@ -106,7 +179,7 @@ export async function searchRAG(
       content: r.content,
       score: cosineSimilarity(queryEmbedding, JSON.parse(r.embedding)),
     }))
-    .filter((r) => r.score > 0.5) // threshold
+    .filter((r) => r.score > 0.5)
     .sort((a, b) => b.score - a.score)
     .slice(0, topK);
 
@@ -122,4 +195,5 @@ export function listSources(): string[] {
 export function clearSource(source: string): void {
   const db = getDb();
   db.prepare("DELETE FROM chunks WHERE source = ?").run(source);
+  if (_useFallback) saveJson();
 }

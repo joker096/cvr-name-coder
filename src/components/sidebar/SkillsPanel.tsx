@@ -114,7 +114,7 @@ export const SkillsPanel: React.FC<SkillsPanelProps> = ({
             learnedSkills.map((skill) => (
               <div
                 key={skill.id}
-                className="p-2 bg-dash-card border border-dash-accent/20 rounded-md flex items-start gap-2 relative overflow-hidden group"
+                className="p-2 bg-dash-surface border border-dash-accent/20 rounded-md flex items-start gap-2 relative overflow-hidden group"
               >
                 <div
                   className="absolute top-0 right-0 w-8 h-8 bg-dash-accent/10 rotate-45 translate-x-4 -translate-y-4"

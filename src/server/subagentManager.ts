@@ -15,6 +15,7 @@ export interface SubagentTask {
 
 export class SubagentManager {
   private tasks = new Map<string, SubagentTask>();
+  private queue: string[] = [];
   private maxConcurrent = 3;
 
   async spawn(
@@ -31,29 +32,36 @@ export class SubagentManager {
       agentConfig,
       status: "pending",
     };
-    
+
     this.tasks.set(id, task);
-    
+
     // Check concurrency limit
-    const running = Array.from(this.tasks.values()).filter((t) => t.status === "running").length;
+    const running = this.getRunningCount();
     if (running >= this.maxConcurrent) {
-      task.status = "pending";
+      this.queue.push(id);
       return task;
     }
-    
-    // Execute
+
+    await this.executeTask(task, thinkFn);
+    return task;
+  }
+
+  private async executeTask(
+    task: SubagentTask,
+    thinkFn: (prompt: string) => Promise<string>
+  ): Promise<void> {
     task.status = "running";
     task.startTime = Date.now();
-    
+
     try {
-      const loop = new AgentLoop(goal, {
-        maxSteps: agentConfig.maxSteps || 10,
+      const loop = new AgentLoop(task.goal, {
+        maxSteps: task.agentConfig.maxSteps || 10,
         onStep: (step) => {
-          console.log(`[Subagent ${id}] Step ${step.id}: ${step.thought.substring(0, 100)}`);
+          console.log(`[Subagent ${task.id}] Step ${step.id}: ${step.thought.substring(0, 100)}`);
         },
         thinkFn,
       });
-      
+
       const state = await loop.run();
       task.status = "completed";
       task.result = state.steps.map((s) => s.observation || s.thought).join("\n\n");
@@ -62,9 +70,27 @@ export class SubagentManager {
       task.error = err.message;
     } finally {
       task.endTime = Date.now();
+      this.processQueue(thinkFn);
     }
-    
-    return task;
+  }
+
+  private processQueue(thinkFn: (prompt: string) => Promise<string>): void {
+    const running = this.getRunningCount();
+    if (running >= this.maxConcurrent) return;
+
+    const nextId = this.queue.shift();
+    if (!nextId) return;
+
+    const nextTask = this.tasks.get(nextId);
+    if (nextTask) {
+      this.executeTask(nextTask, thinkFn).catch((err) => {
+        console.error(`Queued subagent ${nextId} failed:`, err);
+      });
+    }
+  }
+
+  private getRunningCount(): number {
+    return Array.from(this.tasks.values()).filter((t) => t.status === "running").length;
   }
 
   getTask(id: string): SubagentTask | undefined {
@@ -83,6 +109,11 @@ export class SubagentManager {
       task.status = "failed";
       task.error = "Aborted by user";
       task.endTime = Date.now();
+    } else if (task && task.status === "pending") {
+      // Remove from queue
+      this.queue = this.queue.filter((qid) => qid !== id);
+      task.status = "failed";
+      task.error = "Aborted before start";
     }
   }
 }

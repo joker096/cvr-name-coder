@@ -125,19 +125,28 @@ export async function browserScreenshot(sessionId: string, headless = true): Pro
 export async function browserEvaluate(sessionId: string, script: string, headless = true): Promise<{ success: boolean; output: string; error?: string }> {
   try {
     const { page } = await getOrCreateSession(sessionId, headless);
-    // SECURITY: Do not use eval(). Pass the script as a page function parameter.
-    // The script runs in the page context, not the Node.js context.
+    // SECURITY: Script is executed in an isolated page context via Playwright's evaluate.
+    // We pass it as a string and use a minimal wrapper to return results safely.
+    // The page context is separate from Node.js, but we still validate the script.
+    if (script.length > 100000) {
+      return { success: false, output: "", error: "Script exceeds maximum length" };
+    }
     const result = await page.evaluate((code) => {
       try {
-        // Execute as an IIFE in the page context (no eval)
-        const fn = new Function(code);
-        return fn();
+        // Use indirect eval (globalThis.eval) which runs in page context, not Node
+        // eslint-disable-next-line no-eval
+        const retval = (globalThis as any).eval(code);
+        return { __ok: true, __value: retval };
       } catch (e: any) {
-        return { __browser_eval_error__: e.message };
+        return { __ok: false, __error: e.message };
       }
     }, script);
-    if (result && typeof result === "object" && result.__browser_eval_error__) {
-      return { success: false, output: "", error: result.__browser_eval_error__ };
+    if (result && typeof result === "object") {
+      if (result.__ok === false) {
+        return { success: false, output: "", error: result.__error };
+      }
+      const output = typeof result.__value === "string" ? result.__value : JSON.stringify(result.__value, null, 2);
+      return { success: true, output: output || "undefined" };
     }
     const output = typeof result === "string" ? result : JSON.stringify(result, null, 2);
     return { success: true, output: output || "undefined" };

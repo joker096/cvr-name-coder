@@ -1,4 +1,4 @@
-import { readFile, writeFile, access } from "fs/promises";
+import { readFile, writeFile, access, rename } from "fs/promises";
 import * as path from "path";
 
 let _memoryDir = path.resolve(process.cwd(), ".opencode-infinite");
@@ -80,7 +80,7 @@ export async function writeMemory(content: string, section?: string): Promise<vo
   }
 
   const raw = rebuildMarkdown(data.sections);
-  await writeFile(getMemoryPath(), raw, "utf-8");
+  await atomicWriteFile(getMemoryPath(), raw);
 }
 
 export async function readUser(): Promise<MemoryData> {
@@ -115,7 +115,13 @@ export async function writeUser(content: string, section?: string): Promise<void
   }
 
   const raw = rebuildMarkdown(data.sections);
-  await writeFile(getUserPath(), raw, "utf-8");
+  await atomicWriteFile(getUserPath(), raw);
+}
+
+async function atomicWriteFile(filePath: string, content: string): Promise<void> {
+  const tmp = filePath + ".tmp";
+  await writeFile(tmp, content, "utf-8");
+  await rename(tmp, filePath);
 }
 
 function rebuildMarkdown(sections: MemorySection[]): string {

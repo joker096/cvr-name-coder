@@ -8,7 +8,7 @@ await esbuild.build({
   format: 'cjs',
   outfile: 'dist/extension.js',
   sourcemap: true,
-  external: ['vscode'],
+  external: ['vscode', 'playwright-core', 'chromium-bidi/lib/cjs/bidiMapper/BidiMapper', 'chromium-bidi/lib/cjs/cdp/CdpConnection'],
   minify: true,
   treeShaking: true,
   keepNames: true,

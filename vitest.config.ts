@@ -12,10 +12,8 @@ export default defineConfig({
     setupFiles: ["./src/test-setup.ts"],
     include: ["src/**/*.{test,spec}.{ts,tsx}"],
     exclude: [
-      "src/components/chat/*.test.tsx",
-      "src/components/settings/*.test.tsx",
-      "src/hooks/*.test.ts",
-      "src/services/__tests__/*.test.ts",
+      "node_modules",
+      "dist",
     ],
     deps: {
       interopDefault: true,

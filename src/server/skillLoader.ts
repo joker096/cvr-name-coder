@@ -38,22 +38,40 @@ function parseFrontmatter(raw: string): { frontmatter: Record<string, any>; body
   return { frontmatter, body: match[2].trim() };
 }
 
+async function findSkillFiles(dir: string): Promise<string[]> {
+  const results: string[] = [];
+  try {
+    const entries = await readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        const sub = await findSkillFiles(fullPath);
+        results.push(...sub);
+      } else if (entry.isFile() && entry.name.endsWith(".md")) {
+        results.push(fullPath);
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return results;
+}
+
 export async function loadSkills(force = false): Promise<SkillDefinition[]> {
   if (!force && _cache && Date.now() - _lastLoad < 30_000) {
     return _cache;
   }
 
   try {
-    const entries = await readdir(_skillsDir, { withFileTypes: true });
+    const filePaths = await findSkillFiles(_skillsDir);
     const skills: SkillDefinition[] = [];
 
-    for (const entry of entries) {
-      if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
-      const filePath = path.join(_skillsDir, entry.name);
+    for (const filePath of filePaths) {
       const raw = await readFile(filePath, "utf-8");
       const { frontmatter, body } = parseFrontmatter(raw);
 
-      const id = frontmatter.id || entry.name.replace(/\.md$/, "");
+      const relPath = path.relative(_skillsDir, filePath).replace(/\\/g, "/");
+      const id = frontmatter.id || relPath.replace(/\.md$/, "");
       skills.push({
         id,
         name: frontmatter.name || id,

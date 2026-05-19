@@ -118,7 +118,7 @@ export class AgentLoop {
           goal: this.state.goal,
           steps: this.state.steps.map((s) => ({ thought: s.thought, action: s.action, observation: s.observation })),
           toolNames,
-          durationMs: this.state.steps[this.state.steps.length - 1].timestamp - this.state.steps[0].timestamp,
+          durationMs: this.state.steps[this.state.steps.length - 1]!.timestamp - this.state.steps[0]!.timestamp,
           success: true,
         }).catch(() => {});
       }
