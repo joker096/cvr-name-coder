@@ -2,10 +2,18 @@ import type { IconType } from './ai';
 import type { MessageId, MemoryId, SkillId, AgentId } from './ai';
 import type { ReviewComment } from '../server/codeReview';
 
+export interface ToolCall {
+  id: string;
+  toolName: string;
+  params: Record<string, unknown>;
+  status: 'running' | 'complete' | 'error';
+  result?: string;
+}
+
 // Message with branded ID
 export interface Message {
   id: MessageId;
-  role: 'user' | 'model' | 'assistant' | 'review';
+  role: 'user' | 'model' | 'assistant' | 'review' | 'tool_call';
   content: string;
   images?: string[] | undefined;
   timestamp: number;
@@ -13,6 +21,7 @@ export interface Message {
     comments: ReviewComment[];
     summary: string;
   };
+  toolCall?: ToolCall;
 }
 
 // Memory with branded ID
