@@ -14,7 +14,7 @@ export const StatCard: React.FC<StatCardProps> = ({ label, value, variant = "def
       {label}
     </span>
     <span className={cn(
-      "text-lg font-bold font-mono",
+      "text-[13px] font-bold font-mono",
       variant === "success" && "text-dash-success",
       variant === "warning" && "text-dash-warning",
       variant === "default" && "text-dash-text-primary",

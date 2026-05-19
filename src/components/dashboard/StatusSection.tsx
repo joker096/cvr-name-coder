@@ -14,7 +14,7 @@ export const StatusSection: React.FC<StatusSectionProps> = ({
 }) => (
   <div className="p-3">
     <div className="flex items-center gap-2 mb-3">
-      <Activity className="w-4 h-4 text-dash-accent" />
+      <Activity className="w-3.5 h-3.5 text-dash-accent" />
       <span className="text-[11px] font-mono uppercase tracking-wider text-dash-text-label">
         System Status
       </span>
