@@ -5,18 +5,20 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 
   --color-dash-bg: #0f0f11;
-  --color-dash-sidebar: #141417;
-  --color-dash-header: #1a1a1e;
-  --color-dash-card: #1c1c21;
-  --color-dash-border: #2d2d33;
-  --color-dash-accent: #5b6b8a;
-  --color-dash-accent-harsh: #4a6fa5;
+  --color-dash-surface: #1a1a1f;
+  --color-dash-elevated: #1f1f26;
+  --color-dash-border: #2a2a33;
+  --color-dash-border-hover: #3a3a44;
+  --color-dash-accent: #3b82f6;
+  --color-dash-accent-soft: #1e3a5f;
+  --color-dash-accent-hover: #2563eb;
   --color-dash-success: #00ff94;
-  --color-dash-warning: #ff9e3d;
-  --color-dash-text-primary: #e0e0e6;
+  --color-dash-warning: #f59e0b;
+  --color-dash-error: #ef4444;
+  --color-dash-text-primary: #e8e8f0;
   --color-dash-text-secondary: #a0a0b0;
-  --color-dash-text-muted: #707080;
-  --color-dash-text-label: #505060;
+  --color-dash-text-muted: #8888a0;
+  --color-dash-text-label: #666680;
 }
 
 @layer base {
@@ -60,6 +62,14 @@
   scrollbar-width: none;
 }
 
+.card {
+  @apply bg-dash-surface border border-dash-border rounded-lg;
+}
+
+.card-interactive {
+  @apply card hover:border-dash-border-hover transition-colors;
+}
+
 /* Dark select/option styling */
 select,
 option,
@@ -69,19 +79,19 @@ textarea {
 }
 
 select option {
-  background: #1a1a1e;
-  color: #e0e0e6;
+  background: #1a1a1f;
+  color: #e8e8f0;
 }
 
 /* Selection color */
 ::selection {
-  background: rgba(91, 107, 138, 0.3);
-  color: #e0e0e6;
+  background: rgba(59, 130, 246, 0.25);
+  color: #e8e8f0;
 }
 
 /* Focus ring */
 *:focus-visible {
-  outline-color: #5b6b8a;
+  outline-color: #3b82f6;
   outline-width: 2px;
   outline-offset: 2px;
 }
