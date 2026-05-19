@@ -1,9 +1,9 @@
 import React from "react";
+import { Sparkles, Bot, Brain, Search, Zap, Cpu, Box, Router, Users, Wind, Server, Settings } from "lucide-react";
 import { cn } from "../../utils/cn";
 import type { IconType } from "../../types/ai";
 import type { ChatProviderId } from "../../types/settings";
 
-// Provider interface with proper types
 export interface Provider {
   id: ChatProviderId;
   icon: IconType;
@@ -18,10 +18,36 @@ interface ProviderSelectorProps {
   className?: string;
 }
 
-// Type guard for provider selection
 export const isValidProviderId = (id: string): id is ChatProviderId => {
   return typeof id === 'string' && id.length > 0;
 };
+
+const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
+  sparkles: Sparkles,
+  bot: Bot,
+  brain: Brain,
+  search: Search,
+  zap: Zap,
+  cpu: Cpu,
+  box: Box,
+  router: Router,
+  users: Users,
+  wind: Wind,
+  server: Server,
+  settings: Settings,
+};
+
+function ProviderIcon({ icon }: { icon: IconType }) {
+  if (icon.type === "lucide") {
+    const Comp = ICON_MAP[icon.name];
+    if (Comp) return <Comp className="w-4 h-4 shrink-0" />;
+  }
+  if (icon.type === "custom") {
+    const Comp = icon.component;
+    return <Comp className="w-4 h-4 shrink-0" />;
+  }
+  return null;
+}
 
 export const ProviderSelector: React.FC<ProviderSelectorProps> = ({
   providers,
@@ -42,15 +68,16 @@ export const ProviderSelector: React.FC<ProviderSelectorProps> = ({
           key={provider.id}
           onClick={() => handleProviderSelect(provider.id)}
           className={cn(
-            "p-2 rounded border text-[11px] font-mono transition-all flex items-center justify-center",
+            "card-interactive p-2 flex flex-col items-center gap-1 text-[11px] font-mono transition-all",
             selectedProvider === provider.id
-              ? "bg-dash-accent/10 border-dash-accent text-dash-accent"
-              : "border-dash-border text-dash-text-muted hover:bg-neutral-800/50"
+              ? "border-dash-accent bg-dash-accent-soft/20 text-dash-accent ring-1 ring-dash-accent"
+              : "text-dash-text-muted"
           )}
           aria-pressed={selectedProvider === provider.id}
           aria-label={`Select ${provider.label} provider`}
         >
-          <span className="truncate w-full text-center">{provider.label}</span>
+          <ProviderIcon icon={provider.icon} />
+          <span className="truncate w-full text-center leading-tight">{provider.label}</span>
         </button>
       ))}
     </div>

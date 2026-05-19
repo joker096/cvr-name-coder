@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { Rocket, MessageSquare, GitBranch, BookOpen, Clock, Puzzle, Scale, RefreshCw } from "lucide-react";
 import { DashboardSection } from "./DashboardSection";
 import { StatusSection } from "./StatusSection";
@@ -8,6 +8,13 @@ interface Skill {
   name: string;
   description: string;
   status: string;
+}
+
+interface ApiSkill {
+  id: string;
+  name: string;
+  description: string;
+  triggers: string[];
 }
 
 interface DashboardPanelProps {
@@ -20,9 +27,24 @@ interface DashboardPanelProps {
 }
 
 export const DashboardPanel: React.FC<DashboardPanelProps> = ({
-  skills, skillsCount, toolsCount, memoryCount,
+  skills: _externalSkills, skillsCount: _extSkillsCount, toolsCount, memoryCount,
   serverRunning, sessionsCount = 0,
 }) => {
+  const [apiSkills, setApiSkills] = useState<ApiSkill[]>([]);
+  const [skillsCount, setSkillsCount] = useState(_extSkillsCount);
+
+  useEffect(() => {
+    fetch("/api/skills")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.skills && Array.isArray(data.skills)) {
+          setApiSkills(data.skills);
+          setSkillsCount(data.skills.length);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   return (
     <div className="w-72 bg-dash-bg border-r border-dash-border flex flex-col shrink-0 overflow-y-auto no-scrollbar">
       <StatusSection
@@ -34,17 +56,21 @@ export const DashboardPanel: React.FC<DashboardPanelProps> = ({
 
       <div className="flex flex-col gap-0.5 px-2 pb-2">
         <DashboardSection title="Skills" icon={Rocket} count={skillsCount} defaultOpen>
-          <div className="flex flex-col gap-1">
-            {skills.slice(0, 10).map((skill) => (
-              <div key={skill.id} className="flex items-center gap-2 text-[11px] text-dash-text-secondary py-1">
-                <span className="w-1 h-1 rounded-full bg-dash-accent shrink-0" />
-                <span className="truncate">{skill.name}</span>
-              </div>
-            ))}
-            {skills.length > 10 && (
-              <span className="text-[10px] text-dash-text-muted">+{skills.length - 10} more</span>
-            )}
-          </div>
+          {apiSkills.length === 0 ? (
+            <p className="text-[11px] text-dash-text-muted py-1">Loading skills...</p>
+          ) : (
+            <div className="flex flex-col gap-1">
+              {apiSkills.slice(0, 10).map((skill) => (
+                <div key={skill.id} className="flex items-center gap-2 text-[11px] text-dash-text-secondary py-1">
+                  <span className="w-1 h-1 rounded-full bg-dash-accent shrink-0" />
+                  <span className="truncate">{skill.name}</span>
+                </div>
+              ))}
+              {apiSkills.length > 10 && (
+                <span className="text-[10px] text-dash-text-muted">+{apiSkills.length - 10} more</span>
+              )}
+            </div>
+          )}
         </DashboardSection>
 
         <DashboardSection title="Sessions" icon={MessageSquare} count={sessionsCount}>
