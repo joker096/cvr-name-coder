@@ -62,12 +62,20 @@
   scrollbar-width: none;
 }
 
-.card {
-  @apply bg-dash-surface border border-dash-border rounded-lg;
+@utility card {
+  background-color: var(--color-dash-surface);
+  border: 1px solid var(--color-dash-border);
+  border-radius: 0.5rem;
 }
 
-.card-interactive {
-  @apply card hover:border-dash-border-hover transition-colors;
+@utility card-interactive {
+  background-color: var(--color-dash-surface);
+  border: 1px solid var(--color-dash-border);
+  border-radius: 0.5rem;
+}
+
+.card-interactive:hover {
+  border-color: var(--color-dash-border-hover);
 }
 
 /* Dark select/option styling */
