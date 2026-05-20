@@ -1,5 +1,6 @@
 import { storageService } from './storageService';
 import type { Preset } from '../types/settings';
+import type { PresetId } from '../types/ai';
 import { STORAGE_KEYS } from '../utils/constants';
 
 export const presetService = {
@@ -22,7 +23,7 @@ export const presetService = {
   savePreset(preset: Omit<Preset, "id" | "createdAt">): Preset {
     const newPreset: Preset = {
       ...preset,
-      id: `preset_${Date.now()}`,
+      id: `preset_${Date.now()}` as PresetId,
       createdAt: Date.now(),
     };
     this.save(newPreset);

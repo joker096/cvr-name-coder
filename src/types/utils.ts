@@ -73,7 +73,7 @@ export type AsyncFn<P = any, R = any> = (param: P) => Promise<R>;
 export type EventHandler<T = Event> = (event: T) => void;
 
 // Change event handler type
-export type ChangeHandler<T = EventTarget> = EventHandler<ChangeEvent<T>>;
+export type ChangeHandler<T = EventTarget> = EventHandler<React.ChangeEvent<T>>;
 
 // Key-value pair type
 export type KeyValuePair<K extends PropertyKey, V> = [K, V];
@@ -127,7 +127,7 @@ export type Head<T extends any[]> = T extends [...infer Rest, any] ? Rest : neve
 // String manipulation types
 export type Split<S extends string, D extends string> = S extends `${infer T}${D}${infer U}` ? [T, ...Split<U, D>] : [S];
 
-export type TrimLeft<S extends string> = S extends ' ' | '\n' | '\t' ? TrimLeft<Slice<S, 1>> : S;
+export type TrimLeft<S extends string> = S extends ` ${infer Rest}` | `\n${infer Rest}` | `\t${infer Rest}` ? TrimLeft<Rest> : S;
 
 export type TrimRight<S extends string> = S extends `${infer T} ` | `${infer T}\n` | `${infer T}\t` ? TrimRight<T> : S;
 

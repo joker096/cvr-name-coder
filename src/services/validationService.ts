@@ -24,11 +24,10 @@ export const validationService = {
       warnings.localUrl = 'Using non-localhost URL may have security implications';
     }
 
-    return {
-      isValid: Object.keys(errors).length === 0,
-      errors,
-      warnings,
-    };
+    const isValid = Object.keys(errors).length === 0;
+    return isValid
+      ? { isValid: true as const, errors: {}, warnings }
+      : { isValid: false as const, errors, warnings };
   },
 
   validateField(field: string, value: any): FieldValidation {

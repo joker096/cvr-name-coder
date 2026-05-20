@@ -1,6 +1,7 @@
 import express from "express";
 import * as path from "path";
 import { readFile, writeFile, mkdir, access } from "fs/promises";
+import { readFileSync } from "fs";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import helmet from "helmet";
@@ -95,7 +96,7 @@ app.use("/mcp", requireApiKey);
 // Initialize Permission Engine
 let permissionEngine;
 try {
-    const configData = await readFile(".cvr/permissions.json", "utf-8");
+    const configData = readFileSync(".cvr/permissions.json", "utf-8");
     const config = JSON.parse(configData);
     permissionEngine = new PermissionEngine(config);
 }

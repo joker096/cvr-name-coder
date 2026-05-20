@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { storageService } from "../services/storageService";
 import type { Memory } from "../types/chat";
+import type { MemoryId } from "../types/ai";
 
 const STORAGE_KEY = "cvr_memories";
 
@@ -31,7 +32,7 @@ export const useMemory = () => {
 
   const addMemory = useCallback((content: string) => {
     const newMemory: Memory = {
-      id: crypto.randomUUID(),
+      id: crypto.randomUUID() as MemoryId,
       content,
       timestamp: Date.now(),
     };
