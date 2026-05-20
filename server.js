@@ -153,7 +153,7 @@ app.post("/api/chat", validateBody(ChatRequestSchema), async (req, res) => {
             if (m.images && Array.isArray(m.images)) {
                 for (const img of m.images) {
                     const match = typeof img === 'string' ? img.match(/^data:([^;]+);base64,(.+)$/) : null;
-                    if (match) {
+                    if (match && match[1] && match[2]) {
                         parts.push({ inlineData: { mimeType: match[1], data: match[2] } });
                     }
                 }

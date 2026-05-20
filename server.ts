@@ -51,6 +51,7 @@ import {
 } from "./src/server/teamSync.js";
 import { setupSecurityMiddleware, createApiKeyMiddleware } from "./src/server/standalone/middleware.js";
 import { setupHealthRoute } from "./src/server/standalone/health.js";
+import type { HistoryEntry, MemoryEntry } from "./src/types/api.js";
 
 dotenv.config();
 
@@ -121,7 +122,7 @@ import {
 setRagEmbedFn(generateEmbeddings);
 
 // Memory Engine
-async function summarizeLongHistory(messages: any[], provider: string = "gemini", localUrl?: string, modelName?: string, apiKey?: string) {
+async function summarizeLongHistory(messages: HistoryEntry[], provider: string = "gemini", localUrl?: string, modelName?: string, apiKey?: string) {
   if (messages.length < 5) return null;
   
   const instruction = `You are the "cvr.name Dreamer Engine". Examine the conversation below and extract:
@@ -157,7 +158,7 @@ app.post("/api/chat", validateBody(ChatRequestSchema), async (req, res) => {
     // 2. Construct context
     const agent = bodyAgent || configAgent || "build";
     const mode = config.mode || "build";
-    const contextParts = memories.slice(-5).map((m: any) => `[CLUSTER_DATA]: ${m.content}`).join('\n');
+    const contextParts = memories.slice(-5).map((m: MemoryEntry) => `[CLUSTER_DATA]: ${m.content}`).join('\n');
 
     const systemPrompt = await buildSystemPrompt({
       agent,
@@ -173,8 +174,8 @@ app.post("/api/chat", validateBody(ChatRequestSchema), async (req, res) => {
       processedImages = await processImages(rawImages, { maxDimension: maxImageSize || 1024 });
     }
 
-    const buildParts = (text: string, imgs?: ProcessedImage[]) => {
-      const parts: any[] = [{ text }];
+    const buildParts = (text: string, imgs?: ProcessedImage[]): Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> => {
+      const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [{ text }];
       if (imgs && imgs.length > 0) {
         for (const img of imgs) {
           parts.push({ inlineData: { mimeType: img.mimeType, data: img.base64 } });
@@ -183,12 +184,12 @@ app.post("/api/chat", validateBody(ChatRequestSchema), async (req, res) => {
       return parts;
     };
 
-    const historyContents = history.slice(-10).map((m: any) => {
-      const parts: any[] = [{ text: m.content }];
+    const historyContents = history.slice(-10).map((m: HistoryEntry) => {
+      const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [{ text: m.content }];
       if (m.images && Array.isArray(m.images)) {
         for (const img of m.images) {
           const match = typeof img === 'string' ? img.match(/^data:([^;]+);base64,(.+)$/) : null;
-          if (match) {
+          if (match && match[1] && match[2]) {
             parts.push({ inlineData: { mimeType: match[1], data: match[2] } });
           }
         }
@@ -202,7 +203,7 @@ app.post("/api/chat", validateBody(ChatRequestSchema), async (req, res) => {
     ], aiProvider, localUrl, aiModel, apiKey, temperature, maxTokens);
 
     // 3. Persist
-    const userHistoryEntry: any = { role: 'user', content: message, createdAt: new Date() };
+    const userHistoryEntry: HistoryEntry = { role: 'user', content: message, createdAt: new Date() };
     if (processedImages.length > 0) {
       userHistoryEntry.images = processedImages.map(img => `data:${img.mimeType};base64,${img.base64}`);
     }

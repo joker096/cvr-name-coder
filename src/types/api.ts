@@ -1,6 +1,18 @@
 import type { ChatConfig } from './settings';
 import type { Message } from './chat';
 
+export interface HistoryEntry {
+  role: 'user' | 'assistant';
+  content: string;
+  images?: string[];
+  createdAt?: Date;
+}
+
+export interface MemoryEntry {
+  content: string;
+  timestamp: number;
+}
+
 export interface ChatRequest {
   message: string;
   images?: string[];
