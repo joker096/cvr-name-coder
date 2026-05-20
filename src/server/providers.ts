@@ -8,9 +8,22 @@ export interface AIResponse {
   outputTokens: number;
 }
 
+export interface ContentPart {
+  text?: string;
+  inlineData?: {
+    mimeType: string;
+    data: string;
+  };
+}
+
+export interface Content {
+  role: string;
+  parts: ContentPart[];
+}
+
 export interface AIGenerateOptions {
   prompt: string;
-  contents: any[];
+  contents: Content[];
   modelName?: string | undefined;
   apiKey?: string | undefined;
   temperature?: number | undefined;
@@ -72,28 +85,28 @@ class GeminiProvider extends AIProvider {
   }
 }
 
-function buildOpenAICompatibleBody(options: AIGenerateOptions, providerName: string): any {
+function buildOpenAICompatibleBody(options: AIGenerateOptions, providerName: string): Record<string, unknown> {
   const { prompt, contents, modelName, temperature, maxTokens } = options;
   const defaultModel = PROVIDER_DEFAULT_MODELS[providerName as keyof typeof PROVIDER_DEFAULT_MODELS] ?? "local-model";
-  const body: any = {
+  const body: Record<string, unknown> = {
     model: modelName || defaultModel,
     messages: [
       { role: "system", content: prompt },
       ...contents.map((c) => {
-        const hasImages = c.parts.some((p: any) => p.inlineData);
+        const hasImages = c.parts.some((p) => p.inlineData);
         if (hasImages) {
           return {
             role: c.role === "model" ? "assistant" : c.role,
-            content: c.parts.map((p: any) => {
+            content: c.parts.map((p) => {
               if (p.text) return { type: "text", text: p.text };
               if (p.inlineData) return { type: "image_url", image_url: { url: `data:${p.inlineData.mimeType};base64,${p.inlineData.data}` } };
               return null;
-            }).filter((x: any) => x !== null),
+            }).filter((x) => x !== null),
           };
         }
         return {
           role: c.role === "model" ? "assistant" : c.role,
-          content: c.parts[0].text,
+          content: c.parts[0]?.text ?? "",
         };
       }),
     ],
@@ -117,6 +130,18 @@ function getEnvVarForProvider(provider: string): string {
   return map[provider] || "CUSTOM_API_KEY";
 }
 
+interface OpenAIResponse {
+  error?: { message?: string };
+  choices?: Array<{ message?: { content?: string } }>;
+  usage?: { prompt_tokens?: number; completion_tokens?: number };
+}
+
+interface AnthropicResponse {
+  error?: { message?: string };
+  content?: Array<{ text?: string }>;
+  usage?: { input_tokens?: number; output_tokens?: number };
+}
+
 class OpenAICompatibleProvider extends AIProvider {
   constructor(private provider: string) {
     super();
@@ -137,9 +162,9 @@ class OpenAICompatibleProvider extends AIProvider {
       },
       body: JSON.stringify(body),
     });
-    const data: any = await response.json();
+    const data = (await response.json()) as OpenAIResponse;
     if (data.error) throw new Error(data.error.message || `${this.provider} API error`);
-    const text = data.choices[0].message.content;
+    const text = data.choices?.[0]?.message?.content ?? "";
     const inputTokens = data.usage?.prompt_tokens || estimateTokens(prompt + contents.map((c) => c.parts?.[0]?.text || "").join(" "));
     const outputTokens = data.usage?.completion_tokens || estimateTokens(text);
     return { text, inputTokens, outputTokens };
@@ -162,27 +187,27 @@ class AnthropicProvider extends AIProvider {
         max_tokens: maxTokens || 4096,
         system: prompt,
         messages: contents.map((c) => {
-          const hasImages = c.parts.some((p: any) => p.inlineData);
+          const hasImages = c.parts.some((p) => p.inlineData);
           if (hasImages) {
             return {
               role: c.role === "model" ? "assistant" : c.role,
-              content: c.parts.map((p: any) => {
+              content: c.parts.map((p) => {
                 if (p.text) return { type: "text", text: p.text };
                 if (p.inlineData) return { type: "image", source: { type: "base64", media_type: p.inlineData.mimeType, data: p.inlineData.data } };
                 return null;
-              }).filter((x: any) => x !== null),
+              }).filter((x) => x !== null),
             };
           }
           return {
             role: c.role === "model" ? "assistant" : c.role,
-            content: c.parts[0].text,
+            content: c.parts[0]?.text ?? "",
           };
         }),
       }),
     });
-    const data: any = await response.json();
+    const data = (await response.json()) as AnthropicResponse;
     if (data.error) throw new Error(data.error.message || "Anthropic error");
-    const text = data.content[0].text;
+    const text = data.content?.[0]?.text ?? "";
     const inputTokens = data.usage?.input_tokens || estimateTokens(prompt);
     const outputTokens = data.usage?.output_tokens || estimateTokens(text);
     return { text, inputTokens, outputTokens };

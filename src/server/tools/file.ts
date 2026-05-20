@@ -66,7 +66,7 @@ export async function executeWriteFile(params: Record<string, unknown>, sessionI
   await hookRegistry.execute("file.write.before", { path: writePath, content }, sessionId);
   await mkdir(path.dirname(writePath), { recursive: true });
   await writeFile(writePath, content, "utf-8");
-  await hookRegistry.execute("file.write.after", { path: writePath, content }, sessionId);
+  await hookRegistry.execute("file.write.after", { path: writePath, content, success: true }, sessionId);
   return { success: true, output: `File written: ${String(params.path)}` };
 }
 
@@ -81,6 +81,6 @@ export async function executeEditFile(params: Record<string, unknown>, sessionId
   const updated = content.replace(oldString, newString);
   await hookRegistry.execute("file.write.before", { path: editPath, content: updated }, sessionId);
   await writeFile(editPath, updated, "utf-8");
-  await hookRegistry.execute("file.write.after", { path: editPath, content: updated }, sessionId);
+  await hookRegistry.execute("file.write.after", { path: editPath, content: updated, success: true }, sessionId);
   return { success: true, output: `File edited: ${String(params.path)}` };
 }

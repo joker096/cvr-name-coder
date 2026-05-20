@@ -1,5 +1,6 @@
 import { AgentLoop } from "./agentLoop.js";
 import type { AgentConfig } from "../types/agent.js";
+import { getErrorMessage } from "../types/errors.js";
 
 export interface SubagentTask {
   id: string;
@@ -65,9 +66,9 @@ export class SubagentManager {
       const state = await loop.run();
       task.status = "completed";
       task.result = state.steps.map((s) => s.observation || s.thought).join("\n\n");
-    } catch (err: any) {
+    } catch (err: unknown) {
       task.status = "failed";
-      task.error = err.message;
+      task.error = getErrorMessage(err);
     } finally {
       task.endTime = Date.now();
       this.processQueue(thinkFn);
@@ -83,8 +84,8 @@ export class SubagentManager {
 
     const nextTask = this.tasks.get(nextId);
     if (nextTask) {
-      this.executeTask(nextTask, thinkFn).catch((err) => {
-        console.error(`Queued subagent ${nextId} failed:`, err);
+      this.executeTask(nextTask, thinkFn).catch((err: unknown) => {
+        console.error(`Queued subagent ${nextId} failed:`, getErrorMessage(err));
       });
     }
   }

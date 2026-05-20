@@ -1,5 +1,6 @@
 import { writeFile, mkdir } from "fs/promises";
 import * as path from "path";
+import { getErrorMessage } from "../types/errors";
 
 let _skillsDir = path.resolve(process.cwd(), ".cvr", "skills");
 
@@ -7,9 +8,14 @@ export function setSkillCreatorDir(dir: string): void {
   _skillsDir = dir;
 }
 
+interface StepAction {
+  tool: string;
+  params?: Record<string, unknown>;
+}
+
 export interface SkillCreationInput {
   goal: string;
-  steps: Array<{ thought: string; action?: any; observation?: string | undefined }>;
+  steps: Array<{ thought: string; action?: StepAction | undefined; observation?: string | undefined }>;
   toolNames: string[];
   durationMs: number;
   success: boolean;
@@ -54,8 +60,8 @@ ${content}`;
     await mkdir(_skillsDir, { recursive: true });
     await writeFile(filePath, frontmatter, "utf-8");
     return { created: true, path: filePath, reason: "Skill created successfully." };
-  } catch (e: any) {
-    return { created: false, reason: `Write failed: ${e.message}` };
+  } catch (e: unknown) {
+    return { created: false, reason: `Write failed: ${getErrorMessage(e)}` };
   }
 }
 

@@ -13,13 +13,48 @@ import { searchRAG } from "./ragEngine.js";
 import type { EmbedFunction } from "./ragEngine.js";
 import { loadCustomTools, executeCustomTool } from "./customToolLoader.js";
 import { getGitStatus, getGitDiff, gitCommit, gitPush, getGitLog } from "./gitTools.js";
-// Browser tools loaded dynamically to avoid bundling playwright-core
-let browserTools: any = null;
-async function getBrowserTools() {
+import { getErrorMessage } from "../types/errors";
+
+interface BrowserToolsModule {
+  browserNavigate: (
+    sessionId: string,
+    url: string,
+    headless: boolean
+  ) => Promise<{ success: boolean; output?: string; error?: string }>;
+  browserClick: (
+    sessionId: string,
+    selector: string,
+    headless: boolean
+  ) => Promise<{ success: boolean; output?: string; error?: string }>;
+  browserType: (
+    sessionId: string,
+    selector: string,
+    text: string,
+    headless: boolean
+  ) => Promise<{ success: boolean; output?: string; error?: string }>;
+  browserScreenshot: (
+    sessionId: string,
+    headless: boolean
+  ) => Promise<{ success: boolean; output?: string; error?: string; base64?: string }>;
+  browserEvaluate: (
+    sessionId: string,
+    script: string,
+    headless: boolean
+  ) => Promise<{ success: boolean; output?: string; error?: string }>;
+  browserGetHtml: (
+    sessionId: string,
+    headless: boolean
+  ) => Promise<{ success: boolean; output?: string; error?: string }>;
+  browserClose: (sessionId: string) => Promise<{ success: boolean; output?: string; error?: string }>;
+}
+
+let browserTools: BrowserToolsModule | null = null;
+
+async function getBrowserTools(): Promise<BrowserToolsModule | null> {
   if (!browserTools) {
     try {
       const modulePath = "./browserTools.js";
-      browserTools = await import(modulePath);
+      browserTools = (await import(modulePath)) as BrowserToolsModule;
     } catch {
       return null;
     }
@@ -84,7 +119,6 @@ export async function executeTool(
 
   let result: ToolResult;
 
-  // Plan mode blocks write tools
   const isReadOnlyBuiltIn = READ_ONLY_TOOLS.has(name as import("../types/tools").ToolName);
   let isReadOnlyCustom = false;
   if (!isReadOnlyBuiltIn) {
@@ -98,15 +132,18 @@ export async function executeTool(
       output: "",
       error: `Tool "${name}" is disabled in PLAN mode. Switch to BUILD mode to make changes.`,
     };
-    await hookRegistry.execute("tool.after", { tool: name, params, result }, sessionId);
+    await hookRegistry.execute(
+      "tool.after",
+      { tool: name, params, result: result.output, success: false },
+      sessionId
+    );
     return result;
   }
 
-  // Permission check
   if (permissionEngine) {
     const permissionRequest: PermissionRequest = {
       tool: name,
-      params: params as Record<string, any>,
+      params: params as Record<string, string | number | boolean | null | undefined>,
     };
     if (params.path) {
       permissionRequest.filePath = String(params.path);
@@ -121,7 +158,11 @@ export async function executeTool(
         output: "",
         error: `Permission denied: ${checkResult.reason || checkResult.rule?.pattern || "default policy"}`,
       };
-      await hookRegistry.execute("tool.after", { tool: name, params, result }, sessionId);
+      await hookRegistry.execute(
+        "tool.after",
+        { tool: name, params, result: result.output, success: false },
+        sessionId
+      );
       return result;
     }
     if (checkResult.action === "ask") {
@@ -133,7 +174,11 @@ export async function executeTool(
           output: "",
           error: `Permission denied or timed out: ${name}`,
         };
-        await hookRegistry.execute("tool.after", { tool: name, params, result }, sessionId);
+        await hookRegistry.execute(
+          "tool.after",
+          { tool: name, params, result: result.output, success: false },
+          sessionId
+        );
         return result;
       }
     }
@@ -160,7 +205,10 @@ export async function executeTool(
         const searchPath = resolveProjectPath(String(params.path || "."));
         const query = String(params.query).toLowerCase();
         const matches = await searchDir(searchPath, query);
-        result = { success: true, output: matches.length > 0 ? matches.join("\n") : "No matches found." };
+        result = {
+          success: true,
+          output: matches.length > 0 ? matches.join("\n") : "No matches found.",
+        };
         break;
       }
 
@@ -170,7 +218,7 @@ export async function executeTool(
         await hookRegistry.execute("file.write.before", { path: writePath, content }, sessionId);
         await mkdir(path.dirname(writePath), { recursive: true });
         await writeFile(writePath, content, "utf-8");
-        await hookRegistry.execute("file.write.after", { path: writePath, content }, sessionId);
+        await hookRegistry.execute("file.write.after", { path: writePath, content, success: true }, sessionId);
         result = { success: true, output: `File written: ${String(params.path)}` };
         break;
       }
@@ -187,7 +235,7 @@ export async function executeTool(
         const updated = content.replace(oldString, newString);
         await hookRegistry.execute("file.write.before", { path: editPath, content: updated }, sessionId);
         await writeFile(editPath, updated, "utf-8");
-        await hookRegistry.execute("file.write.after", { path: editPath, content: updated }, sessionId);
+        await hookRegistry.execute("file.write.after", { path: editPath, content: updated, success: true }, sessionId);
         result = { success: true, output: `File edited: ${String(params.path)}` };
         break;
       }
@@ -228,7 +276,12 @@ export async function executeTool(
 
       case "skill_list": {
         const skills = await loadSkills();
-        const list = skills.map((s) => ({ id: s.id, name: s.name, description: s.description, triggers: s.triggers }));
+        const list = skills.map((s) => ({
+          id: s.id,
+          name: s.name,
+          description: s.description,
+          triggers: s.triggers,
+        }));
         result = { success: true, output: JSON.stringify(list, null, 2) };
         break;
       }
@@ -250,7 +303,10 @@ export async function executeTool(
         if (!runSkill) {
           result = { success: false, output: "", error: `Skill not found: ${runId}` };
         } else {
-          result = { success: true, output: `[SKILL: ${runSkill.name}]\nFollow these instructions:\n${runSkill.content}` };
+          result = {
+            success: true,
+            output: `[SKILL: ${runSkill.name}]\nFollow these instructions:\n${runSkill.content}`,
+          };
         }
         break;
       }
@@ -265,7 +321,9 @@ export async function executeTool(
           if (ragResults.length === 0) {
             result = { success: true, output: "No relevant RAG context found." };
           } else {
-            const formatted = ragResults.map((r, i) => `[${i + 1}] ${r.source} (score: ${r.score.toFixed(3)})\n${r.content}`).join("\n\n");
+            const formatted = ragResults
+              .map((r, i) => `[${i + 1}] ${r.source} (score: ${r.score.toFixed(3)})\n${r.content}`)
+              .join("\n\n");
             result = { success: true, output: `RAG Results:\n${formatted}` };
           }
         }
@@ -312,35 +370,72 @@ export async function executeTool(
 
       case "browser_navigate": {
         const bt = await getBrowserTools();
-        if (!bt) { result = { success: false, output: "", error: "playwright-core not installed" }; break; }
-        const navResult = await bt.browserNavigate(sessionId, String(params.url), Boolean(params.headless ?? true));
-        result = { success: navResult.success, output: navResult.output, ...(navResult.error ? { error: navResult.error } : {}) };
+        if (!bt) {
+          result = { success: false, output: "", error: "playwright-core not installed" };
+          break;
+        }
+        const navResult = await bt.browserNavigate(
+          sessionId,
+          String(params.url),
+          Boolean(params.headless ?? true)
+        );
+        result = {
+          success: navResult.success,
+          output: navResult.output ?? "",
+          ...(navResult.error ? { error: navResult.error } : {}),
+        };
         break;
       }
 
       case "browser_click": {
         const bt = await getBrowserTools();
-        if (!bt) { result = { success: false, output: "", error: "playwright-core not installed" }; break; }
-        const clickResult = await bt.browserClick(sessionId, String(params.selector), Boolean(params.headless ?? true));
-        result = { success: clickResult.success, output: clickResult.output, ...(clickResult.error ? { error: clickResult.error } : {}) };
+        if (!bt) {
+          result = { success: false, output: "", error: "playwright-core not installed" };
+          break;
+        }
+        const clickResult = await bt.browserClick(
+          sessionId,
+          String(params.selector),
+          Boolean(params.headless ?? true)
+        );
+        result = {
+          success: clickResult.success,
+          output: clickResult.output ?? "",
+          ...(clickResult.error ? { error: clickResult.error } : {}),
+        };
         break;
       }
 
       case "browser_type": {
         const bt = await getBrowserTools();
-        if (!bt) { result = { success: false, output: "", error: "playwright-core not installed" }; break; }
-        const typeResult = await bt.browserType(sessionId, String(params.selector), String(params.text), Boolean(params.headless ?? true));
-        result = { success: typeResult.success, output: typeResult.output, ...(typeResult.error ? { error: typeResult.error } : {}) };
+        if (!bt) {
+          result = { success: false, output: "", error: "playwright-core not installed" };
+          break;
+        }
+        const typeResult = await bt.browserType(
+          sessionId,
+          String(params.selector),
+          String(params.text),
+          Boolean(params.headless ?? true)
+        );
+        result = {
+          success: typeResult.success,
+          output: typeResult.output ?? "",
+          ...(typeResult.error ? { error: typeResult.error } : {}),
+        };
         break;
       }
 
       case "browser_screenshot": {
         const bt = await getBrowserTools();
-        if (!bt) { result = { success: false, output: "", error: "playwright-core not installed" }; break; }
+        if (!bt) {
+          result = { success: false, output: "", error: "playwright-core not installed" };
+          break;
+        }
         const ssResult = await bt.browserScreenshot(sessionId, Boolean(params.headless ?? true));
         result = {
           success: ssResult.success,
-          output: ssResult.output,
+          output: ssResult.output ?? "",
           ...(ssResult.error ? { error: ssResult.error } : {}),
           ...(ssResult.base64 ? { base64: ssResult.base64 } : {}),
         };
@@ -349,30 +444,54 @@ export async function executeTool(
 
       case "browser_evaluate": {
         const bt = await getBrowserTools();
-        if (!bt) { result = { success: false, output: "", error: "playwright-core not installed" }; break; }
-        const evalResult = await bt.browserEvaluate(sessionId, String(params.script), Boolean(params.headless ?? true));
-        result = { success: evalResult.success, output: evalResult.output, ...(evalResult.error ? { error: evalResult.error } : {}) };
+        if (!bt) {
+          result = { success: false, output: "", error: "playwright-core not installed" };
+          break;
+        }
+        const evalResult = await bt.browserEvaluate(
+          sessionId,
+          String(params.script),
+          Boolean(params.headless ?? true)
+        );
+        result = {
+          success: evalResult.success,
+          output: evalResult.output ?? "",
+          ...(evalResult.error ? { error: evalResult.error } : {}),
+        };
         break;
       }
 
       case "browser_get_html": {
         const bt = await getBrowserTools();
-        if (!bt) { result = { success: false, output: "", error: "playwright-core not installed" }; break; }
+        if (!bt) {
+          result = { success: false, output: "", error: "playwright-core not installed" };
+          break;
+        }
         const htmlResult = await bt.browserGetHtml(sessionId, Boolean(params.headless ?? true));
-        result = { success: htmlResult.success, output: htmlResult.output, ...(htmlResult.error ? { error: htmlResult.error } : {}) };
+        result = {
+          success: htmlResult.success,
+          output: htmlResult.output ?? "",
+          ...(htmlResult.error ? { error: htmlResult.error } : {}),
+        };
         break;
       }
 
       case "browser_close": {
         const bt = await getBrowserTools();
-        if (!bt) { result = { success: false, output: "", error: "playwright-core not installed" }; break; }
+        if (!bt) {
+          result = { success: false, output: "", error: "playwright-core not installed" };
+          break;
+        }
         const closeResult = await bt.browserClose(sessionId);
-        result = { success: closeResult.success, output: closeResult.output, ...(closeResult.error ? { error: closeResult.error } : {}) };
+        result = {
+          success: closeResult.success,
+          output: closeResult.output ?? "",
+          ...(closeResult.error ? { error: closeResult.error } : {}),
+        };
         break;
       }
 
       default: {
-        // Check custom tools
         const customTools = await loadCustomTools();
         const customTool = customTools.find((t) => t.id === name);
         if (customTool) {
@@ -383,10 +502,14 @@ export async function executeTool(
         break;
       }
     }
-  } catch (err: any) {
-    result = { success: false, output: "", error: err.message };
+  } catch (err: unknown) {
+    result = { success: false, output: "", error: getErrorMessage(err) };
   }
 
-  await hookRegistry.execute("tool.after", { tool: name, params, result }, sessionId);
+  await hookRegistry.execute(
+    "tool.after",
+    { tool: name, params, result: result.output, success: result.success },
+    sessionId
+  );
   return result;
 }

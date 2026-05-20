@@ -60,8 +60,8 @@ async function loadCosts(): Promise<CostEntry[]> {
   try {
     await access(COSTS_FILE);
     const data = await readFile(COSTS_FILE, "utf-8");
-    const parsed = JSON.parse(data);
-    if (Array.isArray(parsed)) return parsed;
+    const parsed: unknown = JSON.parse(data);
+    if (Array.isArray(parsed)) return parsed as CostEntry[];
     return [];
   } catch {
     return [];

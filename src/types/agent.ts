@@ -3,7 +3,7 @@ export interface LoopStep {
   thought: string;
   action?: {
     tool: string;
-    params: Record<string, any>;
+    params: Record<string, unknown>;
   };
   observation?: string;
   timestamp: number;
@@ -40,6 +40,6 @@ export interface Plan {
 
 export interface AgentLoopEvent {
   type: "thought" | "action" | "observation" | "status" | "complete" | "error";
-  data: any;
+  data: string | LoopStep | { status: string } | { error: string };
   timestamp: number;
 }

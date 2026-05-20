@@ -1,65 +1,84 @@
 import * as path from "path";
 import * as fs from "fs";
+import type { Database, RagChunk, RagJsonData, DatabaseStatement } from "../types/database";
 
 let _dbPath = path.resolve(process.cwd(), ".opencode-infinite", "rag.db");
-let _db: any = null;
+let _db: Database | null = null;
 let _useFallback = false;
 
-// Fallback JSON storage
-let _chunks: Array<{ id: number; source: string; content: string; embedding: string }> = [];
+let _chunks: RagChunk[] = [];
 let _jsonPath = "";
 let _nextId = 1;
 
-function loadJson() {
+function loadJson(): void {
   try {
     if (fs.existsSync(_jsonPath)) {
-      const data = JSON.parse(fs.readFileSync(_jsonPath, "utf-8"));
+      const raw = fs.readFileSync(_jsonPath, "utf-8");
+      const data: RagJsonData = JSON.parse(raw) as RagJsonData;
       _chunks = data.chunks || [];
       _nextId = data.nextId || 1;
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
 
-function saveJson() {
+function saveJson(): void {
   try {
     fs.mkdirSync(path.dirname(_jsonPath), { recursive: true });
-    fs.writeFileSync(_jsonPath, JSON.stringify({ chunks: _chunks, nextId: _nextId }, null, 2));
-  } catch { /* ignore */ }
+    const data: RagJsonData = { chunks: _chunks, nextId: _nextId };
+    fs.writeFileSync(_jsonPath, JSON.stringify(data, null, 2));
+  } catch {
+    /* ignore */
+  }
 }
 
-function fallbackGetDb(): any {
+function fallbackGetDb(): Database {
   if (!_jsonPath) {
-    _jsonPath = _dbPath.replace(/\.db$/, '') + '-fallback.json';
+    _jsonPath = _dbPath.replace(/\.db$/, "") + "-fallback.json";
     loadJson();
   }
   return {
     prepare: (sql: string) => {
       const trimmed = sql.trim().toLowerCase();
-      if (trimmed.startsWith('insert into chunks')) {
-        return {
-          run: (source: string, content: string, embedding: string) => {
-            _chunks.push({ id: _nextId++, source, content, embedding });
+      if (trimmed.startsWith("insert into chunks")) {
+        const stmt: DatabaseStatement = {
+          run: (source: unknown, content: unknown, embedding: unknown) => {
+            _chunks.push({
+              id: _nextId++,
+              source: String(source),
+              content: String(content),
+              embedding: String(embedding),
+            });
             saveJson();
-            return { lastInsertRowid: _nextId - 1 };
+            return { lastInsertRowid: _nextId - 1, changes: 1 };
           },
         };
+        return stmt;
       }
-      if (trimmed.startsWith('select') && trimmed.includes('from chunks')) {
-        return {
+      if (trimmed.startsWith("select") && trimmed.includes("from chunks")) {
+        const stmt: DatabaseStatement = {
           all: () => [..._chunks],
           get: () => undefined,
         };
+        return stmt;
       }
-      if (trimmed.startsWith('delete from chunks where source =')) {
-        return {
-          run: (source: string) => {
-            _chunks = _chunks.filter(c => c.source !== source);
+      if (trimmed.startsWith("delete from chunks where source =")) {
+        const stmt: DatabaseStatement = {
+          run: (source: unknown) => {
+            _chunks = _chunks.filter((c) => c.source !== String(source));
             saveJson();
-            return {};
+            return { lastInsertRowid: 0, changes: 1 };
           },
         };
+        return stmt;
       }
-      return { run: () => ({}), get: () => undefined, all: () => [] };
+      const stmt: DatabaseStatement = {
+        run: () => ({ lastInsertRowid: 0, changes: 0 }),
+        get: () => undefined,
+        all: () => [],
+      };
+      return stmt;
     },
     exec: () => {},
     pragma: () => {},
@@ -75,13 +94,14 @@ export function setRagDbPath(dir: string): void {
   }
 }
 
-function getDb(): any {
+function getDb(): Database {
   if (!_db) {
     try {
-      const Database = require("better-sqlite3");
-      _db = new Database(_dbPath);
-      _db.pragma("journal_mode = WAL");
-      initSchema(_db);
+      const DatabaseClass: typeof import("better-sqlite3") = require("better-sqlite3");
+      const db = new DatabaseClass(_dbPath) as Database;
+      db.pragma("journal_mode = WAL");
+      initSchema(db);
+      _db = db;
     } catch {
       _useFallback = true;
       _db = fallbackGetDb();
@@ -90,7 +110,7 @@ function getDb(): any {
   return _db;
 }
 
-function initSchema(db: any): void {
+function initSchema(db: Database): void {
   if (_useFallback) return;
   db.exec(`
     CREATE TABLE IF NOT EXISTS chunks (
@@ -147,7 +167,7 @@ export async function ingestDocument(
 
   const insert = db.prepare("INSERT INTO chunks (source, content, embedding) VALUES (?, ?, ?)");
   for (let i = 0; i < chunks.length; i++) {
-    insert.run(source, chunks[i], JSON.stringify(embeddings[i]));
+    insert.run!(source, chunks[i], JSON.stringify(embeddings[i]));
   }
   if (_useFallback) saveJson();
 }
@@ -167,11 +187,7 @@ export async function searchRAG(
   const [queryEmbedding] = await embedFn([query]);
   if (!queryEmbedding) return [];
 
-  const rows = db.prepare("SELECT source, content, embedding FROM chunks").all() as Array<{
-    source: string;
-    content: string;
-    embedding: string;
-  }>;
+  const rows = db.prepare("SELECT source, content, embedding FROM chunks").all!() as RagChunk[];
 
   const scored = rows
     .map((r) => ({
@@ -188,12 +204,12 @@ export async function searchRAG(
 
 export function listSources(): string[] {
   const db = getDb();
-  const rows = db.prepare("SELECT DISTINCT source FROM chunks").all() as Array<{ source: string }>;
+  const rows = db.prepare("SELECT DISTINCT source FROM chunks").all!() as Array<{ source: string }>;
   return rows.map((r) => r.source);
 }
 
 export function clearSource(source: string): void {
   const db = getDb();
-  db.prepare("DELETE FROM chunks WHERE source = ?").run(source);
+  db.prepare("DELETE FROM chunks WHERE source = ?").run!(source);
   if (_useFallback) saveJson();
 }

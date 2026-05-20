@@ -3,6 +3,7 @@ import * as path from "path";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import type { CustomToolDefinition, CustomToolResult } from "../types/customTool";
+import { getErrorMessage } from "../types/errors";
 
 const execFileAsync = promisify(execFile);
 
@@ -11,6 +12,12 @@ let _toolsDir = TOOLS_DIR;
 
 export function setCustomToolsDir(dir: string): void {
   _toolsDir = dir;
+}
+
+interface ParsedToolJson {
+  id?: string;
+  name?: string;
+  handler?: { type?: string };
 }
 
 export async function loadCustomTools(): Promise<CustomToolDefinition[]> {
@@ -28,11 +35,12 @@ export async function loadCustomTools(): Promise<CustomToolDefinition[]> {
     const filePath = path.join(_toolsDir, entry.name);
     try {
       const raw = await readFile(filePath, "utf-8");
-      const parsed = JSON.parse(raw);
+      const parsed: ParsedToolJson = JSON.parse(raw) as ParsedToolJson;
       if (parsed.id && parsed.name && parsed.handler) {
-        // SECURITY: Reject node-type handlers (arbitrary code execution)
         if (parsed.handler.type === "node") {
-          console.warn(`Custom tool ${parsed.id}: "node" handler type is disabled for security. Use "command" only.`);
+          console.warn(
+            `Custom tool ${parsed.id}: "node" handler type is disabled for security. Use "command" only.`
+          );
           continue;
         }
         tools.push(parsed as CustomToolDefinition);
@@ -45,30 +53,29 @@ export async function loadCustomTools(): Promise<CustomToolDefinition[]> {
   return tools;
 }
 
-// Escape a string for safe use inside single-quoted shell arguments
 function shellEscape(str: string): string {
-  // If the value is a simple safe string, return as-is
   if (/^[a-zA-Z0-9_./:@~-]+$/.test(str)) return str;
-  // Use ANSI-C quoting for bash, otherwise fall back to single-quote escaping
   return "'" + str.replace(/'/g, "'\"'\"'") + "'";
 }
 
-export async function executeCustomTool(definition: CustomToolDefinition, params: Record<string, unknown>): Promise<CustomToolResult> {
+export async function executeCustomTool(
+  definition: CustomToolDefinition,
+  params: Record<string, unknown>
+): Promise<CustomToolResult> {
   try {
     if (definition.handler.type === "command") {
       let command = definition.handler.template;
       for (const [key, value] of Object.entries(params)) {
-        // SECURITY: shell-escape every substituted value
         command = command.replace(new RegExp(`\\{${key}\\}`, "g"), shellEscape(String(value)));
       }
-      const cwd = definition.handler.cwd ? path.resolve(process.cwd(), definition.handler.cwd) : process.cwd();
+      const cwd = definition.handler.cwd
+        ? path.resolve(process.cwd(), definition.handler.cwd)
+        : process.cwd();
 
-      // SECURITY: reject shell metacharacters that could break out of the template
       if (/[;&|`$(){}[\]<>!\\]/.test(command)) {
         return { success: false, output: "", error: "Command contains unsafe shell metacharacters" };
       }
 
-      // Use execFile with explicit shell:false to avoid shell interpretation of the whole string
       const { stdout, stderr } = await execFileAsync("sh", ["-c", command], {
         cwd,
         encoding: "utf-8",
@@ -79,7 +86,7 @@ export async function executeCustomTool(definition: CustomToolDefinition, params
     }
 
     return { success: false, output: "", error: "Unknown or disabled handler type" };
-  } catch (e: any) {
-    return { success: false, output: "", error: e.message };
+  } catch (e: unknown) {
+    return { success: false, output: "", error: getErrorMessage(e) };
   }
 }

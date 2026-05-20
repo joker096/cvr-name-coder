@@ -3,6 +3,7 @@ import * as path from "path";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "crypto";
+import { getErrorMessage } from "../types/errors";
 
 const execFileAsync = promisify(execFile);
 
@@ -119,9 +120,8 @@ export function getSyncConfig(): SyncConfig | null {
 
 export async function saveSyncConfig(config: SyncConfig): Promise<void> {
   await mkdir(SYNC_DIR, { recursive: true });
-  // SECURITY: Never write the encryption key to disk.
-  const safeConfig = { ...config };
-  delete (safeConfig as any).encryptionKey;
+  const safeConfig: Omit<SyncConfig, "encryptionKey"> = { ...config };
+  delete (safeConfig as Record<string, unknown>).encryptionKey;
   await writeFile(CONFIG_PATH, JSON.stringify(safeConfig, null, 2), "utf-8");
   _config = config;
   _status.provider = config.provider;
@@ -262,7 +262,7 @@ async function importWithConflictCheck(syncDir: string): Promise<string[]> {
     }
     try {
       await importFile(file, syncDir);
-    } catch (e: any) {
+    } catch (e: unknown) {
       conflicts.push(file);
     }
   }
@@ -302,9 +302,9 @@ export async function exportSync(): Promise<{ success: boolean; message: string 
     };
 
     return { success: true, message: "Export successful" };
-  } catch (e: any) {
-    _status = { ..._status, status: "error", message: e.message };
-    return { success: false, message: e.message };
+  } catch (e: unknown) {
+    _status = { ..._status, status: "error", message: getErrorMessage(e) };
+    return { success: false, message: getErrorMessage(e) };
   }
 }
 
@@ -345,9 +345,9 @@ export async function importSync(): Promise<{ success: boolean; message: string;
     };
 
     return { success: true, message: "Import successful" };
-  } catch (e: any) {
-    _status = { ..._status, status: "error", message: e.message };
-    return { success: false, message: e.message };
+  } catch (e: unknown) {
+    _status = { ..._status, status: "error", message: getErrorMessage(e) };
+    return { success: false, message: getErrorMessage(e) };
   }
 }
 
@@ -378,8 +378,8 @@ export function restartAutoSync(): void {
 
   const intervalMs = _config.interval * 1000;
   _intervalId = setInterval(() => {
-    exportSync().catch((err) => {
-      console.error("Auto-sync export failed:", err);
+    exportSync().catch((err: unknown) => {
+      console.error("Auto-sync export failed:", getErrorMessage(err));
     });
   }, intervalMs);
 }
@@ -416,7 +416,7 @@ export async function apiImport(apiUrl: string, apiKey: string): Promise<void> {
     },
   });
   if (!response.ok) throw new Error(`API import failed: ${response.statusText}`);
-  const data = await response.json();
+  const data: unknown = await response.json();
   await writeFile(CONFIG_PATH, JSON.stringify(data, null, 2), "utf-8");
 }
 

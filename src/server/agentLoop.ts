@@ -4,6 +4,7 @@ import type { ToolCall } from "../types/tools";
 import type { LoopStep, LoopState } from "../types/agent";
 import { hookRegistry } from "./hooks";
 import { maybeCreateSkill } from "./skillCreator";
+import { getErrorMessage } from "../types/errors";
 
 export type ThinkFunction = (prompt: string) => Promise<string>;
 export type ExecuteToolFunction = (toolCall: ToolCall, mode?: "plan" | "build" | "review") => Promise<import("../types/tools").ToolResult>;
@@ -83,8 +84,8 @@ export class AgentLoop {
               "build"
             );
             step.observation = JSON.stringify(result);
-          } catch (err: any) {
-            step.observation = `Error: ${err.message}`;
+          } catch (err: unknown) {
+            step.observation = `Error: ${getErrorMessage(err)}`;
           }
         } else {
           this.state.status = "completed";
@@ -124,9 +125,9 @@ export class AgentLoop {
       }
 
       return this.state;
-    } catch (err: any) {
+    } catch (err: unknown) {
       this.state.status = "error";
-      await hookRegistry.execute("loop.error", { error: err.message || String(err) }, this.sessionId);
+      await hookRegistry.execute("loop.error", { error: getErrorMessage(err) }, this.sessionId);
       throw err;
     }
   }

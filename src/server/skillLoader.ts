@@ -2,6 +2,13 @@ import { readdir, readFile } from "fs/promises";
 import * as path from "path";
 import type { SkillDefinition } from "../types/skill";
 
+interface RawFrontmatter {
+  id?: string;
+  name?: string;
+  description?: string;
+  triggers?: string[];
+}
+
 const SKILLS_DIR = path.resolve(process.cwd(), ".cvr", "skills");
 let _skillsDir = SKILLS_DIR;
 let _cache: SkillDefinition[] | null = null;
@@ -12,26 +19,28 @@ export function setSkillsDir(dir: string): void {
   _cache = null;
 }
 
-function parseFrontmatter(raw: string): { frontmatter: Record<string, any>; body: string } {
+function parseFrontmatter(raw: string): { frontmatter: RawFrontmatter; body: string } {
   const match = raw.match(/^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/);
   if (!match || !match[1] || match[2] === undefined) {
     return { frontmatter: {}, body: raw };
   }
   const lines = match[1].split("\n");
-  const frontmatter: Record<string, any> = {};
+  const frontmatter: RawFrontmatter = {};
   for (const line of lines) {
     const kv = line.match(/^([\w-]+):\s*(.*)$/);
     if (kv && kv[1] !== undefined && kv[2] !== undefined) {
       const key = kv[1];
       const val = kv[2].trim();
-      if (val.startsWith("[") && val.endsWith("]")) {
-        try {
-          frontmatter[key] = JSON.parse(val);
-        } catch {
-          frontmatter[key] = val;
-        }
-      } else {
+      if (key === "id" || key === "name" || key === "description") {
         frontmatter[key] = val;
+      } else if (key === "triggers") {
+        if (val.startsWith("[") && val.endsWith("]")) {
+          try {
+            frontmatter.triggers = JSON.parse(val) as string[];
+          } catch {
+            frontmatter.triggers = [];
+          }
+        }
       }
     }
   }
@@ -71,11 +80,11 @@ export async function loadSkills(force = false): Promise<SkillDefinition[]> {
       const { frontmatter, body } = parseFrontmatter(raw);
 
       const relPath = path.relative(_skillsDir, filePath).replace(/\\/g, "/");
-      const id = frontmatter.id || relPath.replace(/\.md$/, "");
+      const id = frontmatter.id ?? relPath.replace(/\.md$/, "");
       skills.push({
         id,
-        name: frontmatter.name || id,
-        description: frontmatter.description || "",
+        name: frontmatter.name ?? id,
+        description: frontmatter.description ?? "",
         triggers: Array.isArray(frontmatter.triggers) ? frontmatter.triggers : [],
         content: body,
         filePath,

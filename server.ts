@@ -52,6 +52,35 @@ import {
 import { setupSecurityMiddleware, createApiKeyMiddleware } from "./src/server/standalone/middleware.js";
 import { setupHealthRoute } from "./src/server/standalone/health.js";
 import type { HistoryEntry, MemoryEntry } from "./src/types/api.js";
+import { getErrorMessage } from "./src/types/errors.js";
+
+interface ChatConfig {
+  aiProvider?: string;
+  localUrl?: string;
+  aiModel?: string;
+  localModelName?: string;
+  apiKey?: string;
+  temperature?: number;
+  maxTokens?: number;
+  systemPrompt?: string;
+  agent?: string;
+  mode?: "plan" | "build" | "review";
+  visionEnabled?: boolean;
+  maxImageSize?: number;
+}
+
+interface KernelConfig {
+  aiProvider?: string;
+  [key: string]: unknown;
+}
+
+interface ChatRequestBody {
+  message: string;
+  images?: string[];
+  config?: ChatConfig;
+  kernelConfig?: KernelConfig;
+  agent?: string;
+}
 
 dotenv.config();
 
@@ -147,28 +176,29 @@ async function summarizeLongHistory(messages: HistoryEntry[], provider: string =
 // API Routes
 app.post("/api/chat", validateBody(ChatRequestSchema), async (req, res) => {
   try {
-    const { message, config = {}, kernelConfig = {}, agent: bodyAgent } = req.body;
+    const body = req.body as ChatRequestBody;
+    const { message, config = {}, kernelConfig = {}, agent: bodyAgent } = body;
     const { aiProvider = "gemini", localUrl, aiModel, apiKey, temperature, maxTokens, systemPrompt: customSystemPrompt, agent: configAgent, maxImageSize } = config;
-    const kConfig = kernelConfig.aiProvider ? kernelConfig : config;
+    const kConfig = kernelConfig?.aiProvider ? kernelConfig : config;
 
     // 1. Read persistent state
-    const history = JSON.parse(await readFile(HISTORY_FILE, "utf-8"));
-    const memories = JSON.parse(await readFile(MEMORY_FILE, "utf-8"));
+    const history = JSON.parse(await readFile(HISTORY_FILE, "utf-8")) as HistoryEntry[];
+    const memories = JSON.parse(await readFile(MEMORY_FILE, "utf-8")) as MemoryEntry[];
 
     // 2. Construct context
-    const agent = bodyAgent || configAgent || "build";
+    const agent = (bodyAgent || configAgent || "build") as import("./src/types/settings.js").AgentId;
     const mode = config.mode || "build";
-    const contextParts = memories.slice(-5).map((m: MemoryEntry) => `[CLUSTER_DATA]: ${m.content}`).join('\n');
+    const contextParts = memories.slice(-5).map((m) => `[CLUSTER_DATA]: ${m.content}`).join('\n');
 
     const systemPrompt = await buildSystemPrompt({
       agent,
       mode,
       contextParts,
       customSystemPrompt: customSystemPrompt && customSystemPrompt.trim() ? customSystemPrompt : undefined,
-    });
+    } as Parameters<typeof buildSystemPrompt>[0]);
 
     // Process images if provided
-    const { images: rawImages = [] } = req.body;
+    const rawImages = body.images ?? [];
     let processedImages: ProcessedImage[] = [];
     if (Array.isArray(rawImages) && rawImages.length > 0) {
       processedImages = await processImages(rawImages, { maxDimension: maxImageSize || 1024 });
@@ -207,14 +237,15 @@ app.post("/api/chat", validateBody(ChatRequestSchema), async (req, res) => {
     if (processedImages.length > 0) {
       userHistoryEntry.images = processedImages.map(img => `data:${img.mimeType};base64,${img.base64}`);
     }
-    const updatedHistory = [...history, userHistoryEntry, { role: 'model', content: responseText, createdAt: new Date() }];
+    const updatedHistory: HistoryEntry[] = [...history, userHistoryEntry, { role: 'assistant' as const, content: responseText, createdAt: new Date() }];
     await writeFile(HISTORY_FILE, JSON.stringify(updatedHistory));
 
     // 4. Memory Compression (Project "Dreamer" process)
     if (updatedHistory.length % 5 === 0) {
-      summarizeLongHistory(updatedHistory, kConfig.aiProvider, kConfig.localUrl, kConfig.aiModel || kConfig.localModelName, kConfig.apiKey).then(async (summary) => {
+      const kConfigTyped = kConfig as ChatConfig;
+      summarizeLongHistory(updatedHistory, kConfigTyped.aiProvider, kConfigTyped.localUrl, kConfigTyped.aiModel || kConfigTyped.localModelName, kConfigTyped.apiKey).then(async (summary) => {
         if (summary) {
-          const currentMemories = JSON.parse(await readFile(MEMORY_FILE, "utf-8"));
+          const currentMemories = JSON.parse(await readFile(MEMORY_FILE, "utf-8")) as MemoryEntry[];
           await writeFile(MEMORY_FILE, JSON.stringify([...currentMemories, { content: summary, createdAt: new Date() }]));
         }
       });
@@ -225,18 +256,18 @@ app.post("/api/chat", validateBody(ChatRequestSchema), async (req, res) => {
       continueNeeded: responseText.includes("CONTINUE_NEEDED")
     });
 
-  } catch (error: any) {
-    console.error("API Error:", error);
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    console.error("API Error:", getErrorMessage(error));
+    res.status(500).json({ error: getErrorMessage(error) });
   }
 });
 
 app.get("/api/history", async (_req, res) => {
   try {
-    const history = JSON.parse(await readFile(HISTORY_FILE, "utf-8"));
-    const memories = JSON.parse(await readFile(MEMORY_FILE, "utf-8"));
+    const history = JSON.parse(await readFile(HISTORY_FILE, "utf-8")) as HistoryEntry[];
+    const memories = JSON.parse(await readFile(MEMORY_FILE, "utf-8")) as MemoryEntry[];
     res.json({ history, memories });
-  } catch (e: any) {
+  } catch {
     res.json({ history: [], memories: [] });
   }
 });
@@ -252,18 +283,18 @@ app.get("/api/memory", async (_req, res) => {
   try {
     const data = await readMemory();
     res.json({ raw: data.raw, sections: data.sections });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+  } catch (e: unknown) {
+    res.status(500).json({ error: getErrorMessage(e) });
   }
 });
 
 app.post("/api/memory", async (req, res) => {
   try {
-    const { content, section } = req.body;
-    await writeMemory(content, section);
+    const { content, section } = req.body as { content?: string; section?: string };
+    await writeMemory(content ?? "", section);
     res.json({ saved: true });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+  } catch (e: unknown) {
+    res.status(500).json({ error: getErrorMessage(e) });
   }
 });
 
@@ -271,29 +302,29 @@ app.get("/api/user", async (_req, res) => {
   try {
     const data = await readUser();
     res.json({ raw: data.raw, sections: data.sections });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+  } catch (e: unknown) {
+    res.status(500).json({ error: getErrorMessage(e) });
   }
 });
 
 app.post("/api/user", async (req, res) => {
   try {
-    const { content, section } = req.body;
-    await writeUser(content, section);
+    const { content, section } = req.body as { content?: string; section?: string };
+    await writeUser(content ?? "", section);
     res.json({ saved: true });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+  } catch (e: unknown) {
+    res.status(500).json({ error: getErrorMessage(e) });
   }
 });
 
 // Session API routes
 app.post("/api/sessions", async (req, res) => {
   try {
-    const { title } = req.body;
+    const { title } = req.body as { title?: string };
     const session = createSession(title || "New Session");
     return res.json(session);
-  } catch (e: any) {
-    return res.status(500).json({ error: e.message });
+  } catch (e: unknown) {
+    return res.status(500).json({ error: getErrorMessage(e) });
   }
 });
 
@@ -301,8 +332,8 @@ app.get("/api/sessions", async (_req, res) => {
   try {
     const sessions = listSessions();
     return res.json({ sessions });
-  } catch (e: any) {
-    return res.status(500).json({ error: e.message });
+  } catch (e: unknown) {
+    return res.status(500).json({ error: getErrorMessage(e) });
   }
 });
 
@@ -311,15 +342,15 @@ app.get("/api/sessions/:id", async (req, res) => {
     const result = getSession(req.params.id);
     if (!result) return res.status(404).json({ error: "Session not found" });
     return res.json(result);
-  } catch (e: any) {
-    return res.status(500).json({ error: e.message });
+  } catch (e: unknown) {
+    return res.status(500).json({ error: getErrorMessage(e) });
   }
 });
 
 app.post("/api/sessions/:id/messages", async (req, res) => {
   try {
-    const { role, content } = req.body;
-    const message = addMessage(req.params.id, role, content);
+    const { role, content } = req.body as { role?: string; content?: string };
+    const message = addMessage(req.params.id, role ?? "user", content ?? "");
     return res.json(message);
   } catch (e: any) {
     return res.status(500).json({ error: e.message });
@@ -1004,7 +1035,7 @@ async function startServer() {
     // Close SQLite if open
     try {
       const { getDb } = await import("./src/server/sessionStore.js");
-      getDb().close();
+      getDb().close?.();
     } catch {
       // ignore
     }

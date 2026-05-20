@@ -1,106 +1,142 @@
 import * as path from "path";
 import { randomUUID } from "crypto";
 import * as fs from "fs";
+import type { Database, DatabaseStatement } from "../types/database";
 
 let _dbPath = path.resolve(process.cwd(), ".opencode-infinite", "sessions.db");
-let _db: any = null;
+let _db: Database | null = null;
 let _useFallback = false;
 
-// Fallback in-memory + JSON storage when better-sqlite3 is not available
 let _sessions: Session[] = [];
 let _messages: Message[] = [];
 let _jsonPath = "";
 
-function loadJson() {
+interface SessionJsonData {
+  sessions: Session[];
+  messages: Message[];
+}
+
+function loadJson(): void {
   try {
     if (fs.existsSync(_jsonPath)) {
-      const data = JSON.parse(fs.readFileSync(_jsonPath, "utf-8"));
+      const raw = fs.readFileSync(_jsonPath, "utf-8");
+      const data = JSON.parse(raw) as SessionJsonData;
       _sessions = data.sessions || [];
       _messages = data.messages || [];
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
 
-function saveJson() {
+function saveJson(): void {
   try {
     fs.mkdirSync(path.dirname(_jsonPath), { recursive: true });
-    fs.writeFileSync(_jsonPath, JSON.stringify({ sessions: _sessions, messages: _messages }, null, 2));
-  } catch { /* ignore */ }
+    const data: SessionJsonData = { sessions: _sessions, messages: _messages };
+    fs.writeFileSync(_jsonPath, JSON.stringify(data, null, 2));
+  } catch {
+    /* ignore */
+  }
 }
 
-function fallbackGetDb(): any {
+function fallbackGetDb(): Database {
   if (!_jsonPath) {
-    _jsonPath = path.join(_dbPath.replace(/\.db$/, '') + '-fallback.json');
+    _jsonPath = path.join(_dbPath.replace(/\.db$/, "") + "-fallback.json");
     loadJson();
   }
   return {
-    prepare: (sql: string) => {
+    prepare: (sql: string): DatabaseStatement => {
       const trimmed = sql.trim().toLowerCase();
-      if (trimmed.startsWith('insert into sessions')) {
-        return {
-          run: (...args: any[]) => {
-            const id = args[0]; const title = args[1]; const createdAt = args[2]; const updatedAt = args[3];
+      if (trimmed.startsWith("insert into sessions")) {
+        const stmt: DatabaseStatement = {
+          run: (...args: unknown[]) => {
+            const id = args[0] as string;
+            const title = args[1] as string;
+            const createdAt = args[2] as number;
+            const updatedAt = args[3] as number;
             _sessions.push({ id, title, createdAt, updatedAt });
             saveJson();
-            return { lastInsertRowid: _sessions.length };
+            return { lastInsertRowid: _sessions.length, changes: 1 };
           },
         };
+        return stmt;
       }
-      if (trimmed.startsWith('insert into messages')) {
-        return {
-          run: (...args: any[]) => {
-            const id = args[0]; const sessionId = args[1]; const role = args[2]; const content = args[3]; const createdAt = args[4];
+      if (trimmed.startsWith("insert into messages")) {
+        const stmt: DatabaseStatement = {
+          run: (...args: unknown[]) => {
+            const id = args[0] as string;
+            const sessionId = args[1] as string;
+            const role = args[2] as string;
+            const content = args[3] as string;
+            const createdAt = args[4] as number;
             _messages.push({ id, sessionId, role, content, createdAt });
             saveJson();
-            return { lastInsertRowid: _messages.length };
+            return { lastInsertRowid: _messages.length, changes: 1 };
           },
         };
+        return stmt;
       }
-      if (trimmed.startsWith('insert into messages_fts')) {
-        return { run: () => ({}) };
-      }
-      if (trimmed.startsWith('select') && trimmed.includes('from sessions where id =')) {
-        return {
-          get: (id: string) => _sessions.find(s => s.id === id) || undefined,
+      if (trimmed.startsWith("insert into messages_fts")) {
+        const stmt: DatabaseStatement = {
+          run: () => ({ lastInsertRowid: 0, changes: 0 }),
         };
+        return stmt;
       }
-      if (trimmed.startsWith('select') && trimmed.includes('from messages where session_id =')) {
-        return {
-          all: (sessionId: string) => _messages.filter(m => m.sessionId === sessionId),
+      if (trimmed.startsWith("select") && trimmed.includes("from sessions where id =")) {
+        const stmt: DatabaseStatement = {
+          get: (id: unknown) => _sessions.find((s) => s.id === id) || undefined,
         };
+        return stmt;
       }
-      if (trimmed.startsWith('select') && trimmed.includes('from sessions order by updated_at desc')) {
-        return {
+      if (trimmed.startsWith("select") && trimmed.includes("from messages where session_id =")) {
+        const stmt: DatabaseStatement = {
+          all: (sessionId: unknown) => _messages.filter((m) => m.sessionId === sessionId),
+        };
+        return stmt;
+      }
+      if (trimmed.startsWith("select") && trimmed.includes("from sessions order by updated_at desc")) {
+        const stmt: DatabaseStatement = {
           all: () => [..._sessions].sort((a, b) => b.updatedAt - a.updatedAt),
         };
+        return stmt;
       }
-      if (trimmed.startsWith('update sessions set updated_at')) {
-        return {
-          run: (updatedAt: number, id: string) => {
-            const s = _sessions.find(s => s.id === id);
-            if (s) s.updatedAt = updatedAt;
+      if (trimmed.startsWith("update sessions set updated_at")) {
+        const stmt: DatabaseStatement = {
+          run: (updatedAt: unknown, id: unknown) => {
+            const s = _sessions.find((s) => s.id === id);
+            if (s) s.updatedAt = updatedAt as number;
             saveJson();
-            return {};
+            return { lastInsertRowid: 0, changes: 1 };
           },
         };
+        return stmt;
       }
-      if (trimmed.startsWith('delete from sessions where id =')) {
-        return {
-          run: (id: string) => {
-            _sessions = _sessions.filter(s => s.id !== id);
-            _messages = _messages.filter(m => m.sessionId !== id);
+      if (trimmed.startsWith("delete from sessions where id =")) {
+        const stmt: DatabaseStatement = {
+          run: (id: unknown) => {
+            _sessions = _sessions.filter((s) => s.id !== id);
+            _messages = _messages.filter((m) => m.sessionId !== id);
             saveJson();
-            return {};
+            return { lastInsertRowid: 0, changes: 1 };
           },
         };
+        return stmt;
       }
-      if (trimmed.startsWith('select name from sqlite_master')) {
-        return { get: () => undefined };
+      if (trimmed.startsWith("select name from sqlite_master")) {
+        const stmt: DatabaseStatement = {
+          get: () => undefined,
+        };
+        return stmt;
       }
-      return { run: () => ({}), get: () => undefined, all: () => [] };
+      const stmt: DatabaseStatement = {
+        run: () => ({ lastInsertRowid: 0, changes: 0 }),
+        get: () => undefined,
+        all: () => [],
+      };
+      return stmt;
     },
     exec: () => {},
-    transaction: (fn: any) => fn,
+    pragma: () => {},
   };
 }
 
@@ -113,13 +149,14 @@ export function setSessionDbPath(dir: string): void {
   }
 }
 
-export function getDb(): any {
+export function getDb(): Database {
   if (!_db) {
     try {
-      const Database = require("better-sqlite3");
-      _db = new Database(_dbPath);
-      _db.pragma("journal_mode = WAL");
-      initSchema(_db);
+      const DatabaseClass: typeof import("better-sqlite3") = require("better-sqlite3");
+      const db = new DatabaseClass(_dbPath) as Database;
+      db.pragma("journal_mode = WAL");
+      initSchema(db);
+      _db = db;
     } catch {
       _useFallback = true;
       _db = fallbackGetDb();
@@ -128,7 +165,7 @@ export function getDb(): any {
   return _db;
 }
 
-function initSchema(db: any): void {
+function initSchema(db: Database): void {
   if (_useFallback) return;
   db.exec(`
     CREATE TABLE IF NOT EXISTS sessions (
@@ -151,7 +188,7 @@ function initSchema(db: any): void {
     CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at);
   `);
 
-  const ftsExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages_fts'").get();
+  const ftsExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages_fts'").get!();
   if (!ftsExists) {
     db.exec(`
       CREATE VIRTUAL TABLE messages_fts USING fts5(
@@ -192,7 +229,7 @@ export function createSession(title: string): Session {
   const id = randomUUID();
   const now = Date.now();
   const session: Session = { id, title, createdAt: now, updatedAt: now };
-  db.prepare("INSERT INTO sessions (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)").run(id, title, now, now);
+  db.prepare("INSERT INTO sessions (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)").run!(id, title, now, now);
   if (_useFallback) saveJson();
   return session;
 }
@@ -201,23 +238,19 @@ export function addMessage(sessionId: string, role: string, content: string): Me
   const db = getDb();
   const id = randomUUID();
   const now = Date.now();
-  const insertResult = db.prepare("INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)").run(
-    id,
-    sessionId,
-    role,
-    content,
-    now
-  );
+  const insertResult = db
+    .prepare("INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)")
+    .run!(id, sessionId, role, content, now);
 
   if (!_useFallback) {
-    db.prepare("INSERT INTO messages_fts (rowid, content, session_id) VALUES (?, ?, ?)").run(
+    db.prepare("INSERT INTO messages_fts (rowid, content, session_id) VALUES (?, ?, ?)").run!(
       insertResult.lastInsertRowid,
       content,
       sessionId
     );
   }
 
-  db.prepare("UPDATE sessions SET updated_at = ? WHERE id = ?").run(now, sessionId);
+  db.prepare("UPDATE sessions SET updated_at = ? WHERE id = ?").run!(now, sessionId);
   if (_useFallback) saveJson();
 
   return { id, sessionId, role, content, createdAt: now };
@@ -225,37 +258,63 @@ export function addMessage(sessionId: string, role: string, content: string): Me
 
 export function getSession(sessionId: string): { session: Session; messages: Message[] } | null {
   const db = getDb();
-  const session = db.prepare("SELECT id, title, created_at, updated_at FROM sessions WHERE id = ?").get(sessionId) as
+  const session = db.prepare("SELECT id, title, created_at, updated_at FROM sessions WHERE id = ?").get!(sessionId) as
     | { id: string; title: string; created_at: number; updated_at: number }
     | undefined;
   if (!session) return null;
 
-  const rows = db.prepare("SELECT id, session_id, role, content, created_at FROM messages WHERE session_id = ? ORDER BY created_at ASC").all(sessionId) as Array<{
-    id: string; session_id: string; role: string; content: string; created_at: number;
+  const rows = db
+    .prepare("SELECT id, session_id, role, content, created_at FROM messages WHERE session_id = ? ORDER BY created_at ASC")
+    .all!(sessionId) as Array<{
+    id: string;
+    session_id: string;
+    role: string;
+    content: string;
+    created_at: number;
   }>;
 
   return {
-    session: { id: session.id, title: session.title, createdAt: session.created_at, updatedAt: session.updated_at },
-    messages: rows.map((r) => ({ id: r.id, sessionId: r.session_id, role: r.role, content: r.content, createdAt: r.created_at })),
+    session: {
+      id: session.id,
+      title: session.title,
+      createdAt: session.created_at,
+      updatedAt: session.updated_at,
+    },
+    messages: rows.map((r) => ({
+      id: r.id,
+      sessionId: r.session_id,
+      role: r.role,
+      content: r.content,
+      createdAt: r.created_at,
+    })),
   };
 }
 
 export function listSessions(): Session[] {
   const db = getDb();
-  const rows = db.prepare("SELECT id, title, created_at, updated_at FROM sessions ORDER BY updated_at DESC").all() as Array<{
-    id: string; title: string; created_at: number; updated_at: number;
+  const rows = db
+    .prepare("SELECT id, title, created_at, updated_at FROM sessions ORDER BY updated_at DESC")
+    .all!() as Array<{
+    id: string;
+    title: string;
+    created_at: number;
+    updated_at: number;
   }>;
-  return rows.map((r) => ({ id: r.id, title: r.title, createdAt: r.created_at, updatedAt: r.updated_at }));
+  return rows.map((r) => ({
+    id: r.id,
+    title: r.title,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  }));
 }
 
 export function searchSessions(query: string, limit = 20): SearchResult[] {
   if (_useFallback) {
-    // Simple text search fallback
     const q = query.toLowerCase();
     const results: SearchResult[] = [];
     for (const m of _messages) {
       if (m.content.toLowerCase().includes(q)) {
-        const s = _sessions.find(s => s.id === m.sessionId);
+        const s = _sessions.find((s) => s.id === m.sessionId);
         if (s) {
           results.push({
             sessionId: s.id,
@@ -274,7 +333,9 @@ export function searchSessions(query: string, limit = 20): SearchResult[] {
   const db = getDb();
   if (!query.trim()) return [];
 
-  const rows = db.prepare(`
+  const rows = db
+    .prepare(
+      `
     SELECT
       m.session_id AS sessionId,
       s.title AS sessionTitle,
@@ -289,7 +350,9 @@ export function searchSessions(query: string, limit = 20): SearchResult[] {
     WHERE messages_fts MATCH ?
     ORDER BY rank
     LIMIT ?
-  `).all(query, limit) as Array<{
+  `
+    )
+    .all!(query, limit) as Array<{
     sessionId: string;
     sessionTitle: string;
     messageId: string;
@@ -311,18 +374,17 @@ export function searchSessions(query: string, limit = 20): SearchResult[] {
 export function deleteSession(sessionId: string): void {
   const db = getDb();
   if (_useFallback) {
-    _sessions = _sessions.filter(s => s.id !== sessionId);
-    _messages = _messages.filter(m => m.sessionId !== sessionId);
+    _sessions = _sessions.filter((s) => s.id !== sessionId);
+    _messages = _messages.filter((m) => m.sessionId !== sessionId);
     saveJson();
     return;
   }
-  const deleteTx = db.transaction((sid: string) => {
-    db.prepare("DELETE FROM sessions WHERE id = ?").run(sid);
-    const messageRowids = db.prepare("SELECT rowid FROM messages WHERE session_id = ?").all(sid) as Array<{ rowid: number }>;
-    for (const { rowid } of messageRowids) {
-      db.prepare("DELETE FROM messages_fts WHERE rowid = ?").run(rowid);
-    }
-    db.prepare("DELETE FROM messages WHERE session_id = ?").run(sid);
-  });
-  deleteTx(sessionId);
+  db.prepare("DELETE FROM sessions WHERE id = ?").run!(sessionId);
+  const messageRowids = db.prepare("SELECT rowid FROM messages WHERE session_id = ?").all!(sessionId) as Array<{
+    rowid: number;
+  }>;
+  for (const { rowid } of messageRowids) {
+    db.prepare("DELETE FROM messages_fts WHERE rowid = ?").run!(rowid);
+  }
+  db.prepare("DELETE FROM messages WHERE session_id = ?").run!(sessionId);
 }

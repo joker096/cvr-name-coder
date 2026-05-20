@@ -3,19 +3,35 @@ import { getGitDiff } from "./gitTools.js";
 export interface ReviewComment {
   id: string;
   file: string;
-  lineStart?: number;
-  lineEnd?: number;
+  lineStart: number | undefined;
+  lineEnd: number | undefined;
   category: "style" | "bug" | "security" | "performance" | "architecture";
   severity: "info" | "warning" | "critical";
   message: string;
-  suggestion?: string;
-  codeExample?: string;
-  accepted?: boolean | null;
+  suggestion: string | undefined;
+  codeExample: string | undefined;
+  accepted: boolean | null;
 }
 
 export interface ReviewResult {
   comments: ReviewComment[];
   summary: string;
+}
+
+interface RawReviewComment {
+  file?: string;
+  lineStart?: number;
+  lineEnd?: number;
+  category?: string;
+  severity?: string;
+  message?: string;
+  suggestion?: string;
+  codeExample?: string;
+}
+
+interface RawReviewData {
+  summary?: string;
+  comments?: RawReviewComment[];
 }
 
 export interface DiffHunk {
@@ -187,19 +203,19 @@ export async function analyzeDiff(
     if (!jsonMatch) {
       throw new Error("No JSON found in response");
     }
-    const data = JSON.parse(jsonMatch[0]);
+    const data: RawReviewData = JSON.parse(jsonMatch[0]) as RawReviewData;
     parsed = {
       summary: data.summary || "Review completed.",
-      comments: (data.comments || []).map((c: any) => ({
+      comments: (data.comments || []).map((c) => ({
         id: generateCommentId(),
         file: c.file || "unknown",
         lineStart: c.lineStart,
         lineEnd: c.lineEnd,
-        category: ["style", "bug", "security", "performance", "architecture"].includes(c.category)
-          ? c.category
+        category: ["style", "bug", "security", "performance", "architecture"].includes(c.category || "")
+          ? (c.category as ReviewComment["category"])
           : "style",
-        severity: ["info", "warning", "critical"].includes(c.severity)
-          ? c.severity
+        severity: ["info", "warning", "critical"].includes(c.severity || "")
+          ? (c.severity as ReviewComment["severity"])
           : "info",
         message: c.message || "No message provided",
         suggestion: c.suggestion,
@@ -215,9 +231,13 @@ export async function analyzeDiff(
         {
           id: generateCommentId(),
           file: diffHunks[0]?.file || "unknown",
+          lineStart: undefined,
+          lineEnd: undefined,
           category: "style",
           severity: "info",
           message: response.slice(0, 2000),
+          suggestion: undefined,
+          codeExample: undefined,
           accepted: null,
         },
       ],

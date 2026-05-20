@@ -1,4 +1,5 @@
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
+import { getErrorMessage } from "../types/errors";
 
 interface BrowserSession {
   browser: Browser;
@@ -86,8 +87,8 @@ export async function browserNavigate(sessionId: string, url: string, headless =
     await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
     const title = await page.title();
     return { success: true, output: `Navigated to ${url}. Page title: "${title}"` };
-  } catch (err: any) {
-    return { success: false, output: "", error: err.message };
+  } catch (err: unknown) {
+    return { success: false, output: "", error: getErrorMessage(err) };
   }
 }
 
@@ -96,8 +97,8 @@ export async function browserClick(sessionId: string, selector: string, headless
     const { page } = await getOrCreateSession(sessionId, headless);
     await page.locator(selector).click({ timeout: 10000 });
     return { success: true, output: `Clicked element: ${selector}` };
-  } catch (err: any) {
-    return { success: false, output: "", error: err.message };
+  } catch (err: unknown) {
+    return { success: false, output: "", error: getErrorMessage(err) };
   }
 }
 
@@ -106,8 +107,8 @@ export async function browserType(sessionId: string, selector: string, text: str
     const { page } = await getOrCreateSession(sessionId, headless);
     await page.locator(selector).fill(text);
     return { success: true, output: `Typed "${text}" into ${selector}` };
-  } catch (err: any) {
-    return { success: false, output: "", error: err.message };
+  } catch (err: unknown) {
+    return { success: false, output: "", error: getErrorMessage(err) };
   }
 }
 
@@ -117,8 +118,8 @@ export async function browserScreenshot(sessionId: string, headless = true): Pro
     const screenshot = await page.screenshot({ type: "png", fullPage: false });
     const base64 = screenshot.toString("base64");
     return { success: true, output: `Screenshot captured (${screenshot.length} bytes)`, base64 };
-  } catch (err: any) {
-    return { success: false, output: "", error: err.message };
+  } catch (err: unknown) {
+    return { success: false, output: "", error: getErrorMessage(err) };
   }
 }
 
@@ -133,25 +134,23 @@ export async function browserEvaluate(sessionId: string, script: string, headles
     }
     const result = await page.evaluate((code) => {
       try {
-        // Use indirect eval (globalThis.eval) which runs in page context, not Node
-        // eslint-disable-next-line no-eval
-        const retval = (globalThis as any).eval(code);
+        const retval = (globalThis as { eval: (code: string) => unknown }).eval(code);
         return { __ok: true, __value: retval };
-      } catch (e: any) {
-        return { __ok: false, __error: e.message };
+      } catch (e: unknown) {
+        return { __ok: false, __error: e instanceof Error ? e.message : String(e) };
       }
     }, script);
     if (result && typeof result === "object") {
       if (result.__ok === false) {
-        return { success: false, output: "", error: result.__error };
+        return { success: false, output: "", error: result.__error ?? "Unknown error" };
       }
       const output = typeof result.__value === "string" ? result.__value : JSON.stringify(result.__value, null, 2);
       return { success: true, output: output || "undefined" };
     }
     const output = typeof result === "string" ? result : JSON.stringify(result, null, 2);
     return { success: true, output: output || "undefined" };
-  } catch (err: any) {
-    return { success: false, output: "", error: err.message };
+  } catch (err: unknown) {
+    return { success: false, output: "", error: getErrorMessage(err) };
   }
 }
 
@@ -160,8 +159,8 @@ export async function browserGetHtml(sessionId: string, headless = true): Promis
     const { page } = await getOrCreateSession(sessionId, headless);
     const html = await page.content();
     return { success: true, output: html };
-  } catch (err: any) {
-    return { success: false, output: "", error: err.message };
+  } catch (err: unknown) {
+    return { success: false, output: "", error: getErrorMessage(err) };
   }
 }
 

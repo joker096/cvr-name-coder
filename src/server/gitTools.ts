@@ -1,5 +1,6 @@
 import { execFile } from "child_process";
 import { promisify } from "util";
+import { getErrorMessage } from "../types/errors";
 
 const execFileAsync = promisify(execFile);
 const PROJECT_ROOT = process.cwd();
@@ -30,6 +31,12 @@ export interface GitDiff {
   diff: string;
 }
 
+export interface GitResult {
+  success: boolean;
+  output: string;
+  error?: string;
+}
+
 async function runGit(args: string[]): Promise<string> {
   const { stdout, stderr } = await execFileAsync("git", args, { cwd: PROJECT_ROOT, timeout: 30000 });
   if (stderr && !stderr.includes("warning")) {
@@ -40,7 +47,6 @@ async function runGit(args: string[]): Promise<string> {
 
 export async function getGitStatus(): Promise<GitStatus> {
   try {
-    // Check if git repo
     await runGit(["rev-parse", "--git-dir"]);
   } catch {
     return {
@@ -58,12 +64,11 @@ export async function getGitStatus(): Promise<GitStatus> {
 
   const branch = await runGit(["rev-parse", "--abbrev-ref", "HEAD"]).catch(() => "");
   const statusOutput = await runGit(["status", "--porcelain", "-b"]).catch(() => "");
-  
+
   const lines = statusOutput.split("\n").filter((l) => l.length > 0);
   const branchLine = lines[0] || "";
   const fileLines = lines.slice(1);
 
-  // Parse branch info
   let ahead = 0;
   let behind = 0;
   const branchMatch = branchLine.match(/\[ahead (\d+).*behind (\d+)\]/);
@@ -88,16 +93,13 @@ export async function getGitStatus(): Promise<GitStatus> {
     const status = line.substring(0, 2);
     const file = line.substring(3);
 
-    // Staged (first char)
     if (status[0] === "M" || status[0] === "A") staged.push(file);
     if (status[0] === "D") staged.push(file);
     if (status[0] === "R") renamed.push(file);
 
-    // Unstaged (second char)
     if (status[1] === "M") modified.push(file);
     if (status[1] === "D") deleted.push(file);
 
-    // Untracked
     if (status === "??") untracked.push(file);
   }
 
@@ -110,7 +112,12 @@ export async function getGitStatus(): Promise<GitStatus> {
     untracked,
     deleted,
     renamed: [...new Set(renamed)],
-    clean: modified.length === 0 && staged.length === 0 && untracked.length === 0 && deleted.length === 0 && renamed.length === 0,
+    clean:
+      modified.length === 0 &&
+      staged.length === 0 &&
+      untracked.length === 0 &&
+      deleted.length === 0 &&
+      renamed.length === 0,
   };
 }
 
@@ -123,12 +130,12 @@ export async function getGitDiff(stagedOnly = false): Promise<GitDiff[]> {
 
   const args = stagedOnly ? ["diff", "--cached"] : ["diff"];
   const diffOutput = await runGit(args).catch(() => "");
-  
+
   if (!diffOutput) return [];
 
   const diffs: GitDiff[] = [];
   const diffBlocks = diffOutput.split("diff --git ");
-  
+
   for (const block of diffBlocks) {
     if (!block.trim()) continue;
     const lines = block.split("\n");
@@ -147,25 +154,24 @@ export async function getGitDiff(stagedOnly = false): Promise<GitDiff[]> {
   return diffs;
 }
 
-export async function gitCommit(message: string): Promise<{ success: boolean; output: string; error?: string }> {
+export async function gitCommit(message: string): Promise<GitResult> {
   try {
     await runGit(["rev-parse", "--git-dir"]);
-    // Stage all changes before committing
     await runGit(["add", "-A"]);
     const output = await runGit(["commit", "-m", message]);
     return { success: true, output };
-  } catch (err: any) {
-    return { success: false, output: "", error: err.message || String(err) };
+  } catch (err: unknown) {
+    return { success: false, output: "", error: getErrorMessage(err) };
   }
 }
 
-export async function gitPush(): Promise<{ success: boolean; output: string; error?: string }> {
+export async function gitPush(): Promise<GitResult> {
   try {
     await runGit(["rev-parse", "--git-dir"]);
     const output = await runGit(["push"]);
     return { success: true, output };
-  } catch (err: any) {
-    return { success: false, output: "", error: err.message || String(err) };
+  } catch (err: unknown) {
+    return { success: false, output: "", error: getErrorMessage(err) };
   }
 }
 
@@ -173,9 +179,9 @@ export async function getGitLog(limit = 10): Promise<GitCommit[]> {
   try {
     await runGit(["rev-parse", "--git-dir"]);
     const output = await runGit(["log", "-n", String(limit), "--pretty=format:%H|%h|%s|%an|%ad"]);
-    
+
     if (!output) return [];
-    
+
     return output.split("\n").map((line) => {
       const parts = line.split("|");
       return {
@@ -200,20 +206,20 @@ export async function hasGitRepo(): Promise<boolean> {
   }
 }
 
-export async function stageFiles(files: string[]): Promise<{ success: boolean; output: string; error?: string }> {
+export async function stageFiles(files: string[]): Promise<GitResult> {
   try {
     const output = await runGit(["add", ...files]);
     return { success: true, output };
-  } catch (err: any) {
-    return { success: false, output: "", error: err.message || String(err) };
+  } catch (err: unknown) {
+    return { success: false, output: "", error: getErrorMessage(err) };
   }
 }
 
-export async function unstageFiles(files: string[]): Promise<{ success: boolean; output: string; error?: string }> {
+export async function unstageFiles(files: string[]): Promise<GitResult> {
   try {
     const output = await runGit(["reset", "HEAD", ...files]);
     return { success: true, output };
-  } catch (err: any) {
-    return { success: false, output: "", error: err.message || String(err) };
+  } catch (err: unknown) {
+    return { success: false, output: "", error: getErrorMessage(err) };
   }
 }

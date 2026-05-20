@@ -19,6 +19,7 @@ import type { CustomToolParameter } from "../types/customTool.js";
 import { getAgents, getAgentById, loadAgents } from "./agentLoader.js";
 import { readFile, readdir } from "fs/promises";
 import * as path from "path";
+import { getErrorMessage } from "../types/errors.js";
 
 const PROJECT_ROOT = process.cwd();
 
@@ -114,10 +115,10 @@ export async function createMcpServer() {
         ],
         isError: !result.success,
       };
-    } catch (err: any) {
+    } catch (err: unknown) {
       throw new McpError(
         ErrorCode.InternalError,
-        `Tool execution failed: ${err.message}`
+        `Tool execution failed: ${getErrorMessage(err)}`
       );
     }
   });
@@ -139,10 +140,10 @@ export async function createMcpServer() {
           mimeType: "text/plain",
         }));
       return { resources };
-    } catch (e: any) {
+    } catch (e: unknown) {
       throw new McpError(
         ErrorCode.InternalError,
-        `Failed to list resources: ${e.message}`
+        `Failed to list resources: ${getErrorMessage(e)}`
       );
     }
   });
@@ -168,10 +169,10 @@ export async function createMcpServer() {
       return {
         contents: [{ uri, mimeType: "text/plain", text: content }],
       };
-    } catch (e: any) {
+    } catch (e: unknown) {
       throw new McpError(
         ErrorCode.InternalError,
-        `Failed to read resource: ${e.message}`
+        `Failed to read resource: ${getErrorMessage(e)}`
       );
     }
   });
@@ -223,7 +224,7 @@ export async function startMcpStdio(): Promise<void> {
 
 const sseTransports = new Map<string, SSEServerTransport>();
 
-export function mountMcpSseRoutes(app: any, basePath = "/mcp") {
+export function mountMcpSseRoutes(app: import("express").Application, basePath = "/mcp") {
   app.get(`${basePath}/sse`, async (_req: Request, res: Response) => {
     const server = await createMcpServer();
     const transport = new SSEServerTransport(`${basePath}/messages`, res);
