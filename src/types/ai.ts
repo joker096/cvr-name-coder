@@ -39,20 +39,20 @@ export type IconType =
 // Provider type as discriminated union
 export type CloudProvider = {
   type: 'cloud';
-  id: ProviderId;
+  id: string;
   name: string;
-  requiresApiKey: true;
+  requiresApiKey: boolean;
   requiresUrl: false;
-  models: ModelId[];
+  models: AIModel[];
 };
 
 export type LocalProvider = {
   type: 'local';
-  id: ProviderId;
+  id: string;
   name: string;
-  requiresApiKey: false;
-  requiresUrl: true;
-  models: ModelId[];
+  requiresApiKey: boolean;
+  requiresUrl: boolean;
+  models: AIModel[];
 };
 
 export type AIProvider = CloudProvider | LocalProvider;
@@ -68,7 +68,7 @@ export const isLocalProvider = (provider: AIProvider): provider is LocalProvider
 
 // Model info with branded type
 export interface AIModel {
-  id: ModelId;
+  id: string;
   name: string;
   size?: number;
   parameters?: number;

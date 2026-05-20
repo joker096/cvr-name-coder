@@ -27,13 +27,15 @@ export const HOST = "127.0.0.1";
 export const BROWSER_VIEWPORT = { width: 1280, height: 720 };
 
 export const PROVIDER_DEFAULT_MODELS: Record<string, string> = {
-  gemini: "gemini-2.0-flash",
-  openai: "gpt-4o",
+  gemini: "gemini-2.5-flash",
+  openai: "gpt-4.1",
+  anthropic: "claude-sonnet-4-20250514",
   deepseek: "deepseek-chat",
-  grok: "grok-beta",
-  baseten: "llama-3-1-70b-instruct",
-  openrouter: "meta-llama/llama-3.3-70b-instruct:free",
-  together: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+  grok: "grok-3",
+  groq: "meta-llama/llama-4-maverick-17b-128e-instruct",
+  baseten: "meta-llama-4-maverick",
+  openrouter: "google/gemini-2.5-flash:free",
+  together: "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
   mistral: "mistral-large-latest",
   local: "local-model",
   custom: "custom-model",

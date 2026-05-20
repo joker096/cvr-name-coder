@@ -1,16 +1,12 @@
 import React from "react";
 import { Activity } from "lucide-react";
-import { StatCard } from "./StatCard";
 
 interface StatusSectionProps {
   serverRunning: boolean;
-  skillsCount: number;
-  toolsCount: number;
-  memoryCount: number;
 }
 
 export const StatusSection: React.FC<StatusSectionProps> = ({
-  serverRunning, skillsCount, toolsCount, memoryCount,
+  serverRunning,
 }) => (
   <div className="p-3">
     <div className="flex items-center gap-2 mb-3">

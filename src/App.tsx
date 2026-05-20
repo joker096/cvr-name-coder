@@ -10,9 +10,7 @@ import { useChanges } from "./hooks/useChanges";
 import { usePermissions } from "./hooks/usePermissions";
 import { useAgentLoop } from "./hooks/useAgentLoop";
 import { useBrowserStatus } from "./hooks/useBrowserStatus";
-import { DashboardPanel } from "./components/dashboard/DashboardPanel";
 import { cn } from "./utils/cn";
-import type { Skill } from "./components/sidebar/SkillsPanel";
 import type { AgentId } from "./types/settings";
 import type { Message } from "./types/chat";
 import { PermissionDialog } from "./components/chat/PermissionDialog";
@@ -25,13 +23,6 @@ const AGENT_CONFIG: Record<AgentId, { label: string; icon: React.ComponentType<{
   prometheus: { label: "PLAN", icon: Zap, color: "text-purple-400" },
   hephaestus: { label: "EXECUTE", icon: Shield, color: "text-red-400" },
 };
-
-interface DashboardSkill {
-  id: string;
-  name: string;
-  description: string;
-  status: string;
-}
 
 export default function App() {
   const [showSettings, setShowSettings] = useState(false);
@@ -206,29 +197,18 @@ export default function App() {
   const activeAgent = settings.chat.agent || "build";
   const agentConfig = AGENT_CONFIG[activeAgent];
 
-  const learnedSkills: Skill[] = [
-    {
-      id: "skill1",
-      name: "Code Analysis",
-      description: "Analyze code patterns",
-      icon: SettingsIcon,
-      status: "learned",
-      category: "research",
-    },
-  ];
+  const [skillsCount, setSkillsCount] = useState(0);
+  useEffect(() => {
+    fetch("/api/skills")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.skills && Array.isArray(data.skills)) setSkillsCount(data.skills.length);
+      })
+      .catch(() => {});
+  }, []);
 
-  const availableSkills: Skill[] = [
-    {
-      id: "skill2",
-      name: "API Design",
-      description: "Design REST APIs",
-      icon: SettingsIcon,
-      status: "available",
-      category: "devops",
-    },
-  ];
-
-  const skills = [...learnedSkills, ...availableSkills];
+  const toolsCount = 3;
+  const memoryCount = memories.length;
 
   return (
     <div className="h-screen w-screen bg-dash-bg text-dash-text-primary overflow-hidden flex flex-col">
@@ -356,19 +336,10 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main Content — split layout */}
-      <main className="flex-1 flex overflow-hidden relative">
-        {/* Dashboard — permanent left panel */}
-        <DashboardPanel
-          skills={skills as DashboardSkill[]}
-          skillsCount={skills.length}
-          toolsCount={3}
-          memoryCount={memories.length}
-          serverRunning={true}
-        />
-
+      {/* Main Content */}
+      <main className="flex-1 flex flex-col overflow-hidden relative">
         {/* Chat Area */}
-        <div className="flex-1 flex flex-col min-w-0">
+        <div className="flex-1 flex flex-col min-h-0">
           <ChatContainer
             messages={messages}
             input={input}
@@ -386,6 +357,24 @@ export default function App() {
             voiceAutoSend={settings.voiceAutoSend}
             visionEnabled={settings.chat.visionEnabled ?? true}
           />
+        </div>
+
+        {/* Resources — bottom bar */}
+        <div className="shrink-0 border-t border-dash-border bg-dash-surface px-4 py-1.5">
+          <div className="flex items-center justify-center gap-6 text-center">
+            <div>
+              <div className="text-[11px] font-bold font-mono text-dash-text-primary">{skillsCount}</div>
+              <div className="text-[9px] font-mono text-dash-text-muted">Skills</div>
+            </div>
+            <div>
+              <div className="text-[11px] font-bold font-mono text-dash-text-primary">{toolsCount}</div>
+              <div className="text-[9px] font-mono text-dash-text-muted">Tools</div>
+            </div>
+            <div>
+              <div className="text-[11px] font-bold font-mono text-dash-text-primary">{memoryCount}</div>
+              <div className="text-[9px] font-mono text-dash-text-muted">Memory</div>
+            </div>
+          </div>
         </div>
       </main>
 

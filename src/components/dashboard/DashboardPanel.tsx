@@ -2,7 +2,6 @@ import React, { useState, useEffect } from "react";
 import { Rocket, MessageSquare, GitBranch, BookOpen, Clock, Puzzle, Scale, RefreshCw } from "lucide-react";
 import { DashboardSection } from "./DashboardSection";
 import { StatusSection } from "./StatusSection";
-import { StatCard } from "./StatCard";
 
 interface Skill {
   id: string;
@@ -48,12 +47,7 @@ export const DashboardPanel: React.FC<DashboardPanelProps> = ({
 
   return (
     <div className="w-72 bg-dash-bg border-r border-dash-border flex flex-col shrink-0 overflow-y-auto no-scrollbar">
-      <StatusSection
-        serverRunning={serverRunning}
-        skillsCount={skillsCount}
-        toolsCount={toolsCount}
-        memoryCount={memoryCount}
-      />
+      <StatusSection serverRunning={serverRunning} />
 
       <div className="flex flex-col gap-0.5 px-2 pb-1">
         <DashboardSection title="Skills" icon={Rocket} count={skillsCount} defaultOpen>
