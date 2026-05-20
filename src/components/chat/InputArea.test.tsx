@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { InputArea } from "../InputArea";
+import { InputArea } from "./InputArea";
 
 describe("InputArea", () => {
   const defaultProps = {

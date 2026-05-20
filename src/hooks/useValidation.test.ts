@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";
-import { useValidation } from "../useValidation";
-import { validationService } from "../../services/validationService";
+import { useValidation } from "./useValidation";
+import { validationService } from "./../services/validationService";
 
 vi.mock("../../services/validationService");
 

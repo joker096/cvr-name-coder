@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { SettingsModal } from "../SettingsModal";
-import type { ChatConfig, Preset } from "../../types/settings";
+import { SettingsModal } from "./SettingsModal";
+import type { ChatConfig, Preset } from "./../types/settings";
 
 describe("SettingsModal", () => {
   const mockConfig: ChatConfig = {

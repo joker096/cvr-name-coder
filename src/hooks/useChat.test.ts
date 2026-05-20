@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
-import { useChat } from "../useChat";
-import type { ChatConfig } from "../../types/chat";
+import { useChat } from "./useChat";
+import type { ChatConfig } from "./../types/chat";
 
 global.fetch = vi.fn();
 

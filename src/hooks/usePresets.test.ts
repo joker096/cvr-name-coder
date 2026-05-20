@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
-import { usePresets } from "../usePresets";
-import { presetService } from "../../services/presetService";
-import type { Preset } from "../../types/settings";
+import { usePresets } from "./usePresets";
+import { presetService } from "./../services/presetService";
+import type { Preset } from "./../types/settings";
 
 vi.mock("../../services/presetService");
 

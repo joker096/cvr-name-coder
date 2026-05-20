@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { PresetManager } from "../PresetManager";
-import type { Preset, ChatConfig } from "../../types/settings";
+import { PresetManager } from "./PresetManager";
+import type { Preset, ChatConfig } from "./../types/settings";
 
 describe("PresetManager", () => {
   const mockConfig: ChatConfig = {

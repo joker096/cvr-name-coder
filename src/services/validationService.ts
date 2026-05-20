@@ -5,7 +5,14 @@ export const validationService = {
     const errors: Record<string, string> = {};
     const warnings: Record<string, string> = {};
 
-    // Check URL for local/custom providers
+    const cloudProviders = ['gemini', 'openai', 'anthropic', 'deepseek', 'grok', 'groq', 'baseten', 'openrouter', 'together', 'mistral'];
+    if (cloudProviders.includes(config.aiProvider)) {
+      const apiKeyValidation = this.validateAPIKey(config.apiKey || '');
+      if (!apiKeyValidation.isValid) {
+        errors.apiKey = apiKeyValidation.error || 'Invalid API key';
+      }
+    }
+
     if (['local', 'custom'].includes(config.aiProvider)) {
       const urlValidation = this.validateURL(config.localUrl || config.customUrl || '');
       if (!urlValidation.isValid) {
@@ -13,13 +20,11 @@ export const validationService = {
       }
     }
 
-    // Check model name
     const modelValidation = this.validateModelName(config.aiModel);
     if (!modelValidation.isValid) {
       errors.aiModel = modelValidation.error || 'Invalid model name';
     }
 
-    // Warnings
     if (config.aiProvider === 'local' && config.localUrl && !config.localUrl.includes('localhost')) {
       warnings.localUrl = 'Using non-localhost URL may have security implications';
     }

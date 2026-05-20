@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { ModelConfig } from "../ModelConfig";
+import { ModelConfig } from "./ModelConfig";
 
 describe("ModelConfig", () => {
   const defaultProps = {

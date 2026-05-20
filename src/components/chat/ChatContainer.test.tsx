@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { ChatContainer } from "../ChatContainer";
-import type { Message } from "../../types/chat";
+import { ChatContainer } from "./ChatContainer";
+import type { Message } from "./../types/chat";
 
 describe("ChatContainer", () => {
   const defaultProps = {

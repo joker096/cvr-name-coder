@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { MessageList } from "../MessageList";
-import type { Message } from "../../types/chat";
+import { MessageList } from "./MessageList";
+import type { Message } from "./../types/chat";
 
 describe("MessageList", () => {
   const mockT = {

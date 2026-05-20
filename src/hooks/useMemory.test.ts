@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
-import { useMemory } from "../useMemory";
-import { storageService } from "../../services/storageService";
-import type { Memory } from "../../types/chat";
+import { useMemory } from "./useMemory";
+import { storageService } from "./../services/storageService";
+import type { Memory } from "./../types/chat";
 
 vi.mock("../../services/storageService");
 

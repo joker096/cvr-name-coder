@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { ProviderSelector, type Provider } from "../ProviderSelector";
+import { ProviderSelector, type Provider } from "./ProviderSelector";
 import { Settings, Zap } from "lucide-react";
 
 describe("ProviderSelector", () => {

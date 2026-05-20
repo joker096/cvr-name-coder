@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { SettingsTabs, type SettingsTabConfig } from "../SettingsTabs";
+import { SettingsTabs, type SettingsTabConfig } from "./SettingsTabs";
 
 describe("SettingsTabs", () => {
   const mockTabs: SettingsTabConfig[] = [

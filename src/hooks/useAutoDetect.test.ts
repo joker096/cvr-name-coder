@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
-import { useAutoDetect } from "../useAutoDetect";
+import { useAutoDetect } from "./useAutoDetect";
 
 global.fetch = vi.fn();
 

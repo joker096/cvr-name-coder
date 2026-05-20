@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
-import { useAIProviders } from "../useAIProviders";
+import { useAIProviders } from "./useAIProviders";
 
 global.fetch = vi.fn();
 
