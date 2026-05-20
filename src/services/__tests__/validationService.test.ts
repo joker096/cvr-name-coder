@@ -7,7 +7,6 @@ describe('validationService', () => {
     it('should validate valid OpenAI config', () => {
       const config: ChatConfig = {
         aiProvider: 'openai',
-        apiKey: 'sk-1234567890abcdef',
         aiModel: 'gpt-4',
       };
       const result = validateAIConfig(config);
@@ -15,15 +14,14 @@ describe('validationService', () => {
       expect(Object.keys(result.errors)).toHaveLength(0);
     });
 
-    it('should reject OpenAI config without API key', () => {
+    it('should reject config without model', () => {
       const config: ChatConfig = {
         aiProvider: 'openai',
-        apiKey: '',
-        aiModel: 'gpt-4',
+        aiModel: '',
       };
       const result = validateAIConfig(config);
       expect(result.isValid).toBe(false);
-      expect(result.errors.apiKey).toBeTruthy();
+      expect(result.errors.aiModel).toBeTruthy();
     });
 
     it('should reject local config without URL', () => {

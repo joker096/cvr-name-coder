@@ -5,14 +5,6 @@ export const validationService = {
     const errors: Record<string, string> = {};
     const warnings: Record<string, string> = {};
 
-    const cloudProviders = ['gemini', 'openai', 'anthropic', 'deepseek', 'grok', 'groq', 'baseten', 'openrouter', 'together', 'mistral'];
-    if (cloudProviders.includes(config.aiProvider)) {
-      const apiKeyValidation = this.validateAPIKey(config.apiKey || '');
-      if (!apiKeyValidation.isValid) {
-        errors.apiKey = apiKeyValidation.error || 'Invalid API key';
-      }
-    }
-
     if (['local', 'custom'].includes(config.aiProvider)) {
       const urlValidation = this.validateURL(config.localUrl || config.customUrl || '');
       if (!urlValidation.isValid) {
