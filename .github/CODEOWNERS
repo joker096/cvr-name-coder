@@ -1,0 +1,5 @@
+# CODEOWNERS for cvr.name.coder
+# These users will be automatically requested for review on PRs
+
+# Global owners
+* @cvr-name

@@ -67,3 +67,4 @@ tmp/
 *.pid
 *.seed
 *.pid.lock
+*.vsix
