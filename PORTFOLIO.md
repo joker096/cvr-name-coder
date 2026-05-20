@@ -1,7 +1,8 @@
 # cvr.name.coder — Portfolio & Feature Comparison
 
 > Autonomous AI coding agent: VS Code Extension + Standalone Server  
-> **Stack:** TypeScript 5.8, React 19, Express, Tailwind CSS 4, SQLite
+> **Stack:** TypeScript 5.8, React 19, Express, Tailwind CSS 4, SQLite  
+> **Документация:** [DOCUMENTATION.md](DOCUMENTATION.md) — установка, API, FAQ, деплой
 
 ---
 
@@ -493,4 +494,4 @@
 
 ---
 
-*Документ сгенерирован: 2026-05-20 | Версия: 2.0 | Обновлено: Phase 1+2 завершены, Phase 3 — 5/9*
+*Документ сгенерирован: 2026-05-20 | Версия: 2.0 | Phase 1+2 завершены, Phase 3 — 7/9*
