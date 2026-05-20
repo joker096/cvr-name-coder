@@ -247,6 +247,50 @@ export async function generateAIContent(
   return result.text;
 }
 
+export interface DualModelConfig {
+  primaryProvider: string;
+  primaryModel?: string;
+  primaryLocalUrl?: string;
+  thinkingProvider?: string;
+  thinkingModel?: string;
+  thinkingLocalUrl?: string;
+  apiKey?: string;
+  temperature?: number;
+  maxTokens?: number;
+}
+
+export async function generateWithDualModel(
+  prompt: string,
+  contents: any[] = [],
+  config: DualModelConfig,
+  purpose: 'think' | 'code' | 'auto' = 'auto'
+): Promise<string> {
+  const useThinking = purpose === 'think' ||
+    (purpose === 'auto' && config.thinkingProvider && config.thinkingModel);
+
+  if (useThinking && config.thinkingProvider && config.thinkingModel) {
+    return generateAIContent(
+      prompt, contents,
+      config.thinkingProvider!,
+      config.thinkingLocalUrl || config.primaryLocalUrl,
+      config.thinkingModel,
+      config.apiKey,
+      config.temperature,
+      config.maxTokens
+    );
+  }
+
+  return generateAIContent(
+    prompt, contents,
+    config.primaryProvider,
+    config.primaryLocalUrl,
+    config.primaryModel,
+    config.apiKey,
+    config.temperature,
+    config.maxTokens
+  );
+}
+
 export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
   const gemini = providers.gemini as GeminiProvider;
   return gemini.embed(texts);

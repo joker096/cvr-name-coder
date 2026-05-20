@@ -1,6 +1,34 @@
 # Changelog
 
-## 1.3.0 — Major Architecture Refactoring 🎉
+## 1.5.0 — Phase 2+3: Intelligence & Ecosystem 🎉
+
+### Added
+- **Persistent Cache (SQLite)** — Two-level caching L1 (in-memory) + L2 (SQLite WAL), SHA-256 + TTL, warm-up from DB
+- **Multi-Model Swapping** — Dual model routing with think/code/auto purpose-based selection
+- **Project Oracle** — Auto-index workspace into RAG on startup (30+ text file types, skip node_modules/.git)
+- **Context Window** — Token budget 128K with priority-based trimming (CRITICAL→HIGH→NORMAL→LOW)
+- **A/B Prompt Testing** — Run N prompt variants, AI-judge comparison (quality/efficiency/creativity)
+- **PR Agent** — Auto-generate PR title/description from git diff, create PR via `gh cli`
+- **Issue Tracker** — Unified API for Jira REST v3 / Linear GraphQL / GitHub Issues (CRUD + comments)
+- **CI/CD Generator** — Generate GitHub Actions workflows (4 types: node-ci, docker-deploy, cvr-agent, static-deploy)
+- **Self-Hosting Gateway** — Dockerfile, docker-compose.yml, deploy.sh (one-command deployment)
+- **Web Dashboard** — Real-time server monitoring (heap, cache hit rate, requests, active loops, errors)
+- **Gamification** — Level/XP, Health/Focus, Coins/Streak system with GamerStatusBar component
+- **P2P Collaboration Sync** — WebSocket peer-to-peer with AES-256-GCM encrypted shares
+- **Agent Marketplace** — Local registry for publishing/downloading/rating/reviewing agents, skills, plugins, rules
+- **Health endpoint enhanced** — Now returns stats (requests, cache hits/misses, tool calls, active loops, errors) + system info
+- **Tools expanded** — 25→31 tools (+git_branch, git_pr_context, git_create_pr, git_list_prs, issue_create, issue_list, issue_view, issue_comment)
+
+### Changed
+- **Tool execution** — Now tracks tool calls for dashboard metrics
+- **Agent loop** — Tracks active loop count for gamification and dashboard
+- **Chat flow** — Context window replaces hardcoded history.slice(-10) with priority-based sliding window
+- **Server startup** — Non-blocking Project Oracle indexing, P2P sync setup (opt-in via env vars)
+- **Settings UI** — Multi-Model toggles + thinking model selector in Settings → Chat AI
+
+### Files
+- 23 new files added (12 server modules, 4 component files, 3 deployment files, 4 type declarations)
+- Total codebase: 28 components, 31 tools, 100+ API endpoints, 7 agents
 
 ### Added
 - **Modular component architecture** — 20+ reusable components with clear separation of concerns

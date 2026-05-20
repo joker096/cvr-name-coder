@@ -31,6 +31,20 @@ export interface ChatConfig {
   mode?: "plan" | "build" | "review";
   visionEnabled?: boolean;
   maxImageSize?: number;
+  multiModelEnabled?: boolean;
+  thinkingProvider?: ChatProviderId;
+  thinkingModel?: string;
+  thinkingLocalUrl?: string;
+}
+
+export type TrackerType = "github" | "jira" | "linear";
+
+export interface TrackerConfig {
+  type: TrackerType;
+  token: string;
+  baseUrl?: string;
+  repo?: string;
+  project?: string;
 }
 
 // Preset with branded ID

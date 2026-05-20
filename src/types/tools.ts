@@ -22,7 +22,17 @@ export type ToolName =
   | "browser_screenshot"
   | "browser_evaluate"
   | "browser_get_html"
-  | "browser_close";
+  | "browser_close"
+  | "git_branch"
+  | "git_branches"
+  | "git_switch_branch"
+  | "git_pr_context"
+  | "git_create_pr"
+  | "git_list_prs"
+  | "issue_create"
+  | "issue_list"
+  | "issue_view"
+  | "issue_comment";
 
 export interface ToolCall {
   name: ToolName;
@@ -339,6 +349,125 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       type: "object",
       properties: {},
       required: [],
+    },
+    isReadOnly: false,
+  },
+  {
+    name: "git_branch",
+    description: "Create a new git branch and switch to it.",
+    parameters: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Branch name" },
+      },
+      required: ["name"],
+    },
+    isReadOnly: false,
+  },
+  {
+    name: "git_branches",
+    description: "List all branches (local and remote).",
+    parameters: {
+      type: "object",
+      properties: {},
+      required: [],
+    },
+    isReadOnly: true,
+  },
+  {
+    name: "git_switch_branch",
+    description: "Switch to an existing branch.",
+    parameters: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Branch name to switch to" },
+      },
+      required: ["name"],
+    },
+    isReadOnly: false,
+  },
+  {
+    name: "git_pr_context",
+    description: "Gather PR context (diff, commits, files) for the current branch.",
+    parameters: {
+      type: "object",
+      properties: {},
+      required: [],
+    },
+    isReadOnly: true,
+  },
+  {
+    name: "git_create_pr",
+    description: "Create a GitHub pull request with AI-generated title and description. Requires `gh` CLI installed and authenticated.",
+    parameters: {
+      type: "object",
+      properties: {
+        draft: { type: "boolean", description: "Create as draft PR (default false)" },
+      },
+      required: [],
+    },
+    isReadOnly: false,
+  },
+  {
+    name: "git_list_prs",
+    description: "List open pull requests.",
+    parameters: {
+      type: "object",
+      properties: {},
+      required: [],
+    },
+    isReadOnly: true,
+  },
+  {
+    name: "issue_create",
+    description: "Create an issue in the configured tracker (GitHub/Jira/Linear). Requires tracker config set via Settings → Integrations.",
+    parameters: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "Issue title" },
+        description: { type: "string", description: "Issue description (markdown)" },
+        priority: { type: "string", description: "Issue priority: low, medium, high, or urgent" },
+        labels: { type: "array", description: "Labels to apply" },
+      },
+      required: ["title"],
+    },
+    isReadOnly: false,
+  },
+  {
+    name: "issue_list",
+    description: "List issues from the configured tracker.",
+    parameters: {
+      type: "object",
+      properties: {
+        status: { type: "string", description: "Filter by status (e.g. 'open', 'In Progress')" },
+        limit: { type: "number", description: "Max issues to return (default 20)" },
+      },
+      required: [],
+    },
+    isReadOnly: true,
+  },
+  {
+    name: "issue_view",
+    description: "View details of a specific issue by key or number.",
+    parameters: {
+      type: "object",
+      properties: {
+        key: { type: "string", description: "Issue key (e.g. '#42', 'PROJ-123', 'TEAM-456')" },
+      },
+      required: ["key"],
+    },
+    isReadOnly: true,
+  },
+  {
+    name: "issue_comment",
+    description: "Add a comment to an issue.",
+    parameters: {
+      type: "object",
+      properties: {
+        key: { type: "string", description: "Issue key or number" },
+        body: { type: "string", description: "Comment text (markdown)" },
+      },
+      required: ["key", "body"],
     },
     isReadOnly: false,
   },

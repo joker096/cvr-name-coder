@@ -6,7 +6,7 @@ import { SettingsTabs, type SettingsTab } from "./SettingsTabs";
 import { ProviderSelector, type Provider } from "./ProviderSelector";
 import { ModelConfig, type ModelConfig as ModelConfigType } from "./ModelConfig";
 import { LanguageSelector } from "./LanguageSelector";
-import type { ChatConfig, Preset, AgentId } from "../../types/settings";
+import type { ChatConfig, Preset, AgentId, ChatProviderId } from "../../types/settings";
 import { toChatProviderId } from "../../types/ai";
 import { useAIProviders } from "../../hooks/useAIProviders";
 
@@ -193,6 +193,62 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     onChange={handleModelConfigChange}
                     t={t}
                   />
+
+                  {/* Multi-Model Swapping */}
+                  <div className="space-y-3 pt-4 border-t border-dash-border">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-sm font-medium text-dash-text-primary">{t.multiModelSwapping || "Multi-Model Swapping"}</div>
+                        <div className="text-[11px] text-dash-text-muted">{t.multiModelDesc || "Use a cheaper model for thinking/planning, and a powerful model for code generation"}</div>
+                      </div>
+                      <button
+                        onClick={() => setCurrentConfig((prev) => ({ ...prev, multiModelEnabled: !prev.multiModelEnabled }))}
+                        className={cn(
+                          "relative inline-flex h-5 w-9 items-center rounded-full transition-colors",
+                          currentConfig.multiModelEnabled ? "bg-dash-accent" : "bg-neutral-700"
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform",
+                            currentConfig.multiModelEnabled ? "translate-x-5" : "translate-x-1"
+                          )}
+                        />
+                      </button>
+                    </div>
+                    {currentConfig.multiModelEnabled && (
+                      <div className="space-y-3 pl-2 border-l-2 border-dash-accent/30">
+                        <div>
+                          <h3 className="text-xs font-bold text-dash-text-muted uppercase tracking-widest mb-2">{t.thinkingModel || "Thinking Model"}</h3>
+                          <div className="mb-3">
+                            <label className="block text-[11px] font-medium text-dash-text-muted mb-1">Provider</label>
+                            <select
+                              value={currentConfig.thinkingProvider || "gemini"}
+                              onChange={(e) => setCurrentConfig((prev) => ({ ...prev, thinkingProvider: e.target.value as ChatProviderId }))}
+                              className="w-full px-3 py-2 bg-dash-bg border border-dash-border rounded text-dash-text-primary focus:outline-none focus:ring-2 focus:ring-dash-accent text-sm"
+                            >
+                              {providers.map((p) => (
+                                <option key={p.id} value={p.id}>{p.label}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-medium text-dash-text-muted mb-1">Model</label>
+                            <input
+                              type="text"
+                              value={currentConfig.thinkingModel || ""}
+                              onChange={(e) => setCurrentConfig((prev) => ({ ...prev, thinkingModel: e.target.value }))}
+                              className="w-full px-3 py-2 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent text-sm"
+                              placeholder="gemini-2.0-flash"
+                            />
+                          </div>
+                          <p className="text-[10px] text-dash-text-muted mt-2 leading-relaxed">
+                            {t.thinkingModelDesc || "Used for planning, analysis, summarization and agent decision-making. Choose a fast, cost-effective model (e.g., Gemini Flash, GPT-4o-mini)."}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
 
                   {/* Agent Settings */}
                   <div className="space-y-3 pt-4 border-t border-dash-border">

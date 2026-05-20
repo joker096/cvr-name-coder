@@ -22,6 +22,8 @@ import { loadSkills, getSkillById, setSkillsDir } from '../../src/server/skillLo
 import { setSkillCreatorDir } from '../../src/server/skillCreator.js';
 import { ingestDocument, searchRAG, listSources, clearSource, setRagDbPath } from '../../src/server/ragEngine.js';
 import { setRagEmbedFn } from '../../src/server/tools.js';
+import { setCacheDbPath } from '../../src/server/cache.js';
+import { indexProject } from '../../src/server/projectOracle.js';
 import { loadInstructions, getInstructionsContext, setRulesDir } from '../../src/server/instructionLoader.js';
 import { loadCustomTools, setCustomToolsDir } from '../../src/server/customToolLoader.js';
 import { loadPlugins, registerPlugins, getPlugins, enablePlugin, disablePlugin, setPluginsDir } from '../../src/server/pluginManager.js';
@@ -331,6 +333,7 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
   setSkillsDir(resolveCvrDir('skills'));
   setSkillCreatorDir(resolveCvrDir('skills'));
   setRagDbPath(storagePath);
+  setCacheDbPath(storagePath);
   setRulesDir(resolveCvrDir('rules'));
   setCustomToolsDir(resolveCvrDir('tools'));
   setPluginsDir(resolveCvrDir('plugins'));
@@ -1420,6 +1423,15 @@ export async function activate(context: vscode.ExtensionContext) {
   }
   await loadAgents();
   await registerPlugins();
+
+  // Project Oracle: auto-index workspace into RAG (background, non-blocking)
+  if (workspaceRoot && process.env.CVR_ORACLE_ENABLED !== 'false') {
+    setImmediate(() => {
+      indexProject(workspaceRoot, generateEmbeddings).catch((err) => {
+        console.error('Project Oracle indexing failed:', err);
+      });
+    });
+  }
 
   // Status bar
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);

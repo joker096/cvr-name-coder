@@ -14,6 +14,8 @@ import { cn } from "./utils/cn";
 import type { AgentId } from "./types/settings";
 import type { Message } from "./types/chat";
 import { PermissionDialog } from "./components/chat/PermissionDialog";
+import GamerStatusBar from "./components/dashboard/GamerStatusBar";
+import { completeTask, commitCode } from "./server/gamerState";
 
 const AGENT_CONFIG: Record<AgentId, { label: string; icon: React.ComponentType<{ className?: string }>; color: string }> = {
   build: { label: "BUILD", icon: Cpu, color: "text-dash-accent" },
@@ -158,6 +160,7 @@ export default function App() {
   const prevAgentRunningRef = useRef(false);
   useEffect(() => {
     if (prevAgentRunningRef.current && !isAgentRunning && agentState?.status === "completed") {
+      completeTask();
       if (settings.autoCommit) {
         const message = `Auto-commit: Agent loop completed — ${agentState.goal.slice(0, 50)}`;
         fetch("/api/git/commit", {
@@ -174,6 +177,7 @@ export default function App() {
               : `Auto-commit failed: ${result.error || "Unknown error"}`,
             timestamp: Date.now(),
           } as Message);
+          if (result.success) commitCode();
         }).catch((err) => {
           addMessage({
             id: crypto.randomUUID(),
@@ -304,6 +308,8 @@ export default function App() {
               <span className="w-2 h-2 bg-dash-accent rounded-full" aria-hidden="true" /> {memories.length}
             </span>
           </div>
+
+          <GamerStatusBar />
           {isBrowserActive && (
             <span className="hidden sm:inline-flex text-[9px] font-mono text-blue-400 bg-blue-400/10 px-1.5 py-0.5 rounded uppercase tracking-wider">
               BROWSER

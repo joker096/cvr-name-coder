@@ -20,6 +20,8 @@ import { createSession, addMessage, getSession, listSessions, searchSessions, de
 import { loadSkills, getSkillById, setSkillsDir } from "./src/server/skillLoader.js";
 import { setSkillCreatorDir } from "./src/server/skillCreator.js";
 import { ingestDocument, searchRAG, listSources, clearSource, setRagDbPath } from "./src/server/ragEngine.js";
+import { setCacheDbPath } from "./src/server/cache.js";
+import { indexProject } from "./src/server/projectOracle.js";
 import { loadInstructions, getInstructionsContext, setRulesDir } from "./src/server/instructionLoader.js";
 import { loadCustomTools, setCustomToolsDir } from "./src/server/customToolLoader.js";
 import { registerPlugins, getPlugins, enablePlugin, disablePlugin, setPluginsDir } from "./src/server/pluginManager.js";
@@ -50,7 +52,7 @@ import {
   resolveConflictsManually,
 } from "./src/server/teamSync.js";
 import { setupSecurityMiddleware, createApiKeyMiddleware } from "./src/server/standalone/middleware.js";
-import { setupHealthRoute } from "./src/server/standalone/health.js";
+import { setupHealthRoute, incrementRequestCount, incrementToolCall, incrementError, setActiveLoops } from "./src/server/standalone/health.js";
 import type { HistoryEntry, MemoryEntry } from "./src/types/api.js";
 import { getErrorMessage } from "./src/types/errors.js";
 
@@ -67,11 +69,30 @@ interface ChatConfig {
   mode?: "plan" | "build" | "review";
   visionEnabled?: boolean;
   maxImageSize?: number;
+  multiModelEnabled?: boolean;
+  thinkingProvider?: string;
+  thinkingModel?: string;
+  thinkingLocalUrl?: string;
 }
 
 interface KernelConfig {
   aiProvider?: string;
   [key: string]: unknown;
+}
+
+function buildDualConfig(cfg: ChatConfig): DualModelConfig {
+  const result: DualModelConfig = {
+    primaryProvider: cfg.aiProvider || "gemini",
+  };
+  if (cfg.aiModel !== undefined) result.primaryModel = cfg.aiModel;
+  if (cfg.localUrl !== undefined) result.primaryLocalUrl = cfg.localUrl;
+  if (cfg.multiModelEnabled && cfg.thinkingProvider !== undefined) result.thinkingProvider = cfg.thinkingProvider;
+  if (cfg.multiModelEnabled && cfg.thinkingModel !== undefined) result.thinkingModel = cfg.thinkingModel;
+  if (cfg.thinkingLocalUrl !== undefined) result.thinkingLocalUrl = cfg.thinkingLocalUrl;
+  if (cfg.apiKey !== undefined) result.apiKey = cfg.apiKey;
+  if (cfg.temperature !== undefined) result.temperature = cfg.temperature;
+  if (cfg.maxTokens !== undefined) result.maxTokens = cfg.maxTokens;
+  return result;
 }
 
 interface ChatRequestBody {
@@ -135,7 +156,15 @@ try {
   });
 }
 
-import { generateAIContent, generateEmbeddings } from "./src/server/providers.js";
+import { generateAIContent, generateWithDualModel, generateEmbeddings } from "./src/server/providers.js";
+import type { DualModelConfig } from "./src/server/providers.js";
+import { ContextWindow, Priority } from "./src/server/contextWindow.js";
+import { runPromptTest } from "./src/server/promptTester.js";
+import { gatherPRContext, generatePRDescription, createGitHubPR, listOpenPRs, createBranch, listBranches } from "./src/server/prAgent.js";
+import { setTrackerConfig, createIssue as createTrackerIssue, listIssues as listTrackerIssues, getIssue as getTrackerIssue, addComment as addTrackerComment } from "./src/server/issueTracker.js";
+import { generateCIPipeline, PIPELINE_TEMPLATES } from "./src/server/ciPipeline.js";
+import { setupP2PSync, getPeers, getShares, publishShare, isP2PActive } from "./src/server/p2pSync.js";
+import { initMarketplace, getMarketItems, publishItem, downloadItem, removeItem, addReview, getReviews, getTags, getStats } from "./src/server/agentMarketplace.js";
 import {
   validateBody,
   ChatRequestSchema,
@@ -151,7 +180,7 @@ import {
 setRagEmbedFn(generateEmbeddings);
 
 // Memory Engine
-async function summarizeLongHistory(messages: HistoryEntry[], provider: string = "gemini", localUrl?: string, modelName?: string, apiKey?: string) {
+async function summarizeLongHistory(messages: HistoryEntry[], provider: string = "gemini", localUrl?: string, modelName?: string, apiKey?: string, dualConfig?: DualModelConfig) {
   if (messages.length < 5) return null;
   
   const instruction = `You are the "cvr.name Dreamer Engine". Examine the conversation below and extract:
@@ -166,6 +195,9 @@ async function summarizeLongHistory(messages: HistoryEntry[], provider: string =
   ${messages.slice(-10).map(m => `${m.role}: ${m.content}`).join('\n')}`;
   
   try {
+    if (dualConfig?.thinkingProvider && dualConfig?.thinkingModel) {
+      return await generateWithDualModel(instruction, [], dualConfig, 'think');
+    }
     return await generateAIContent(instruction, [], provider, localUrl, modelName, apiKey);
   } catch (error) {
     console.error("Summarization failed:", error);
@@ -175,6 +207,7 @@ async function summarizeLongHistory(messages: HistoryEntry[], provider: string =
 
 // API Routes
 app.post("/api/chat", validateBody(ChatRequestSchema), async (req, res) => {
+  incrementRequestCount();
   try {
     const body = req.body as ChatRequestBody;
     const { message, config = {}, kernelConfig = {}, agent: bodyAgent } = body;
@@ -214,10 +247,21 @@ app.post("/api/chat", validateBody(ChatRequestSchema), async (req, res) => {
       return parts;
     };
 
-    const historyContents = history.slice(-10).map((m: HistoryEntry) => {
+    // Build context with sliding window + priority
+    const ctxWindow = new ContextWindow({ maxTokens: 128000, tokenBuffer: 16000 });
+    for (const m of history.slice(-20)) {
+      const priority = m.role === 'user' && m.content.startsWith('/')
+        ? Priority.HIGH
+        : Priority.NORMAL;
+      ctxWindow.add(m.role, m.content, priority);
+    }
+    const visibleHistory = ctxWindow.getMessages();
+
+    const historyContents = visibleHistory.map((m) => {
+      const hEntry = history.find((h: HistoryEntry) => h.content === m.content && h.role === m.role);
       const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [{ text: m.content }];
-      if (m.images && Array.isArray(m.images)) {
-        for (const img of m.images) {
+      if (hEntry?.images && Array.isArray(hEntry.images)) {
+        for (const img of hEntry.images) {
           const match = typeof img === 'string' ? img.match(/^data:([^;]+);base64,(.+)$/) : null;
           if (match && match[1] && match[2]) {
             parts.push({ inlineData: { mimeType: match[1], data: match[2] } });
@@ -243,7 +287,8 @@ app.post("/api/chat", validateBody(ChatRequestSchema), async (req, res) => {
     // 4. Memory Compression (Project "Dreamer" process)
     if (updatedHistory.length % 5 === 0) {
       const kConfigTyped = kConfig as ChatConfig;
-      summarizeLongHistory(updatedHistory, kConfigTyped.aiProvider, kConfigTyped.localUrl, kConfigTyped.aiModel || kConfigTyped.localModelName, kConfigTyped.apiKey).then(async (summary) => {
+      const dualCfg = buildDualConfig(kConfigTyped);
+      summarizeLongHistory(updatedHistory, kConfigTyped.aiProvider, kConfigTyped.localUrl, kConfigTyped.aiModel || kConfigTyped.localModelName, kConfigTyped.apiKey, dualCfg).then(async (summary) => {
         if (summary) {
           const currentMemories = JSON.parse(await readFile(MEMORY_FILE, "utf-8")) as MemoryEntry[];
           await writeFile(MEMORY_FILE, JSON.stringify([...currentMemories, { content: summary, createdAt: new Date() }]));
@@ -586,11 +631,74 @@ app.get("/api/git/log", async (req, res) => {
   }
 });
 
+// --- PR Agent API ---
+app.post("/api/git/pr", async (req, res) => {
+  try {
+    const { draft, config = {} } = req.body || {};
+    const {
+      aiProvider = "gemini", localUrl, aiModel, apiKey, temperature, maxTokens,
+      multiModelEnabled, thinkingProvider, thinkingModel, thinkingLocalUrl,
+    } = config;
+    const dualCfg = buildDualConfig({
+      aiProvider, aiModel, localUrl, apiKey, temperature, maxTokens,
+      multiModelEnabled, thinkingProvider, thinkingModel, thinkingLocalUrl,
+    } as ChatConfig);
+    const ctx = await gatherPRContext();
+    const thinkFn = (prompt: string) =>
+      generateWithDualModel(prompt, [], dualCfg, "think");
+    const { title, description } = await generatePRDescription(ctx, thinkFn);
+    const result = await createGitHubPR(title, description, ctx.baseBranch, !!draft);
+    res.json({ context: ctx, pr: result });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/api/git/pr/context", async (_req, res) => {
+  try {
+    const ctx = await gatherPRContext();
+    res.json(ctx);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/api/git/pr/list", async (_req, res) => {
+  try {
+    const prs = await listOpenPRs();
+    res.json({ prs: JSON.parse(prs) });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post("/api/git/branch", async (req, res) => {
+  try {
+    const { name } = req.body;
+    if (!name) { res.status(400).json({ error: "Branch name required" }); return; }
+    const result = await createBranch(name);
+    res.json({ branch: result });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/api/git/branches", async (_req, res) => {
+  try {
+    const branches = await listBranches();
+    res.json({ branches: branches.split("\n").map((b: string) => b.replace(/^\*?\s+/, "").trim()).filter(Boolean) });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+// ---
+
 // Tool execution endpoint
 app.post("/api/tools/execute", validateBody(ToolExecuteSchema), async (req, res) => {
   try {
     const { toolCall, mode = "build", sessionId = randomUUID() } = req.body;
     const result = await executeTool(toolCall, mode, permissionEngine, sessionId);
+    incrementToolCall();
 
     // Snapshot for undo if write tool succeeded
     if (
@@ -681,22 +789,32 @@ const subagentManager = new SubagentManager();
 
 app.post("/api/agent/loop", validateBody(AgentLoopSchema), async (req, res) => {
   try {
-    const { goal, provider, model } = req.body;
+    const { goal, provider, model, thinkingProvider, thinkingModel, thinkingLocalUrl } = req.body;
     const id = randomUUID();
+    const dualCfg: DualModelConfig = {
+      primaryProvider: provider || "gemini",
+      primaryModel: model,
+      thinkingProvider,
+      thinkingModel,
+      thinkingLocalUrl,
+    };
 
     const loop = new AgentLoop(goal, {
       maxSteps: 20,
       permissionEngine,
-      thinkFn: (prompt) => generateAIContent(prompt, [], provider, undefined, model),
+      thinkFn: (prompt) => generateWithDualModel(prompt, [], dualCfg, 'think'),
       sessionId: id,
     });
 
     activeLoops.set(id, loop);
+    setActiveLoops(activeLoops.size);
     loop.run()
-      .then(() => activeLoops.delete(id))
+      .then(() => { activeLoops.delete(id); setActiveLoops(activeLoops.size); })
       .catch((err) => {
         console.error(`Agent loop ${id} error:`, err);
         activeLoops.delete(id);
+        setActiveLoops(activeLoops.size);
+        incrementError();
       });
 
     res.json({ id, state: loop.getState() });
@@ -720,9 +838,16 @@ app.post("/api/agent/loop/:id/abort", (req, res) => {
 
 app.post("/api/agent/plan", async (req, res) => {
   try {
-    const { goal, provider, model } = req.body;
+    const { goal, provider, model, thinkingProvider, thinkingModel, thinkingLocalUrl } = req.body;
+    const dualCfg: DualModelConfig = {
+      primaryProvider: provider || "gemini",
+      primaryModel: model,
+      thinkingProvider,
+      thinkingModel,
+      thinkingLocalUrl,
+    };
     const plan = await createPlan(goal, (prompt) =>
-      generateAIContent(prompt, [], provider, undefined, model)
+      generateWithDualModel(prompt, [], dualCfg, 'think')
     );
     res.json(plan);
   } catch (error: any) {
@@ -733,12 +858,19 @@ app.post("/api/agent/plan", async (req, res) => {
 // Subagent API routes
 app.post("/api/subagents/spawn", async (req, res) => {
   try {
-    const { goal, agentConfig, provider, model } = req.body;
+    const { goal, agentConfig, provider, model, thinkingProvider, thinkingModel, thinkingLocalUrl } = req.body;
+    const dualCfg: DualModelConfig = {
+      primaryProvider: provider || "gemini",
+      primaryModel: model,
+      thinkingProvider,
+      thinkingModel,
+      thinkingLocalUrl,
+    };
     const task = await subagentManager.spawn(
       req.body.parentId || "main",
       goal,
       agentConfig,
-      (prompt) => generateAIContent(prompt, [], provider, undefined, model)
+      (prompt) => generateWithDualModel(prompt, [], dualCfg, 'think')
     );
     res.json(task);
   } catch (error: any) {
@@ -760,10 +892,10 @@ app.post("/api/subagents/:id/abort", async (req, res) => {
 app.post("/api/review", validateBody(ReviewRequestSchema), async (req, res) => {
   try {
     const { diff, config = {} } = req.body;
-    const { aiProvider = "gemini", localUrl, aiModel, apiKey, temperature, maxTokens } = config;
+    const dualCfg = buildDualConfig(config as ChatConfig);
 
     const result = await analyzeDiff(
-      (prompt) => generateAIContent(prompt, [], aiProvider, localUrl, aiModel, apiKey, temperature, maxTokens),
+      (prompt) => generateWithDualModel(prompt, [], dualCfg, 'think'),
       diff
     );
 
@@ -982,19 +1114,235 @@ app.post("/api/sync/resolve", async (req, res) => {
   }
 });
 
+// --- A/B Prompt Testing API ---
+app.post("/api/prompt-test", async (req, res) => {
+  try {
+    const { task, variants, provider, model, localUrl, apiKey, temperature, maxTokens, judgeProvider, judgeModel } = req.body;
+    if (!task || !variants || !Array.isArray(variants) || variants.length < 2 || !provider) {
+      res.status(400).json({ error: "task, variants (min 2), and provider are required" });
+      return;
+    }
+    const result = await runPromptTest({
+      task,
+      variants,
+      provider,
+      model,
+      localUrl,
+      apiKey,
+      temperature,
+      maxTokens,
+      judgeProvider,
+      judgeModel,
+    });
+    res.json(result);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// --- Issue Tracker API ---
+app.post("/api/tracker/config", (req, res) => {
+  try {
+    const { type, token, baseUrl, repo, project } = req.body;
+    if (!type || !token) {
+      res.status(400).json({ error: "type and token are required" });
+      return;
+    }
+    setTrackerConfig({ type, token, baseUrl, repo, project });
+    res.json({ configured: true, type });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post("/api/tracker/issues", async (req, res) => {
+  try {
+    const { title, description, priority, labels } = req.body;
+    if (!title) { res.status(400).json({ error: "title required" }); return; }
+    const issue = await createTrackerIssue({ title, description, priority, labels });
+    res.json(issue);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/api/tracker/issues", async (req, res) => {
+  try {
+    const status = req.query.status as string | undefined;
+    const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : 20;
+    const issues = await listTrackerIssues(status, limit);
+    res.json({ issues });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/api/tracker/issues/:key", async (req, res) => {
+  try {
+    const issue = await getTrackerIssue(req.params.key);
+    res.json(issue);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post("/api/tracker/issues/:key/comment", async (req, res) => {
+  try {
+    const { body } = req.body;
+    if (!body) { res.status(400).json({ error: "body required" }); return; }
+    await addTrackerComment(req.params.key, body);
+    res.json({ commented: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+// ---
+
+// --- P2P Collaboration Sync API ---
+app.get("/api/p2p/status", (_req, res) => {
+  res.json({
+    active: isP2PActive(),
+    peers: getPeers(),
+    shares: getShares().length,
+  });
+});
+
+app.get("/api/p2p/peers", (_req, res) => {
+  res.json({ peers: getPeers() });
+});
+
+app.get("/api/p2p/shares", (req, res) => {
+  const type = req.query.type as string | undefined;
+  res.json({ shares: getShares(type) });
+});
+
+app.post("/api/p2p/share", (req, res) => {
+  try {
+    const { type, name, content } = req.body;
+    if (!type || !name || !content) {
+      res.status(400).json({ error: "type, name, and content are required" });
+      return;
+    }
+    const fragment = publishShare(type, name, content);
+    res.json(fragment);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// --- Agent Marketplace API ---
+app.get("/api/marketplace", async (req, res) => {
+  try {
+    const { type, tag, search } = req.query;
+    const items = getMarketItems(
+      type as string | undefined,
+      tag as string | undefined,
+      search as string | undefined
+    );
+    res.json({ items, stats: getStats(), tags: getTags() });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/api/marketplace/stats", (_req, res) => {
+  res.json(getStats());
+});
+
+app.post("/api/marketplace/publish", async (req, res) => {
+  try {
+    const { type, name, description, content, author, version, tags } = req.body;
+    if (!type || !name || !content) {
+      res.status(400).json({ error: "type, name, and content are required" });
+      return;
+    }
+    const item = await publishItem(type, name, description || "", content, author, version, tags);
+    res.json(item);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/api/marketplace/:id", async (req, res) => {
+  try {
+    const item = await downloadItem(req.params.id);
+    if (!item) { res.status(404).json({ error: "Item not found" }); return; }
+    res.json(item);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete("/api/marketplace/:id", async (req, res) => {
+  try {
+    const ok = await removeItem(req.params.id);
+    res.json({ removed: ok });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post("/api/marketplace/:id/review", async (req, res) => {
+  try {
+    const { rating, text, author } = req.body;
+    if (!rating) { res.status(400).json({ error: "rating required (1-5)" }); return; }
+    const review = await addReview(req.params.id, rating, text || "", author);
+    res.json(review);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/api/marketplace/:id/reviews", (req, res) => {
+  res.json({ reviews: getReviews(req.params.id) });
+});
+
+// --- CI/CD Pipeline API ---
+app.post("/api/ci/generate", async (req, res) => {
+  try {
+    const { pipelineType, projectName, nodeVersion, buildCommand, testCommand, lintCommand, typeCheckCommand, deployTarget, dockerfile, customSteps } = req.body;
+    if (!pipelineType || !projectName) {
+      res.status(400).json({ error: "pipelineType and projectName are required" });
+      return;
+    }
+    const result = await generateCIPipeline({
+      pipelineType, projectName, nodeVersion, buildCommand, testCommand, lintCommand, typeCheckCommand, deployTarget, dockerfile, customSteps,
+    });
+    res.json(result);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/api/ci/templates", (_req, res) => {
+  res.json({ templates: PIPELINE_TEMPLATES });
+});
+// ---
+
 async function startServer() {
   await ensureStorage();
   await initSync();
+  await initMarketplace();
   setSessionDbPath(STORAGE_DIR);
   setSkillsDir(path.join(process.cwd(), ".cvr", "skills"));
   setSkillCreatorDir(path.join(process.cwd(), ".cvr", "skills"));
   setRagDbPath(STORAGE_DIR);
+  setCacheDbPath(STORAGE_DIR);
   setRulesDir(path.join(process.cwd(), ".cvr", "rules"));
   setCustomToolsDir(path.join(process.cwd(), ".cvr", "tools"));
   setPluginsDir(path.join(process.cwd(), ".cvr", "plugins"));
   await loadAgents();
   await registerPlugins();
   registerBuiltinHooks();
+
+  // Project Oracle: auto-index workspace into RAG (background, non-blocking)
+  if (process.env.CVR_ORACLE_ENABLED !== 'false') {
+    setImmediate(() => {
+      indexProject(process.cwd(), generateEmbeddings).catch((err) => {
+        console.error('Project Oracle indexing failed:', err);
+      });
+    });
+  }
 
   const mcpConfig = await loadMcpConfig();
   if (mcpConfig.enabled && mcpConfig.transport === "stdio") {
@@ -1025,9 +1373,23 @@ async function startServer() {
     console.log(`Server running on http://127.0.0.1:${PORT}`);
   });
 
+  // P2P Collaboration — auto-start if enabled
+  if (process.env.CVR_P2P_ENABLED === "true") {
+    const p2pPort = parseInt(process.env.CVR_P2P_PORT || "3001", 10);
+    const p2pSecret = process.env.CVR_P2P_SECRET || "cvr-p2p-default-secret";
+    setupP2PSync(server, {
+      enabled: true,
+      port: p2pPort,
+      secret: p2pSecret,
+      room: process.env.CVR_P2P_ROOM || "default",
+    });
+    console.log(`P2P sync enabled (room: ${process.env.CVR_P2P_ROOM || "default"})`);
+  }
+
   // Graceful shutdown
   const shutdown = async (signal: string) => {
     console.log(`Received ${signal}, shutting down gracefully...`);
+    import("./src/server/p2pSync.js").then((m) => m.closeP2PSync()).catch(() => {});
     server.close(() => {
       console.log("HTTP server closed");
     });

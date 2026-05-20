@@ -13,6 +13,8 @@ import { searchRAG } from "./ragEngine.js";
 import type { EmbedFunction } from "./ragEngine.js";
 import { loadCustomTools, executeCustomTool } from "./customToolLoader.js";
 import { getGitStatus, getGitDiff, gitCommit, gitPush, getGitLog } from "./gitTools.js";
+import { gatherPRContext, createGitHubPR, listOpenPRs, createBranch as prCreateBranch, switchBranch as prSwitchBranch, listBranches as prListBranches } from "./prAgent.js";
+import { createIssue, listIssues, getIssue, addComment } from "./issueTracker.js";
 import { getErrorMessage } from "../types/errors";
 
 interface BrowserToolsModule {
@@ -365,6 +367,86 @@ export async function executeTool(
       case "git_log": {
         const commits = await getGitLog(typeof params.limit === "number" ? params.limit : 10);
         result = { success: true, output: JSON.stringify(commits, null, 2) };
+        break;
+      }
+
+      case "git_branch": {
+        const output = await prCreateBranch(params.name as string);
+        result = { success: true, output: `Created and switched to branch: ${output}` };
+        break;
+      }
+
+      case "git_branches": {
+        const branches = await prListBranches();
+        result = { success: true, output: branches };
+        break;
+      }
+
+      case "git_switch_branch": {
+        const output = await prSwitchBranch(params.name as string);
+        result = { success: true, output: `Switched to branch: ${output}` };
+        break;
+      }
+
+      case "git_pr_context": {
+        const ctx = await gatherPRContext();
+        result = { success: true, output: JSON.stringify(ctx, null, 2) };
+        break;
+      }
+
+      case "git_list_prs": {
+        const prs = await listOpenPRs();
+        result = { success: true, output: prs };
+        break;
+      }
+
+      case "git_create_pr": {
+        const ctx = await gatherPRContext();
+        if (params.title && params.description) {
+          const pr = await createGitHubPR(
+            params.title as string,
+            params.description as string,
+            ctx.baseBranch,
+            !!params.draft
+          );
+          result = { success: true, output: JSON.stringify(pr, null, 2) };
+        } else {
+          result = {
+            success: true,
+            output: `To create a PR, provide title and description.\n\nPR Context:\n${JSON.stringify(ctx, null, 2)}`,
+          };
+        }
+        break;
+      }
+
+      case "issue_create": {
+        const input: any = { title: params.title as string };
+        if (params.description !== undefined) input.description = params.description;
+        if (params.priority !== undefined) input.priority = params.priority;
+        if (params.labels !== undefined) input.labels = params.labels;
+        const issue = await createIssue(input);
+        result = { success: true, output: JSON.stringify(issue, null, 2) };
+        break;
+      }
+
+      case "issue_list": {
+        const issues = await listIssues(
+          params.status as string | undefined,
+          typeof params.limit === "number" ? params.limit : 20
+        );
+        result = { success: true, output: JSON.stringify(issues, null, 2) };
+        break;
+      }
+
+      case "issue_view": {
+        const issue = await getIssue(params.key as string);
+        result = { success: true, output: JSON.stringify(issue, null, 2) };
+        break;
+      }
+
+      case "issue_comment": {
+        await addComment(params.key as string, params.body as string);
+        result = { success: true, output: `Comment added to ${params.key}` };
         break;
       }
 
