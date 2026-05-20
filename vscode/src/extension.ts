@@ -277,6 +277,16 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
   const app = express();
   app.use(express.json());
 
+  // Health check endpoint
+  app.get('/api/health', (_req: any, res: any) => {
+    res.json({
+      status: 'ok',
+      uptime: process.uptime(),
+      timestamp: new Date().toISOString(),
+      version: context.extension.packageJSON?.version || '1.0.0',
+    });
+  });
+
   // Security: Origin validation middleware
   app.use((req: any, res: any, next: any) => {
     const origin = req.headers.origin || req.headers.referer || '';

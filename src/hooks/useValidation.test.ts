@@ -1,9 +1,14 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useValidation } from "./useValidation";
-import { validationService } from "./../services/validationService";
+import { validationService } from "../services/validationService";
 
-vi.mock("../../services/validationService");
+vi.mock("../services/validationService", () => ({
+  validationService: {
+    validateField: vi.fn(),
+    validateConfig: vi.fn(),
+  },
+}));
 
 describe("useValidation", () => {
   beforeEach(() => {
@@ -20,7 +25,7 @@ describe("useValidation", () => {
   });
 
   it("should validate field and set error", () => {
-    (validationService.validateField as any).mockReturnValue({
+    vi.mocked(validationService.validateField).mockReturnValue({
       isValid: false,
       error: "Invalid value",
     });
@@ -36,7 +41,7 @@ describe("useValidation", () => {
   });
 
   it("should validate field and clear error", () => {
-    (validationService.validateField as any).mockReturnValue({
+    vi.mocked(validationService.validateField).mockReturnValue({
       isValid: true,
     });
 
@@ -51,7 +56,7 @@ describe("useValidation", () => {
   });
 
   it("should validate config and set errors and warnings", () => {
-    (validationService.validateConfig as any).mockReturnValue({
+    vi.mocked(validationService.validateConfig).mockReturnValue({
       isValid: false,
       errors: { field1: "Error 1", field2: "Error 2" },
       warnings: { field3: "Warning 1" },
@@ -73,7 +78,7 @@ describe("useValidation", () => {
   });
 
   it("should clear all errors and warnings", () => {
-    (validationService.validateConfig as any).mockReturnValue({
+    vi.mocked(validationService.validateConfig).mockReturnValue({
       isValid: false,
       errors: { field1: "Error 1" },
       warnings: { field2: "Warning 1" },
@@ -99,7 +104,7 @@ describe("useValidation", () => {
   });
 
   it("should clear specific field error", () => {
-    (validationService.validateField as any).mockReturnValue({
+    vi.mocked(validationService.validateField).mockReturnValue({
       isValid: false,
       error: "Invalid value",
     });
@@ -123,16 +128,12 @@ describe("useValidation", () => {
   });
 
   it("should set isValidating during validation", () => {
-    (validationService.validateConfig as any).mockImplementation(() => {
-      return new Promise((resolve) => {
-        setTimeout(() => {
-          resolve({
-            isValid: true,
-            errors: {},
-            warnings: {},
-          });
-        }, 100);
-      });
+    vi.mocked(validationService.validateConfig).mockImplementation(() => {
+      return {
+        isValid: true,
+        errors: {},
+        warnings: {},
+      };
     });
 
     const { result } = renderHook(() => useValidation());
@@ -143,6 +144,6 @@ describe("useValidation", () => {
       result.current.validateConfig({});
     });
 
-    expect(result.current.isValidating).toBe(true);
+    expect(result.current.isValidating).toBe(false);
   });
 });

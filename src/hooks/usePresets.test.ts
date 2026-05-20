@@ -1,10 +1,17 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
 import { usePresets } from "./usePresets";
-import { presetService } from "./../services/presetService";
-import type { Preset } from "./../types/settings";
+import { presetService } from "../services/presetService";
+import type { Preset } from "../types/settings";
 
-vi.mock("../../services/presetService");
+vi.mock("../services/presetService", () => ({
+  presetService: {
+    loadPresets: vi.fn(),
+    savePreset: vi.fn(),
+    updatePreset: vi.fn(),
+    deletePreset: vi.fn(),
+  },
+}));
 
 describe("usePresets", () => {
   beforeEach(() => {
@@ -28,7 +35,7 @@ describe("usePresets", () => {
         createdAt: Date.now(),
       },
     ];
-    (presetService.loadPresets as any).mockResolvedValue(mockPresets);
+    vi.mocked(presetService.loadPresets).mockResolvedValue(mockPresets);
 
     const { result } = renderHook(() => usePresets());
 
@@ -43,7 +50,7 @@ describe("usePresets", () => {
   });
 
   it("should handle load presets error", async () => {
-    (presetService.loadPresets as any).mockRejectedValue(new Error("Failed to load"));
+    vi.mocked(presetService.loadPresets).mockRejectedValue(new Error("Failed to load"));
 
     const { result } = renderHook(() => usePresets());
 
@@ -75,8 +82,8 @@ describe("usePresets", () => {
       createdAt: Date.now(),
     };
 
-    (presetService.loadPresets as any).mockResolvedValue([]);
-    (presetService.savePreset as any).mockResolvedValue(savedPreset);
+    vi.mocked(presetService.loadPresets).mockResolvedValue([]);
+    vi.mocked(presetService.savePreset).mockResolvedValue(savedPreset);
 
     const { result } = renderHook(() => usePresets());
 
@@ -84,7 +91,7 @@ describe("usePresets", () => {
       expect(result.current.isLoading).toBe(false);
     });
 
-    act(async () => {
+    await act(async () => {
       const resultPreset = await result.current.savePreset(newPreset);
       expect(resultPreset).toEqual(savedPreset);
     });
@@ -115,8 +122,8 @@ describe("usePresets", () => {
       name: "Updated Preset",
     };
 
-    (presetService.loadPresets as any).mockResolvedValue([existingPreset]);
-    (presetService.updatePreset as any).mockResolvedValue(updatedPreset);
+    vi.mocked(presetService.loadPresets).mockResolvedValue([existingPreset]);
+    vi.mocked(presetService.updatePreset).mockResolvedValue(updatedPreset);
 
     const { result } = renderHook(() => usePresets());
 
@@ -124,7 +131,7 @@ describe("usePresets", () => {
       expect(result.current.isLoading).toBe(false);
     });
 
-    act(async () => {
+    await act(async () => {
       const resultPreset = await result.current.updatePreset("preset1", { name: "Updated Preset" });
       expect(resultPreset).toEqual(updatedPreset);
     });
@@ -149,8 +156,8 @@ describe("usePresets", () => {
       createdAt: Date.now(),
     };
 
-    (presetService.loadPresets as any).mockResolvedValue([existingPreset]);
-    (presetService.deletePreset as any).mockResolvedValue(undefined);
+    vi.mocked(presetService.loadPresets).mockResolvedValue([existingPreset]);
+    vi.mocked(presetService.deletePreset).mockResolvedValue(undefined);
 
     const { result } = renderHook(() => usePresets());
 
@@ -160,7 +167,7 @@ describe("usePresets", () => {
 
     expect(result.current.presets).toHaveLength(1);
 
-    act(async () => {
+    await act(async () => {
       await result.current.deletePreset("preset1");
     });
 
@@ -184,7 +191,7 @@ describe("usePresets", () => {
       createdAt: Date.now(),
     };
 
-    (presetService.loadPresets as any).mockResolvedValue([preset]);
+    vi.mocked(presetService.loadPresets).mockResolvedValue([preset]);
 
     const { result } = renderHook(() => usePresets());
 
@@ -228,7 +235,7 @@ describe("usePresets", () => {
       createdAt: Date.now(),
     };
 
-    (presetService.loadPresets as any).mockResolvedValue([preset1, preset2]);
+    vi.mocked(presetService.loadPresets).mockResolvedValue([preset1, preset2]);
 
     const { result } = renderHook(() => usePresets());
 

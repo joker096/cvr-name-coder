@@ -42,6 +42,9 @@ An AI coding assistant that runs **entirely inside VS Code** as a sidebar extens
 - **Vision support** — Upload images to Gemini/OpenAI/Anthropic
 - **Browser use** — Playwright automation for web testing/scraping
 - **Team sync** — Sync MEMORY.md across team via git/cloud
+- **Health check** — `/api/health` endpoint for monitoring
+- **Response caching** — Reduces API costs for repeated queries
+- **Structured logging** — Configurable log levels for debugging
 
 ## 🏗️ Architecture
 
@@ -212,6 +215,26 @@ Configure API keys in Settings or `.env`:
 - **Together**: `TOGETHER_API_KEY`
 - **Mistral**: `MISTRAL_API_KEY`
 - **BaseTen**: `BASETEN_API_KEY`
+
+### Health Check
+
+The server provides a health endpoint for monitoring:
+
+```bash
+curl http://localhost:3000/api/health
+# Returns: {"status":"ok","uptime":123.45,"timestamp":"...","version":"1.0.0"}
+```
+
+### Logging
+
+Set log level via environment variable:
+
+```bash
+LOG_LEVEL=debug npm run dev  # Verbose logging
+LOG_LEVEL=info npm run dev   # Normal (default)
+LOG_LEVEL=warn npm run dev   # Warnings only
+LOG_LEVEL=error npm run dev  # Errors only
+```
 
 ### Permission Rules
 

@@ -60,6 +60,15 @@ async function ensureStorage() {
 const app = express();
 const PORT = 3000;
 app.use(express.json());
+// ─── Health Check ───
+app.get("/api/health", (_req, res) => {
+    res.json({
+        status: "ok",
+        uptime: process.uptime(),
+        timestamp: new Date().toISOString(),
+        version: process.env.npm_package_version || "1.0.0",
+    });
+});
 // ─── Security Middleware ───
 app.use(helmet({
     contentSecurityPolicy: {

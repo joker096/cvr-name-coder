@@ -1,9 +1,14 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useSettings } from "./useSettings";
-import { storageService } from "./../services/storageService";
+import { storageService } from "../services/storageService";
 
-vi.mock("../../services/storageService");
+vi.mock("../services/storageService", () => ({
+  storageService: {
+    get: vi.fn(),
+    set: vi.fn(),
+  },
+}));
 
 describe("useSettings", () => {
   beforeEach(() => {
@@ -11,7 +16,7 @@ describe("useSettings", () => {
   });
 
   it("should load default settings when no saved settings exist", () => {
-    (storageService.get as any).mockReturnValue(null);
+    vi.mocked(storageService.get).mockReturnValue(null);
 
     const { result } = renderHook(() => useSettings());
 
@@ -37,7 +42,7 @@ describe("useSettings", () => {
       isAutonomous: false,
       lang: "ru" as const,
     };
-    (storageService.get as any).mockReturnValue(savedSettings);
+    vi.mocked(storageService.get).mockReturnValue(savedSettings);
 
     const { result } = renderHook(() => useSettings());
 
@@ -49,7 +54,7 @@ describe("useSettings", () => {
   });
 
   it("should update chat config", () => {
-    (storageService.get as any).mockReturnValue(null);
+    vi.mocked(storageService.get).mockReturnValue(null);
 
     const { result } = renderHook(() => useSettings());
 
@@ -63,7 +68,7 @@ describe("useSettings", () => {
   });
 
   it("should update auto loop delay", () => {
-    (storageService.get as any).mockReturnValue(null);
+    vi.mocked(storageService.get).mockReturnValue(null);
 
     const { result } = renderHook(() => useSettings());
 
@@ -76,7 +81,7 @@ describe("useSettings", () => {
   });
 
   it("should toggle autonomous mode", () => {
-    (storageService.get as any).mockReturnValue(null);
+    vi.mocked(storageService.get).mockReturnValue(null);
 
     const { result } = renderHook(() => useSettings());
 
@@ -91,7 +96,7 @@ describe("useSettings", () => {
   });
 
   it("should set language", () => {
-    (storageService.get as any).mockReturnValue(null);
+    vi.mocked(storageService.get).mockReturnValue(null);
 
     const { result } = renderHook(() => useSettings());
 
@@ -104,7 +109,7 @@ describe("useSettings", () => {
   });
 
   it("should add preset", () => {
-    (storageService.get as any).mockReturnValue(null);
+    vi.mocked(storageService.get).mockReturnValue(null);
 
     const { result } = renderHook(() => useSettings());
 
@@ -130,10 +135,11 @@ describe("useSettings", () => {
   });
 
   it("should update preset", () => {
-    (storageService.get as any).mockReturnValue(null);
+    vi.mocked(storageService.get).mockReturnValue(null);
 
     const { result } = renderHook(() => useSettings());
 
+    let presetId: string;
     act(() => {
       const preset = result.current.addPreset({
         name: "Test Preset",
@@ -147,8 +153,11 @@ describe("useSettings", () => {
           customUrl: "",
         },
       });
+      presetId = preset.id;
+    });
 
-      result.current.updatePreset(preset.id, { name: "Updated Preset" });
+    act(() => {
+      result.current.updatePreset(presetId!, { name: "Updated Preset" });
     });
 
     expect(result.current.settings.presets[0].name).toBe("Updated Preset");
@@ -156,10 +165,11 @@ describe("useSettings", () => {
   });
 
   it("should delete preset", () => {
-    (storageService.get as any).mockReturnValue(null);
+    vi.mocked(storageService.get).mockReturnValue(null);
 
     const { result } = renderHook(() => useSettings());
 
+    let presetId: string;
     act(() => {
       const preset = result.current.addPreset({
         name: "Test Preset",
@@ -173,8 +183,11 @@ describe("useSettings", () => {
           customUrl: "",
         },
       });
+      presetId = preset.id;
+    });
 
-      result.current.deletePreset(preset.id);
+    act(() => {
+      result.current.deletePreset(presetId!);
     });
 
     expect(result.current.settings.presets).toHaveLength(0);
@@ -182,10 +195,11 @@ describe("useSettings", () => {
   });
 
   it("should load preset", () => {
-    (storageService.get as any).mockReturnValue(null);
+    vi.mocked(storageService.get).mockReturnValue(null);
 
     const { result } = renderHook(() => useSettings());
 
+    let presetId: string;
     act(() => {
       const preset = result.current.addPreset({
         name: "Test Preset",
@@ -199,8 +213,11 @@ describe("useSettings", () => {
           customUrl: "",
         },
       });
+      presetId = preset.id;
+    });
 
-      result.current.loadPreset(preset.id);
+    act(() => {
+      result.current.loadPreset(presetId!);
     });
 
     expect(result.current.settings.chat.aiProvider).toBe("openai");
@@ -223,7 +240,7 @@ describe("useSettings", () => {
       isAutonomous: false,
       lang: "ru" as const,
     };
-    (storageService.get as any).mockReturnValue(savedSettings);
+    vi.mocked(storageService.get).mockReturnValue(savedSettings);
 
     const { result } = renderHook(() => useSettings());
 
