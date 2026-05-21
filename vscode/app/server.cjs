@@ -4721,8 +4721,25 @@ var PROVIDER_BASE_URLS = {
 // src/server/costTracker.js
 var path15 = __toESM(require("path"), 1);
 var import_promises9 = require("fs/promises");
+var RATE_CARDS = {
+  gemini: { input: 0.075, output: 0.3 },
+  openai: { input: 2.5, output: 10 },
+  anthropic: { input: 3, output: 15 },
+  deepseek: { input: 0.14, output: 0.28 }
+};
+var GENERIC_RATE = { input: 1, output: 1 };
 var STORAGE_DIR = path15.join(process.cwd(), ".opencode-infinite");
 var COSTS_FILE = path15.join(STORAGE_DIR, "costs.json");
+function getRateCard(provider) {
+  const key = provider.toLowerCase();
+  return RATE_CARDS[key] || GENERIC_RATE;
+}
+function calculateCost(provider, inputTokens, outputTokens) {
+  const rates = getRateCard(provider);
+  const inputCost = inputTokens / 1e6 * rates.input;
+  const outputCost = outputTokens / 1e6 * rates.output;
+  return Number((inputCost + outputCost).toFixed(6));
+}
 async function loadCosts() {
   try {
     await (0, import_promises9.access)(COSTS_FILE);
@@ -4737,6 +4754,20 @@ async function loadCosts() {
 }
 async function saveCosts(entries) {
   await (0, import_promises9.writeFile)(COSTS_FILE, JSON.stringify(entries, null, 2));
+}
+async function trackCost(provider, model, inputTokens, outputTokens) {
+  const entry = {
+    provider: provider.toLowerCase(),
+    model: model || "unknown",
+    inputTokens,
+    outputTokens,
+    cost: calculateCost(provider, inputTokens, outputTokens),
+    timestamp: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  const entries = await loadCosts();
+  entries.push(entry);
+  await saveCosts(entries);
+  return entry;
 }
 async function getCosts() {
   const entries = await loadCosts();
@@ -6060,6 +6091,8 @@ function registerRoutes(app2) {
         ...historyContents,
         { role: "user", parts: buildParts(message, processedImages) }
       ], aiProvider, localUrl, aiModel, apiKey, temperature, maxTokens);
+      const estimatedInputTokens = Math.ceil((systemPrompt + message).length / 4);
+      const estimatedOutputTokens = Math.ceil(responseText.length / 4);
       const userHistoryEntry = { role: "user", content: message, createdAt: /* @__PURE__ */ new Date() };
       if (processedImages.length > 0) {
         userHistoryEntry.images = processedImages.map((img) => `data:${img.mimeType};base64,${img.base64}`);
@@ -6078,7 +6111,10 @@ function registerRoutes(app2) {
       }
       res.json({
         content: responseText,
-        continueNeeded: responseText.includes("CONTINUE_NEEDED")
+        continueNeeded: responseText.includes("CONTINUE_NEEDED"),
+        tokenUsage: { input: estimatedInputTokens, output: estimatedOutputTokens }
+      });
+      trackCost(aiProvider, aiModel || "unknown", estimatedInputTokens, estimatedOutputTokens).catch(() => {
       });
     } catch (error) {
       console.error("API Error:", getErrorMessage2(error));

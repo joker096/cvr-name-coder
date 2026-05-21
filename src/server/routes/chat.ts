@@ -9,6 +9,7 @@ import { processImages, type ProcessedImage } from "../imageProcessor.js";
 import type { HistoryEntry, MemoryEntry } from "../../types/api.js";
 import { getErrorMessage } from "../../types/errors.js";
 import { incrementRequestCount } from "../standalone/health.js";
+import { trackCost } from "../costTracker.js";
 
 interface ChatConfig {
   aiProvider?: string;
@@ -165,6 +166,9 @@ export function registerRoutes(app: Application) {
         { role: 'user', parts: buildParts(message, processedImages) }
       ], aiProvider, localUrl, aiModel, apiKey, temperature, maxTokens);
 
+      const estimatedInputTokens = Math.ceil((systemPrompt + message).length / 4);
+      const estimatedOutputTokens = Math.ceil(responseText.length / 4);
+
       const userHistoryEntry: HistoryEntry = { role: 'user', content: message, createdAt: new Date() };
       if (processedImages.length > 0) {
         userHistoryEntry.images = processedImages.map(img => `data:${img.mimeType};base64,${img.base64}`);
@@ -185,8 +189,12 @@ export function registerRoutes(app: Application) {
 
       res.json({ 
         content: responseText, 
-        continueNeeded: responseText.includes("CONTINUE_NEEDED")
+        continueNeeded: responseText.includes("CONTINUE_NEEDED"),
+        tokenUsage: { input: estimatedInputTokens, output: estimatedOutputTokens }
       });
+
+      // Track cost (fire-and-forget)
+      trackCost(aiProvider, aiModel || 'unknown', estimatedInputTokens, estimatedOutputTokens).catch(() => {});
 
     } catch (error: unknown) {
       console.error("API Error:", getErrorMessage(error));

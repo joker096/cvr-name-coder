@@ -33,6 +33,7 @@ import { initSync } from '../../src/server/teamSync.js';
 import { registerRoutes as registerGitRoutes } from '../../src/server/routes/git.js';
 import { registerRoutes as registerEcosystemRoutes } from '../../src/server/routes/ecosystem.js';
 import { registerRoutes as registerBrowserRoutes } from '../../src/server/routes/browser.js';
+import { trackCost } from '../../src/server/costTracker.js';
 
 const $fetch = (globalThis as any).fetch as (url: string, init?: any) => Promise<{ json(): Promise<any>; status: number }>;
 
@@ -387,6 +388,22 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
     });
   }
 
+  function getProviderEnvKey(provider: string): string {
+    const envMap: Record<string, string> = {
+      openai: 'OPENAI_API_KEY',
+      deepseek: 'DEEPSEEK_API_KEY',
+      grok: 'XAI_API_KEY',
+      groq: 'GROQ_API_KEY',
+      baseten: 'BASETEN_API_KEY',
+      openrouter: 'OPENROUTER_API_KEY',
+      together: 'TOGETHER_API_KEY',
+      mistral: 'MISTRAL_API_KEY',
+      custom: 'CUSTOM_API_KEY',
+    };
+    const envKey = envMap[provider];
+    return envKey ? (process.env[envKey] || '') : '';
+  }
+
   const mcpManager = new McpManager(storagePath);
   mcpManager.startServers();
 
@@ -460,7 +477,7 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
       if (provider === 'together') baseUrl = 'https://api.together.xyz/v1';
       if (provider === 'mistral') baseUrl = 'https://api.mistral.ai/v1';
       if (!baseUrl) throw new Error(`Provider ${provider} requires a URL. Configure it in Settings.`);
-      const key = apiKey || (provider === 'openai' ? process.env.OPENAI_API_KEY : provider === 'deepseek' ? process.env.DEEPSEEK_API_KEY : provider === 'grok' ? process.env.XAI_API_KEY : provider === 'groq' ? process.env.GROQ_API_KEY : '');
+      const key = apiKey || getProviderEnvKey(provider);
       const model = modelName || (provider === 'openai' ? 'gpt-4.1' : provider === 'deepseek' ? 'deepseek-chat' : provider === 'grok' ? 'grok-3' : provider === 'groq' ? 'meta-llama/llama-4-maverick-17b-128e-instruct' : provider === 'baseten' ? 'meta-llama-4-maverick' : provider === 'openrouter' ? 'google/gemini-2.5-flash' : provider === 'together' ? 'meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8' : provider === 'mistral' ? 'mistral-large-latest' : 'custom-model');
 
       const bodyObj: any = { model, messages: msgs, stream: true };
@@ -490,7 +507,7 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
           if (jsonStr === '[DONE]') return;
           try {
             const chunk = JSON.parse(jsonStr);
-            const text = chunk.choices?.[0]?.delta?.content || '';
+            const text = chunk.choices?.[0]?.delta?.content || chunk.choices?.[0]?.text || '';
             if (text) onToken(text);
           } catch {}
         }
@@ -706,6 +723,13 @@ ${contextParts || 'No previous knowledge clusters found. Cold-start mode.'}
       const updatedHistory = [...history, { role: 'user', content: message, createdAt: new Date() }, { role: 'model', content: fullText, createdAt: new Date() }];
       await fs.promises.writeFile(historyFile, JSON.stringify(updatedHistory));
 
+      // Token estimation
+      const estimatedInputTokens = Math.ceil((systemPrompt + message).length / 4);
+      const estimatedOutputTokens = Math.ceil(fullText.length / 4);
+
+      // Track cost (fire-and-forget)
+      trackCost(aiProvider, aiModel || 'unknown', estimatedInputTokens, estimatedOutputTokens).catch(() => {});
+
       if (updatedHistory.length % 5 === 0) {
         summarizeLongHistory(updatedHistory, kConfig.aiProvider, kConfig.localUrl, kConfig.aiModel || kConfig.localModelName, kConfig.apiKey).then(async (summary) => {
           if (summary) {
@@ -715,7 +739,7 @@ ${contextParts || 'No previous knowledge clusters found. Cold-start mode.'}
         });
       }
 
-      res.write(`data: ${JSON.stringify({ done: true, continueNeeded: fullText.includes('CONTINUE_NEEDED') })}\n\n`);
+      res.write(`data: ${JSON.stringify({ done: true, continueNeeded: fullText.includes('CONTINUE_NEEDED'), tokenUsage: { input: estimatedInputTokens, output: estimatedOutputTokens } })}\n\n`);
       res.end();
     } catch (error: any) {
       console.error('API Error:', error);
@@ -1719,6 +1743,7 @@ function getWebviewContent(url: string) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src http://127.0.0.1:*; frame-src http://127.0.0.1:*; script-src http://127.0.0.1:* 'unsafe-inline' 'unsafe-eval'; style-src http://127.0.0.1:* 'unsafe-inline'; img-src http://127.0.0.1:* https: data:; connect-src http://127.0.0.1:* https:; font-src http://127.0.0.1:*;">
   <title>cvr.name</title>
   <style>
     body,html{margin:0;padding:0;height:100vh;width:100vw;overflow:hidden;background:#000}

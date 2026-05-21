@@ -114,6 +114,11 @@ export const MessageItem: React.FC<MessageItemProps> = ({
           <div className="text-[8px] text-dash-text-muted font-normal normal-case mt-0.5 leading-tight">
             {providerLabel}
             {modelName && <span className="block">{modelName}</span>}
+            {message.tokenUsage && (
+              <span className="block text-dash-text-label mt-0.5">
+                ↓{message.tokenUsage.input.toLocaleString()} ↑{message.tokenUsage.output.toLocaleString()} tok
+              </span>
+            )}
           </div>
         )}
       </span>

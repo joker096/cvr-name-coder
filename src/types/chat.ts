@@ -10,6 +10,12 @@ export interface ToolCall {
   result?: string;
 }
 
+export interface TokenUsage {
+  input: number;
+  output: number;
+  cost?: string;
+}
+
 // Message with branded ID
 export interface Message {
   id: MessageId;
@@ -22,6 +28,7 @@ export interface Message {
     summary: string;
   };
   toolCall?: ToolCall;
+  tokenUsage?: TokenUsage;
 }
 
 // Memory with branded ID

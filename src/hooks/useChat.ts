@@ -101,6 +101,7 @@ export const useChat = (config: ChatConfig) => {
           role: "assistant",
           content: data.content || "",
           timestamp: Date.now(),
+          tokenUsage: data.tokenUsage ?? undefined,
         };
         setState((prev) => ({
           ...prev,
@@ -187,6 +188,17 @@ export const useChat = (config: ChatConfig) => {
                 }));
               } else if (parsed.done) {
                 continueNeeded = !!parsed.continueNeeded;
+                if (parsed.tokenUsage) {
+                  const usage = parsed.tokenUsage as { input: number; output: number };
+                  setState((prev) => ({
+                    ...prev,
+                    messages: prev.messages.map((msg) =>
+                      msg.id === assistantMessage.id
+                        ? { ...msg, tokenUsage: { input: usage.input, output: usage.output } }
+                        : msg
+                    ),
+                  }));
+                }
               }
             } catch (e) {
               console.error("Failed to parse SSE data:", e);
@@ -197,6 +209,18 @@ export const useChat = (config: ChatConfig) => {
 
       if (!continueNeeded) {
         continueNeeded = fullContent.includes("CONTINUE_NEEDED");
+      }
+
+      if (!fullContent.trim()) {
+        fullContent = "⚠ No response received from AI provider. Check your API key and model configuration in Settings.";
+        setState((prev) => ({
+          ...prev,
+          messages: prev.messages.map((msg) =>
+            msg.id === assistantMessage.id
+              ? { ...msg, content: fullContent }
+              : msg
+          ),
+        }));
       }
 
       setState((prev) => ({
