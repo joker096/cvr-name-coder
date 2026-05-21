@@ -31,6 +31,7 @@ export const ChatRequestSchema = z.object({
     mode: z.union([z.literal("plan"), z.literal("build"), z.literal("review")]).optional(),
     visionEnabled: z.boolean().optional(),
     maxImageSize: z.number().optional(),
+    apiKey: z.string().optional(),
   }).optional(),
   kernelConfig: z.record(z.string(), z.any()).optional(),
   agent: z.string().optional(),

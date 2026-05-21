@@ -93,7 +93,7 @@ export const SyncPanel: React.FC<SyncPanelProps> = ({ t }) => {
         <p className="text-[11px] text-dash-text-muted mb-2">{status.message}</p>
         {status.lastSyncAt && (
           <p className="text-[10px] text-dash-text-muted font-mono">
-            Last sync: {new Date(status.lastSyncAt).toLocaleString()}
+            {t.lastSync || "Last sync"}: {new Date(status.lastSyncAt).toLocaleString()}
           </p>
         )}
       </div>
@@ -190,9 +190,9 @@ export const SyncPanel: React.FC<SyncPanelProps> = ({ t }) => {
               onChange={(e) => setLocalConfig((prev) => ({ ...prev, provider: e.target.value as any }))}
               className="w-full bg-neutral-800 border border-dash-border rounded px-2 py-1.5 text-[11px] text-dash-text-primary"
             >
-              <option value="git">Git</option>
-              <option value="file">File</option>
-              <option value="api">API</option>
+              <option value="git">{t.providerGit || "Git"}</option>
+              <option value="file">{t.providerFile || "File"}</option>
+              <option value="api">{t.providerApi || "API"}</option>
             </select>
           </div>
 
@@ -205,7 +205,7 @@ export const SyncPanel: React.FC<SyncPanelProps> = ({ t }) => {
                 type="text"
                 value={localConfig.repo ?? config?.repo ?? ""}
                 onChange={(e) => setLocalConfig((prev) => ({ ...prev, repo: e.target.value }))}
-                placeholder="git@github.com:team/cvr-sync.git"
+                placeholder={t.repoUrlPlaceholder || "git@github.com:team/cvr-sync.git"}
                 className="w-full bg-neutral-800 border border-dash-border rounded px-2 py-1.5 text-[11px] text-dash-text-primary placeholder:text-neutral-600"
               />
             </div>
@@ -220,7 +220,7 @@ export const SyncPanel: React.FC<SyncPanelProps> = ({ t }) => {
                 type="text"
                 value={localConfig.path ?? config?.path ?? ""}
                 onChange={(e) => setLocalConfig((prev) => ({ ...prev, path: e.target.value }))}
-                placeholder="/path/to/Dropbox/cvr-sync"
+                placeholder={t.syncPathPlaceholder || "/path/to/Dropbox/cvr-sync"}
                 className="w-full bg-neutral-800 border border-dash-border rounded px-2 py-1.5 text-[11px] text-dash-text-primary placeholder:text-neutral-600"
               />
             </div>
@@ -236,7 +236,7 @@ export const SyncPanel: React.FC<SyncPanelProps> = ({ t }) => {
                   type="text"
                   value={localConfig.apiUrl ?? config?.apiUrl ?? ""}
                   onChange={(e) => setLocalConfig((prev) => ({ ...prev, apiUrl: e.target.value }))}
-                  placeholder="https://api.example.com"
+                  placeholder={t.apiUrlPlaceholder || "https://api.example.com"}
                   className="w-full bg-neutral-800 border border-dash-border rounded px-2 py-1.5 text-[11px] text-dash-text-primary placeholder:text-neutral-600"
                 />
               </div>
@@ -248,7 +248,7 @@ export const SyncPanel: React.FC<SyncPanelProps> = ({ t }) => {
                   type="password"
                   value={localConfig.apiKey ?? config?.apiKey ?? ""}
                   onChange={(e) => setLocalConfig((prev) => ({ ...prev, apiKey: e.target.value }))}
-                  placeholder="sk-..."
+                  placeholder={t.apiKeyPlaceholder || "sk-..."}
                   className="w-full bg-neutral-800 border border-dash-border rounded px-2 py-1.5 text-[11px] text-dash-text-primary placeholder:text-neutral-600"
                 />
               </div>
@@ -290,7 +290,7 @@ export const SyncPanel: React.FC<SyncPanelProps> = ({ t }) => {
                 type="password"
                 value={localConfig.encryptionKey ?? config?.encryptionKey ?? ""}
                 onChange={(e) => setLocalConfig((prev) => ({ ...prev, encryptionKey: e.target.value }))}
-                placeholder="Enter a strong passphrase"
+                placeholder={t.encryptionKeyPlaceholder || "Enter a strong passphrase"}
                 className="w-full bg-neutral-800 border border-dash-border rounded px-2 py-1.5 text-[11px] text-dash-text-primary placeholder:text-neutral-600"
               />
             </div>

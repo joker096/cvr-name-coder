@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Settings as SettingsIcon, Cpu, Compass, Search, Brain, Zap, Shield, Undo2, Redo2, Lightbulb, Hammer, Loader2, Square, Eye } from "lucide-react";
+import { Settings as SettingsIcon, Cpu, Compass, Search, Brain, Zap, Shield, Undo2, Redo2, Lightbulb, Hammer, Loader2, Square, Eye, PanelLeft } from "lucide-react";
 import { TRANSLATIONS } from "./i18n";
 import { ChatContainer } from "./components/chat/ChatContainer";
 import { SettingsModal } from "./components/settings/SettingsModal";
@@ -14,7 +14,7 @@ import { cn } from "./utils/cn";
 import type { AgentId } from "./types/settings";
 import type { Message } from "./types/chat";
 import { PermissionDialog } from "./components/chat/PermissionDialog";
-import GamerStatusBar from "./components/dashboard/GamerStatusBar";
+import { LeftPanel } from "./components/sidebar/LeftPanel";
 import { completeTask, commitCode } from "./server/gamerState";
 
 const AGENT_CONFIG: Record<AgentId, { label: string; icon: React.ComponentType<{ className?: string }>; color: string }> = {
@@ -28,6 +28,7 @@ const AGENT_CONFIG: Record<AgentId, { label: string; icon: React.ComponentType<{
 
 export default function App() {
   const [showSettings, setShowSettings] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [input, setInput] = useState("");
   const ALL_LANGS = ["en", "ru", "es", "zh", "de", "fr", "pt", "it", "ja", "ko", "ar", "tr", "pl", "uk", "vi", "hi"] as const;
   type Lang = (typeof ALL_LANGS)[number];
@@ -52,6 +53,7 @@ export default function App() {
   };
 
   const t = TRANSLATIONS[lang] || TRANSLATIONS.en;
+  const tt = t as Record<string, string>;
 
   const handleSendMessage = async (images?: string[]) => {
     if (!input.trim() && (!images || images.length === 0)) return;
@@ -64,8 +66,8 @@ export default function App() {
         id: crypto.randomUUID(),
         role: "assistant",
         content: result.success
-          ? `↶ Undone: ${result.restored?.description || "last change"}`
-          : `Undo failed: ${result.error}`,
+          ? `${tt.undoSuccess || "Undone"}: ${result.restored?.description || "last change"}`
+          : `${tt.undoFailed || "Undo failed"}: ${result.error}`,
         timestamp: Date.now(),
       } as Message);
       setInput("");
@@ -77,8 +79,8 @@ export default function App() {
         id: crypto.randomUUID(),
         role: "assistant",
         content: result.success
-          ? `↷ Redone: ${result.restored?.description || "last change"}`
-          : `Redo failed: ${result.error}`,
+          ? `${tt.redoSuccess || "Redone"}: ${result.restored?.description || "last change"}`
+          : `${tt.redoFailed || "Redo failed"}: ${result.error}`,
         timestamp: Date.now(),
       } as Message);
       setInput("");
@@ -91,7 +93,7 @@ export default function App() {
       addMessage({
         id: loadingId,
         role: "assistant",
-        content: "🔍 Analyzing code changes for review...",
+        content: tt.analyzingCode || "🔍 Analyzing code changes for review...",
         timestamp: Date.now(),
       } as Message);
       try {
@@ -106,7 +108,7 @@ export default function App() {
         addMessage({
           id: crypto.randomUUID(),
           role: "review",
-          content: reviewData.summary || "Code review completed.",
+          content: reviewData.summary || tt.codeReviewCompleted || "Code review completed.",
           timestamp: Date.now(),
           reviewData: {
             summary: reviewData.summary || "",
@@ -118,7 +120,7 @@ export default function App() {
         addMessage({
           id: crypto.randomUUID(),
           role: "assistant",
-          content: `Review failed: ${err.message}`,
+          content: `${tt.reviewFailed || "Review failed"}: ${err.message}`,
           timestamp: Date.now(),
         } as Message);
       }
@@ -162,7 +164,7 @@ export default function App() {
     if (prevAgentRunningRef.current && !isAgentRunning && agentState?.status === "completed") {
       completeTask();
       if (settings.autoCommit) {
-        const message = `Auto-commit: Agent loop completed — ${agentState.goal.slice(0, 50)}`;
+        const message = `${tt.autoCommitMsg || "Auto-commit: Agent loop completed"} — ${agentState.goal.slice(0, 50)}`;
         fetch("/api/git/commit", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -173,8 +175,8 @@ export default function App() {
             id: crypto.randomUUID(),
             role: "assistant",
             content: result.success
-              ? `✓ Auto-committed: ${result.output || "Changes committed"}`
-              : `Auto-commit failed: ${result.error || "Unknown error"}`,
+              ? `✓ ${tt.changesCommitted || "Changes committed"}: ${result.output || ""}`
+              : `${tt.commitFailed || "Auto-commit failed"}: ${result.error || tt.commitError || "Unknown error"}`,
             timestamp: Date.now(),
           } as Message);
           if (result.success) commitCode();
@@ -182,7 +184,7 @@ export default function App() {
           addMessage({
             id: crypto.randomUUID(),
             role: "assistant",
-            content: `Auto-commit failed: ${err.message}`,
+            content: `${tt.commitFailed || "Auto-commit failed"}: ${err.message}`,
             timestamp: Date.now(),
           } as Message);
         });
@@ -190,7 +192,7 @@ export default function App() {
         addMessage({
           id: crypto.randomUUID(),
           role: "assistant",
-          content: `Agent loop completed. Use the Git panel to commit changes.`,
+          content: tt.loopCompleted || "Agent loop completed. Use the Git panel to commit changes.",
           timestamp: Date.now(),
         } as Message);
       }
@@ -202,17 +204,22 @@ export default function App() {
   const agentConfig = AGENT_CONFIG[activeAgent];
 
   const [skillsCount, setSkillsCount] = useState(0);
+  const [skillsList, setSkillsList] = useState<string[]>([]);
   useEffect(() => {
     fetch("/api/skills")
       .then((r) => r.json())
       .then((data) => {
-        if (data.skills && Array.isArray(data.skills)) setSkillsCount(data.skills.length);
+        if (data.skills && Array.isArray(data.skills)) {
+          setSkillsCount(data.skills.length);
+          setSkillsList(data.skills.map((s: any) => typeof s === "string" ? s : s.name || s.id || s.title || ""));
+        }
       })
       .catch(() => {});
   }, []);
 
   const toolsCount = 3;
   const memoryCount = memories.length;
+  const agentsCount = Object.keys(AGENT_CONFIG).length;
 
   return (
     <div className="h-screen w-screen bg-dash-bg text-dash-text-primary overflow-hidden flex flex-col">
@@ -221,10 +228,6 @@ export default function App() {
         <div className="flex items-center gap-2">
           <span className="text-[12px] font-mono text-dash-text-primary font-bold tracking-wide">
             cvr.name<span className="text-dash-accent">.coder</span>
-          </span>
-          <span className="flex items-center gap-1 text-[9px] font-mono text-dash-success bg-dash-success/10 px-1.5 py-0.5 rounded uppercase">
-            <span className="w-1.5 h-1.5 rounded-full bg-dash-success animate-pulse" />
-            Online
           </span>
         </div>
         <div className="flex items-center gap-2 md:gap-3">
@@ -271,7 +274,7 @@ export default function App() {
               </>
             ) : settings.chat.mode === "review" ? (
               <>
-                <Eye className="w-3 h-3" /> REVIEW
+                <Eye className="w-3 h-3" /> {tt.reviewText?.toUpperCase() || "REVIEW"}
               </>
             ) : (
               <>
@@ -300,19 +303,16 @@ export default function App() {
             </button>
           </div>
 
-          <div className="hidden lg:flex items-center gap-2 text-[11px] font-mono text-dash-text-muted">
-            <span className="flex items-center gap-1 opacity-70">
-              <span className="w-2 h-2 bg-dash-success rounded-full" aria-hidden="true" /> {t.engineStable}
-            </span>
-            <span className="flex items-center gap-1 opacity-70">
-              <span className="w-2 h-2 bg-dash-accent rounded-full" aria-hidden="true" /> {memories.length}
-            </span>
-          </div>
-
-          <GamerStatusBar />
+          <button
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="p-1 hover:bg-neutral-800 rounded transition-colors text-dash-text-muted"
+            title="Toggle sidebar"
+          >
+            <PanelLeft className="w-3.5 h-3.5" />
+          </button>
           {isBrowserActive && (
             <span className="hidden sm:inline-flex text-[9px] font-mono text-blue-400 bg-blue-400/10 px-1.5 py-0.5 rounded uppercase tracking-wider">
-              BROWSER
+              {tt.browse || "BROWSER"}
             </span>
           )}
           {settings.isAutonomous && (
@@ -323,11 +323,11 @@ export default function App() {
           {isAgentRunning && (
             <div className="hidden sm:flex items-center gap-1.5 text-[9px] font-mono text-dash-accent bg-dash-accent/10 px-2 py-0.5 rounded uppercase tracking-wider">
               <Loader2 className="w-3 h-3 animate-spin" />
-              <span>AGENT {agentState ? `${agentState.currentStep}/${agentState.maxSteps}` : ""}</span>
+              <span>{tt.agentLabel || "AGENT"} {agentState ? `${agentState.currentStep}/${agentState.maxSteps}` : ""}</span>
               <button
                 onClick={abortLoop}
                 className="ml-1 hover:text-red-400 transition-colors"
-                title="Abort loop"
+                title={tt.abortLoop || "Abort loop"}
               >
                 <Square className="w-2.5 h-2.5" />
               </button>
@@ -342,8 +342,20 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="flex-1 flex flex-col overflow-hidden relative">
+      <div className="flex flex-1 overflow-hidden">
+        {sidebarOpen && (
+          <LeftPanel
+            skillsCount={skillsCount}
+            skillsList={skillsList}
+            toolsCount={toolsCount}
+            memoryCount={memoryCount}
+            agentsCount={agentsCount}
+            t={t}
+          />
+        )}
+
+        {/* Main Content */}
+        <main className="flex-1 flex flex-col overflow-hidden relative">
         {/* Chat Area */}
         <div className="flex-1 flex flex-col min-h-0">
           <ChatContainer
@@ -364,25 +376,8 @@ export default function App() {
             visionEnabled={settings.chat.visionEnabled ?? true}
           />
         </div>
-
-        {/* Resources — bottom bar */}
-        <div className="shrink-0 border-t border-dash-border bg-dash-surface px-4 py-1.5">
-          <div className="flex items-center justify-center gap-6 text-center">
-            <div>
-              <div className="text-[11px] font-bold font-mono text-dash-text-primary">{skillsCount}</div>
-              <div className="text-[9px] font-mono text-dash-text-muted">Skills</div>
-            </div>
-            <div>
-              <div className="text-[11px] font-bold font-mono text-dash-text-primary">{toolsCount}</div>
-              <div className="text-[9px] font-mono text-dash-text-muted">Tools</div>
-            </div>
-            <div>
-              <div className="text-[11px] font-bold font-mono text-dash-text-primary">{memoryCount}</div>
-              <div className="text-[9px] font-mono text-dash-text-muted">Memory</div>
-            </div>
-          </div>
-        </div>
       </main>
+      </div>
 
       {/* Settings Modal */}
       <SettingsModal
@@ -413,7 +408,7 @@ export default function App() {
       />
 
       {/* Permission Dialog */}
-      <PermissionDialog pending={pending} onApprove={approve} onDeny={deny} />
+      <PermissionDialog pending={pending} onApprove={approve} onDeny={deny} t={t} />
     </div>
   );
 }

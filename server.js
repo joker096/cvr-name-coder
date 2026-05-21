@@ -14,14 +14,14 @@ import { createPlan } from "./src/server/planner.js";
 import { SubagentManager } from "./src/server/subagentManager.js";
 import { hookRegistry, registerBuiltinHooks } from "./src/server/hooks.js";
 import { loadAgents } from "./src/server/agentLoader.js";
-import { readMemory, writeMemory, readUser, writeUser } from "./src/server/memoryStore.js";
+import { readMemory, writeMemory, replaceMemorySection, deleteMemorySection, readUser, writeUser, replaceUserSection, deleteUserSection } from "./src/server/memoryStore.js";
 import { createSession, addMessage, getSession, listSessions, searchSessions, deleteSession, setSessionDbPath } from "./src/server/sessionStore.js";
 import { loadSkills, getSkillById, setSkillsDir } from "./src/server/skillLoader.js";
 import { setSkillCreatorDir } from "./src/server/skillCreator.js";
 import { ingestDocument, searchRAG, listSources, clearSource, setRagDbPath } from "./src/server/ragEngine.js";
 import { setCacheDbPath } from "./src/server/cache.js";
 import { indexProject } from "./src/server/projectOracle.js";
-import { loadInstructions, getInstructionsContext, setRulesDir } from "./src/server/instructionLoader.js";
+import { loadInstructions, getInstructionsContext, setRulesDir, saveInstruction, deleteInstruction } from "./src/server/instructionLoader.js";
 import { loadCustomTools, setCustomToolsDir } from "./src/server/customToolLoader.js";
 import { registerPlugins, getPlugins, enablePlugin, disablePlugin, setPluginsDir } from "./src/server/pluginManager.js";
 import { cronScheduler } from "./src/server/cronScheduler.js";
@@ -239,6 +239,110 @@ app.post("/api/chat", validateBody(ChatRequestSchema), async (req, res) => {
         res.status(500).json({ error: getErrorMessage(error) });
     }
 });
+app.get("/api/models", async (req, res) => {
+    try {
+        const provider = req.query.provider || "gemini";
+        const apiKey = req.query.apiKey || undefined;
+        const baseUrls = {
+            openai: "https://api.openai.com/v1",
+            deepseek: "https://api.deepseek.com/v1",
+            grok: "https://api.x.ai/v1",
+            groq: "https://api.groq.com/openai/v1",
+            baseten: "https://api.baseten.co/v1",
+            openrouter: "https://openrouter.ai/api/v1",
+            together: "https://api.together.xyz/v1",
+            mistral: "https://api.mistral.ai/v1",
+        };
+        if (provider === "gemini") {
+            const key = apiKey || process.env.GEMINI_API_KEY || "";
+            if (!key) {
+                res.status(400).json({ error: "API key required" });
+                return;
+            }
+            const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`);
+            const data = await resp.json();
+            const models = (data.models || [])
+                .filter((m) => m.supportedGenerationMethods?.includes("generateContent"))
+                .sort((a, b) => (b.name || "").localeCompare(a.name || ""))
+                .slice(0, 30)
+                .map((m) => ({ id: m.name?.replace("models/", "") || "", name: m.displayName || m.name || "" }));
+            res.json({ models });
+            return;
+        }
+        if (provider === "anthropic") {
+            const key = apiKey || process.env.ANTHROPIC_API_KEY || "";
+            if (!key) {
+                res.status(400).json({ error: "API key required" });
+                return;
+            }
+            const resp = await fetch("https://api.anthropic.com/v1/models", {
+                headers: { "x-api-key": key, "anthropic-version": "2023-06-01" },
+            });
+            const data = await resp.json();
+            const models = (data.data || [])
+                .sort((a, b) => (b.id || "").localeCompare(a.id || ""))
+                .slice(0, 20)
+                .map((m) => ({ id: m.id || "", name: m.display_name || m.id || "" }));
+            res.json({ models });
+            return;
+        }
+        if (provider === "baseten") {
+            const key = apiKey || process.env.BASETEN_API_KEY || "";
+            if (!key) {
+                res.status(400).json({ error: "API key required — set BASETEN_API_KEY env var" });
+                return;
+            }
+            const resp = await fetch("https://api.baseten.co/v1/models", {
+                headers: { Authorization: `Api-Key ${key}`, "Content-Type": "application/json" },
+            });
+            if (!resp.ok) {
+                res.status(resp.status).json({ error: `Baseten API: ${resp.status} — deploy models at baseten.co/library` });
+                return;
+            }
+            const data = await resp.json();
+            const models = (data.models || [])
+                .filter((m) => m.status === "ACTIVE" || m.status === "READY")
+                .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
+                .map((m) => ({ id: m.id || m.model_id || "", name: m.name || m.id || m.model_id || "" }));
+            res.json({ models, note: "Only deployed models shown. Deploy from baseten.co/library" });
+            return;
+        }
+        const baseUrl = baseUrls[provider] || "";
+        if (!baseUrl) {
+            res.status(400).json({ error: "Unknown provider" });
+            return;
+        }
+        const envKeyMap = {
+            openai: "OPENAI_API_KEY", deepseek: "DEEPSEEK_API_KEY", grok: "XAI_API_KEY",
+            baseten: "BASETEN_API_KEY", openrouter: "OPENROUTER_API_KEY",
+            together: "TOGETHER_API_KEY", mistral: "MISTRAL_API_KEY",
+        };
+        const key = apiKey || process.env[envKeyMap[provider] || ""] || "";
+        if (!key) {
+            res.status(400).json({ error: "API key required — set via env var or enter in settings" });
+            return;
+        }
+        const resp = await fetch(`${baseUrl.replace(/\/$/, "")}/models`, {
+            headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+        });
+        if (!resp.ok) {
+            const err = await resp.text().catch(() => "");
+            res.status(resp.status).json({ error: `API error: ${resp.status} ${err.slice(0, 200)}` });
+            return;
+        }
+        const data = await resp.json();
+        const rawModels = data.data || data.models || [];
+        const models = rawModels
+            .filter((m) => m.id && !m.id.includes("embed") && !m.id.includes("tts") && !m.id.includes("whisper") && !m.id.includes("dall"))
+            .sort((a, b) => (b.created || 0) - (a.created || 0))
+            .slice(0, 40)
+            .map((m) => ({ id: m.id || "", name: m.id || "" }));
+        res.json({ models });
+    }
+    catch (err) {
+        res.status(500).json({ error: getErrorMessage(err) });
+    }
+});
 app.get("/api/history", async (_req, res) => {
     try {
         const history = JSON.parse(await readFile(HISTORY_FILE, "utf-8"));
@@ -274,6 +378,26 @@ app.post("/api/memory", async (req, res) => {
         res.status(500).json({ error: getErrorMessage(e) });
     }
 });
+app.put("/api/memory", async (req, res) => {
+    try {
+        const { content, section } = req.body;
+        await replaceMemorySection(section, content.split("\n"));
+        res.json({ saved: true });
+    }
+    catch (e) {
+        res.status(500).json({ error: getErrorMessage(e) });
+    }
+});
+app.delete("/api/memory", async (req, res) => {
+    try {
+        const { section } = req.body;
+        await deleteMemorySection(section);
+        res.json({ deleted: true });
+    }
+    catch (e) {
+        res.status(500).json({ error: getErrorMessage(e) });
+    }
+});
 app.get("/api/user", async (_req, res) => {
     try {
         const data = await readUser();
@@ -288,6 +412,26 @@ app.post("/api/user", async (req, res) => {
         const { content, section } = req.body;
         await writeUser(content ?? "", section);
         res.json({ saved: true });
+    }
+    catch (e) {
+        res.status(500).json({ error: getErrorMessage(e) });
+    }
+});
+app.put("/api/user", async (req, res) => {
+    try {
+        const { content, section } = req.body;
+        await replaceUserSection(section, content.split("\n"));
+        res.json({ saved: true });
+    }
+    catch (e) {
+        res.status(500).json({ error: getErrorMessage(e) });
+    }
+});
+app.delete("/api/user", async (req, res) => {
+    try {
+        const { section } = req.body;
+        await deleteUserSection(section);
+        res.json({ deleted: true });
     }
     catch (e) {
         res.status(500).json({ error: getErrorMessage(e) });
@@ -438,6 +582,25 @@ app.get("/api/rules/context", async (_req, res) => {
     try {
         const ctx = await getInstructionsContext();
         return res.json({ context: ctx });
+    }
+    catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
+});
+app.put("/api/rules/:name", async (req, res) => {
+    try {
+        const { content, priority } = req.body;
+        await saveInstruction(req.params.name, content, priority ?? 0);
+        return res.json({ saved: true });
+    }
+    catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
+});
+app.delete("/api/rules/:name", async (req, res) => {
+    try {
+        await deleteInstruction(req.params.name);
+        return res.json({ deleted: true });
     }
     catch (e) {
         return res.status(500).json({ error: e.message });

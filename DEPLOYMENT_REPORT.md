@@ -1,5 +1,16 @@
 # 🚀 Deployment Report - v1.3.0
 
+Скрипт готов: release.ps1
+Использование:
+.\release.ps1 "твоё сообщение коммита"
+Что делает:
+1. npm run type-check — проверка типов
+2. npm run build — сборка основного проекта
+3. npm run package:vscode — сборка и bump версии .vsix
+4. git add . + git commit + git push (пропускается, если нет изменений)
+5. Выводит хеш коммита и путь к .vsix
+
+
 ## Project: cvr.name.coder
 **Date**: 2026-05-18
 **Version**: 1.3.0

@@ -1,10 +1,11 @@
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import { cn } from "../../utils/cn";
 import type { ChatProviderId } from "../../types/settings";
 import type { AIModel } from "../../types/ai";
 
 export interface ModelConfig {
   aiModel?: string;
+  apiKey?: string;
   baseUrl?: string;
   localUrl?: string;
   localModelName?: string;
@@ -17,6 +18,9 @@ interface ModelConfigProps {
   models: AIModel[];
   engineType?: "chat" | "kernel";
   onChange: (config: Partial<ModelConfig>) => void;
+  onRefreshModels?: () => void;
+  isRefreshingModels?: boolean;
+  remoteModels?: AIModel[];
   t: any;
   className?: string;
 }
@@ -27,14 +31,14 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
   models,
   engineType = "chat",
   onChange,
+  onRefreshModels,
+  isRefreshingModels = false,
+  remoteModels = [],
   t,
   className,
 }) => {
-  const [isCustomModel, setIsCustomModel] = useState(() => {
-    // If current model is not in the predefined list, it's custom
-    if (!config.aiModel || models.length === 0) return true;
-    return !models.some((m) => m.id === config.aiModel);
-  });
+  const [isCustomModel, setIsCustomModel] = useState(false);
+  const [showApiKey, setShowApiKey] = useState(false);
 
   const requiresApiKey =
     provider === "openai" ||
@@ -52,6 +56,10 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
 
   const requiresCustomConfig = provider === "custom";
 
+  const mergedModels = [...models, ...remoteModels.filter(
+    (rm) => !models.some((m) => m.id === rm.id)
+  )];
+
   const handleModelChange = (value: string) => {
     if (value === "__custom__") {
       setIsCustomModel(true);
@@ -62,11 +70,14 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
     }
   };
 
+  const handleApiKeyChange = useCallback((value: string) => {
+    onChange({ apiKey: value });
+  }, [onChange]);
+
   return (
     <div className={cn("space-y-4", className)}>
-      {/* Engine description */}
       <div className="p-3 bg-dash-accent/5 border border-dash-accent/20 rounded-md">
-        <p className="text-[11px] text-dash-text-muted leading-relaxed">
+        <p className="text-[10px] text-dash-text-muted leading-relaxed">
           {engineType === "chat"
             ? t.chatEngineDesc || "AI model used for the chat interface — this is what you interact with directly in the conversation."
             : t.kernelEngineDesc || "AI model for background agent tasks — handles analysis, memory compression, and autonomous loop operations."}
@@ -74,9 +85,29 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
       </div>
 
       {requiresApiKey && (
-        <div className="p-3 bg-dash-warning/5 border border-dash-warning/20 rounded-md">
-          <p className="text-[11px] text-dash-warning leading-relaxed">
-            {t.apiKeyServerSide || "API keys are stored server-side in environment variables for security. Configure GEMINI_API_KEY, OPENAI_API_KEY, etc. in your environment or VS Code settings."}
+        <div>
+          <label className="block text-xs font-medium text-dash-text-primary mb-2">
+            API Key
+          </label>
+          <div className="relative">
+            <input
+              type={showApiKey ? "text" : "password"}
+              value={config.apiKey || ""}
+              onChange={(e) => handleApiKeyChange(e.target.value)}
+              className="w-full px-3 py-2 pr-10 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs"
+              placeholder="Enter API key or leave empty to use env var"
+            />
+            <button
+              type="button"
+              onClick={() => setShowApiKey(!showApiKey)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-dash-text-muted hover:text-dash-text-primary text-xs"
+              tabIndex={-1}
+            >
+              {showApiKey ? "HIDE" : "SHOW"}
+            </button>
+          </div>
+          <p className="text-[10px] text-dash-text-muted mt-1 leading-relaxed">
+            Stored in browser localStorage. Overrides {provider.toUpperCase()}_API_KEY env var if set.
           </p>
         </div>
       )}
@@ -84,7 +115,7 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
       {requiresLocalUrl && (
         <>
           <div>
-            <label className="block text-sm font-medium text-dash-text-primary mb-2">
+            <label className="block text-xs font-medium text-dash-text-primary mb-2">
               {t.localUrl || "Local URL"}
             </label>
             <input
@@ -97,7 +128,7 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-dash-text-primary mb-2">
+            <label className="block text-xs font-medium text-dash-text-primary mb-2">
               {t.modelName || "Model Name"}
             </label>
             <input
@@ -113,14 +144,31 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
 
       {requiresCustomConfig && (
         <>
-          <div className="p-3 bg-dash-warning/5 border border-dash-warning/20 rounded-md">
-            <p className="text-[11px] text-dash-warning leading-relaxed">
-              {t.customProviderSecurity || "Custom provider API keys should be configured via environment variables (CUSTOM_API_KEY) or VS Code secret storage."}
-            </p>
+          <div>
+            <label className="block text-xs font-medium text-dash-text-primary mb-2">
+              API Key
+            </label>
+            <div className="relative">
+              <input
+                type={showApiKey ? "text" : "password"}
+                value={config.apiKey || ""}
+                onChange={(e) => handleApiKeyChange(e.target.value)}
+                className="w-full px-3 py-2 pr-10 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs"
+                placeholder="CUSTOM_API_KEY or enter here"
+              />
+              <button
+                type="button"
+                onClick={() => setShowApiKey(!showApiKey)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-dash-text-muted hover:text-dash-text-primary text-xs"
+                tabIndex={-1}
+              >
+                {showApiKey ? "HIDE" : "SHOW"}
+              </button>
+            </div>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-dash-text-primary mb-2">
+            <label className="block text-xs font-medium text-dash-text-primary mb-2">
               {t.customUrl || "Custom URL"}
             </label>
             <input
@@ -135,18 +183,31 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
       )}
 
       <div>
-        <label className="block text-sm font-medium text-dash-text-primary mb-2">
-          {t.modelName || "Model"}
-        </label>
-        {models.length > 0 && provider !== "local" && provider !== "custom" ? (
+        <div className="flex items-center justify-between mb-2">
+          <label className="text-xs font-medium text-dash-text-primary">
+            {t.modelName || "Model"}
+          </label>
+          {requiresApiKey && onRefreshModels && (
+            <button
+              type="button"
+              onClick={onRefreshModels}
+              disabled={isRefreshingModels}
+              className="text-[10px] text-dash-accent hover:text-dash-accent/80 disabled:text-dash-text-muted disabled:cursor-not-allowed transition-colors"
+            >
+              {isRefreshingModels ? "Loading..." : "Fetch models"}
+            </button>
+          )}
+        </div>
+
+        {mergedModels.length > 0 && provider !== "local" && provider !== "custom" ? (
           <div className="space-y-2">
             <select
               value={isCustomModel ? "__custom__" : config.aiModel || ""}
               onChange={(e) => handleModelChange(e.target.value)}
-              className="w-full px-3 py-2 bg-dash-bg border border-dash-border rounded text-dash-text-primary focus:outline-none focus:ring-2 focus:ring-dash-accent text-sm"
+              className="w-full px-3 py-2 bg-dash-bg border border-dash-border rounded text-dash-text-primary focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs"
             >
               <option value="" disabled>{t.selectModel || "Select a model..."}</option>
-              {models.map((model) => (
+              {mergedModels.map((model) => (
                 <option key={model.id} value={model.id}>
                   {model.name}
                 </option>
@@ -158,7 +219,7 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
                 type="text"
                 value={config.aiModel || ""}
                 onChange={(e) => onChange({ aiModel: e.target.value })}
-                className="w-full px-3 py-2 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent text-sm"
+                className="w-full px-3 py-2 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs"
                 placeholder={t.enterModelName || "Enter model name"}
               />
             )}
@@ -168,9 +229,14 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
             type="text"
             value={config.aiModel || ""}
             onChange={(e) => onChange({ aiModel: e.target.value })}
-            className="w-full px-3 py-2 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent text-sm"
+            className="w-full px-3 py-2 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs"
             placeholder={t.enterModelName || "Enter model name"}
           />
+        )}
+        {remoteModels.length > 0 && (
+          <p className="text-[10px] text-dash-text-muted mt-1">
+            {remoteModels.length} models fetched from API. Predefined models are also included.
+          </p>
         )}
       </div>
     </div>

@@ -20,7 +20,8 @@ interface Settings {
 const DEFAULT_SETTINGS: Settings = {
   chat: {
     aiProvider: "gemini",
-    aiModel: "gemini-2.5-pro",
+    aiModel: "gemini-2.5-flash-preview-05-20",
+    apiKey: "",
     localUrl: "",
     localModelName: "",
     customUrl: "",

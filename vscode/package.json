@@ -2,7 +2,7 @@
   "name": "cvr-name-coder",
   "displayName": "cvr.name.coder",
   "description": "Autonomous AI coding agent with persistent memory, streaming responses, local LLM support (Ollama/llama.cpp), multi-session chats, file workspace integration, and MCP tool server. Works offline with local models.",
-  "version": "1.5.0",
+  "version": "1.5.3",
   "publisher": "cvr-name",
   "author": {
     "name": "cvr.name",
@@ -125,7 +125,12 @@
         "cvr.completion.provider": {
           "type": "string",
           "default": "gemini",
-          "enum": ["gemini", "openai", "local", "custom"],
+          "enum": [
+            "gemini",
+            "openai",
+            "local",
+            "custom"
+          ],
           "description": "Provider for inline completions"
         },
         "cvr.completion.model": {
@@ -155,7 +160,8 @@
     "vscode:prepublish": "npm run build",
     "build": "node esbuild.config.mjs",
     "watch": "node esbuild.config.mjs --watch",
-    "package": "vsce package"
+    "bump": "npm version patch --no-git-tag-version",
+    "package": "npm run bump && vsce package"
   },
   "devDependencies": {
     "@google/genai": "^1.29.0",

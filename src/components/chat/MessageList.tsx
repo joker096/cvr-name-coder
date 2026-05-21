@@ -21,7 +21,6 @@ export const MessageList: React.FC<MessageListProps> = ({
     return (
       <div className="flex-1 flex items-center justify-center text-dash-text-muted text-sm">
         <div className="text-center">
-          <p className="text-dash-text-primary font-medium mb-2">{t.welcome || "Welcome"}</p>
           <p className="text-xs opacity-60">{t.startConversation || "Start a conversation to begin"}</p>
         </div>
       </div>

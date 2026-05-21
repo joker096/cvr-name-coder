@@ -21,6 +21,7 @@ export type AgentId = 'build' | 'general' | 'explore' | 'scout' | 'prometheus' |
 export interface ChatConfig {
   aiProvider: ChatProviderId;
   aiModel: string;
+  apiKey?: string;
   localUrl?: string;
   localModelName?: string;
   customUrl?: string;

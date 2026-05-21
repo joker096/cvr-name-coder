@@ -20,6 +20,7 @@ interface InputAreaProps {
   voiceLanguage?: string | undefined;
   voiceAutoSend?: boolean | undefined;
   visionEnabled?: boolean | undefined;
+  t?: any;
 }
 
 export const InputArea: React.FC<InputAreaProps> = ({
@@ -29,13 +30,14 @@ export const InputArea: React.FC<InputAreaProps> = ({
   onCancel,
   isLooming = false,
   placeholder = "Type your message...",
-  lang = "en",
+  lang: _lang = "en",
   disabled = false,
   className,
   voiceEnabled = false,
   voiceLanguage = "en-US",
   voiceAutoSend = false,
   visionEnabled = false,
+  t = {},
 }) => {
   const [showCommands, setShowCommands] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -225,7 +227,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
             onKeyDown={handleKeyDown}
             placeholder={placeholder}
             disabled={disabled}
-            className="w-full bg-transparent border-none focus:ring-0 text-[15px] font-mono p-1 min-h-[32px] max-h-24 resize-none no-scrollbar text-dash-text-primary placeholder:text-dash-text-label disabled:opacity-50"
+            className="w-full bg-transparent border-none focus:ring-0 text-[13px] font-mono p-1 min-h-[32px] max-h-24 resize-none no-scrollbar text-dash-text-primary placeholder:text-dash-text-label disabled:opacity-50"
           />
           {showCommands && filteredCommands.length > 0 && (
             <div className="absolute bottom-full left-0 mb-1 w-full bg-dash-elevated border border-dash-border rounded-lg shadow-2xl overflow-hidden z-50">
@@ -250,7 +252,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
             </div>
           )}
         </div>
-        {!isLooming && visionEnabled && (
+        {!isLooming && (
           <ImageUploadButton
             onImagesSelected={handleImagesSelected}
             disabled={disabled}
@@ -268,12 +270,8 @@ export const InputArea: React.FC<InputAreaProps> = ({
             )}
             title={
               isListening
-                ? lang === "ru"
-                  ? "Остановить запись"
-                  : "Stop recording"
-                : lang === "ru"
-                  ? "Голосовой ввод"
-                  : "Voice input"
+                ? t.stopRecording || "Stop recording"
+                : t.voiceInput || "Voice input"
             }
           >
             {isListening ? (
@@ -293,7 +291,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
           <button
             onClick={onCancel}
             className="p-1 bg-dash-warning/20 hover:bg-dash-warning/30 border border-dash-warning/30 rounded-md transition-all"
-            title={lang === "ru" ? "Отменить" : "Cancel"}
+            title={t.cancel || "Cancel"}
           >
             <X className="w-3 h-3 text-dash-warning" />
           </button>

@@ -28,16 +28,16 @@ export const AGENT_PROMPTS: Record<string, string> = {
 
 export function getProviderDefaults(provider: string): { baseUrl: string; defaultModel: string; envKey: string } {
   const defaults: Record<string, { baseUrl: string; defaultModel: string; envKey: string }> = {
-    openai: { baseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-4o', envKey: 'OPENAI_API_KEY' },
+    openai: { baseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-4.1', envKey: 'OPENAI_API_KEY' },
     deepseek: { baseUrl: 'https://api.deepseek.com', defaultModel: 'deepseek-chat', envKey: 'DEEPSEEK_API_KEY' },
-    grok: { baseUrl: 'https://api.x.ai/v1', defaultModel: 'grok-beta', envKey: 'XAI_API_KEY' },
-    groq: { baseUrl: 'https://api.groq.com/openai/v1', defaultModel: 'llama3-70b-8192', envKey: 'GROQ_API_KEY' },
-    baseten: { baseUrl: 'https://api.baseten.co/v1', defaultModel: 'llama-3-1-70b-instruct', envKey: 'BASETEN_API_KEY' },
-    openrouter: { baseUrl: 'https://openrouter.ai/api/v1', defaultModel: 'meta-llama/llama-3.3-70b-instruct:free', envKey: 'OPENROUTER_API_KEY' },
-    together: { baseUrl: 'https://api.together.xyz/v1', defaultModel: 'meta-llama/Llama-3.3-70B-Instruct-Turbo', envKey: 'TOGETHER_API_KEY' },
+    grok: { baseUrl: 'https://api.x.ai/v1', defaultModel: 'grok-3', envKey: 'XAI_API_KEY' },
+    groq: { baseUrl: 'https://api.groq.com/openai/v1', defaultModel: 'meta-llama/llama-4-maverick-17b-128e-instruct', envKey: 'GROQ_API_KEY' },
+    baseten: { baseUrl: 'https://api.baseten.co/v1', defaultModel: 'meta-llama-4-maverick', envKey: 'BASETEN_API_KEY' },
+    openrouter: { baseUrl: 'https://openrouter.ai/api/v1', defaultModel: 'google/gemini-2.5-flash', envKey: 'OPENROUTER_API_KEY' },
+    together: { baseUrl: 'https://api.together.xyz/v1', defaultModel: 'meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8', envKey: 'TOGETHER_API_KEY' },
     mistral: { baseUrl: 'https://api.mistral.ai/v1', defaultModel: 'mistral-large-latest', envKey: 'MISTRAL_API_KEY' },
-    anthropic: { baseUrl: 'https://api.anthropic.com/v1', defaultModel: 'claude-3-5-sonnet-20240620', envKey: 'ANTHROPIC_API_KEY' },
-    gemini: { baseUrl: '', defaultModel: 'gemini-2.0-flash', envKey: 'GEMINI_API_KEY' },
+    anthropic: { baseUrl: 'https://api.anthropic.com/v1', defaultModel: 'claude-sonnet-4-20250514', envKey: 'ANTHROPIC_API_KEY' },
+    gemini: { baseUrl: '', defaultModel: 'gemini-2.5-flash-preview-05-20', envKey: 'GEMINI_API_KEY' },
   };
 
   return defaults[provider] || { baseUrl: '', defaultModel: 'model', envKey: '' };

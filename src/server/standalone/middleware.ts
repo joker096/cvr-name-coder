@@ -10,13 +10,14 @@ export function setupSecurityMiddleware(app: express.Application): void {
         scriptSrc: ["'self'", "'unsafe-inline'"],
         styleSrc: ["'self'", "'unsafe-inline'"],
         imgSrc: ["'self'", "data:", "blob:"],
+        connectSrc: ["'self'", "ws:", "wss:"],
       },
     },
   }));
 
   const limiter = rateLimit({
     windowMs: 1 * 60 * 1000,
-    max: 120,
+    max: process.env.NODE_ENV === "production" ? 120 : 10000,
     message: { error: "Too many requests, please try again later." },
     standardHeaders: true,
     legacyHeaders: false,

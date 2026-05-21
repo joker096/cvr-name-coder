@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { BookOpen, User, Save, RefreshCw } from "lucide-react";
+import { BookOpen, User, Save, RefreshCw, Plus, Trash2, Edit2, X } from "lucide-react";
 import { usePersistentMemory } from "../../hooks/usePersistentMemory";
 import { cn } from "../../utils/cn";
 
@@ -9,31 +9,60 @@ interface MemoryPanelProps {
 }
 
 export const MemoryPanel: React.FC<MemoryPanelProps> = ({ t, className }) => {
-  const { memory, user, loading, saving, saveMemory, saveUser, refresh } = usePersistentMemory();
+  const {
+    memory, user, loading, saving,
+    updateMemorySection, updateUserSection,
+    deleteMemorySection, deleteUserSection,
+    refresh,
+  } = usePersistentMemory();
   const [activeTab, setActiveTab] = useState<"memory" | "user">("memory");
+  const [editingSection, setEditingSection] = useState<string | null>(null);
   const [editContent, setEditContent] = useState("");
-  const [isEditing, setIsEditing] = useState(false);
+  const [showNewSection, setShowNewSection] = useState(false);
+  const [newSectionName, setNewSectionName] = useState("");
+  const [newSectionContent, setNewSectionContent] = useState("");
 
   const currentData = activeTab === "memory" ? memory : user;
+  const updateSection = activeTab === "memory" ? updateMemorySection : updateUserSection;
+  const deleteSection = activeTab === "memory" ? deleteMemorySection : deleteUserSection;
 
-  const handleEdit = () => {
-    setEditContent(currentData?.raw || "");
-    setIsEditing(true);
+  const startEdit = (key: string, value: string) => {
+    setEditingSection(key);
+    setEditContent(value);
   };
 
-  const handleSave = async () => {
-    if (activeTab === "memory") {
-      await saveMemory(editContent);
-    } else {
-      await saveUser(editContent);
-    }
-    setIsEditing(false);
-  };
-
-  const handleCancel = () => {
-    setIsEditing(false);
+  const cancelEdit = () => {
+    setEditingSection(null);
     setEditContent("");
   };
+
+  const saveEdit = async () => {
+    if (editingSection === null) return;
+    await updateSection(editingSection, editContent);
+    setEditingSection(null);
+    setEditContent("");
+  };
+
+  const startNewSection = () => {
+    setShowNewSection(true);
+    setNewSectionName("");
+    setNewSectionContent("");
+  };
+
+  const saveNewSection = async () => {
+    if (!newSectionName.trim()) return;
+    await updateSection(newSectionName.trim(), newSectionContent);
+    setShowNewSection(false);
+    setNewSectionName("");
+    setNewSectionContent("");
+  };
+
+  const handleDelete = async (sectionName: string) => {
+    if (!confirm(t.deleteSectionConfirm?.replace("{name}", sectionName) || `Delete section "${sectionName}"?`)) return;
+    await deleteSection(sectionName);
+  };
+
+  const sections = currentData?.sections ? Object.entries(currentData.sections) : [];
 
   return (
     <div className={cn("flex flex-col gap-3", className)}>
@@ -60,24 +89,13 @@ export const MemoryPanel: React.FC<MemoryPanelProps> = ({ t, className }) => {
           >
             <RefreshCw className={cn("w-3 h-3", loading && "animate-spin")} />
           </button>
-          {!isEditing ? (
-            <button
-              onClick={handleEdit}
-              className="p-1 hover:bg-neutral-800 rounded transition-colors text-dash-text-muted"
-              title={t.edit || "Edit"}
-            >
-              <BookOpen className="w-3 h-3" />
-            </button>
-          ) : (
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="p-1 hover:bg-neutral-800 rounded transition-colors text-dash-success"
-              title={t.save || "Save"}
-            >
-              <Save className="w-3 h-3" />
-            </button>
-          )}
+          <button
+            onClick={startNewSection}
+            className="p-1 hover:bg-neutral-800 rounded transition-colors text-dash-text-muted"
+            title={t.addSection || "Add Section"}
+          >
+            <Plus className="w-3 h-3" />
+          </button>
         </div>
       </div>
 
@@ -106,51 +124,108 @@ export const MemoryPanel: React.FC<MemoryPanelProps> = ({ t, className }) => {
         </button>
       </div>
 
-      <div className="flex-1 min-h-0">
-        {isEditing ? (
-          <div className="flex flex-col gap-2">
-            <textarea
-              value={editContent}
-              onChange={(e) => setEditContent(e.target.value)}
-              className="w-full h-64 bg-neutral-900 border border-dash-border rounded p-2 text-[11px] font-mono text-dash-text-primary resize-none focus:outline-none focus:border-dash-accent"
-              placeholder={t.memoryPlaceholder || "# Memory sections..."}
+      <div className="space-y-2">
+        {showNewSection && (
+          <div className="border border-dash-accent rounded bg-neutral-900/60 p-2">
+            <input
+              value={newSectionName}
+              onChange={(e) => setNewSectionName(e.target.value)}
+              placeholder={t.sectionName || "Section name..."}
+              className="w-full bg-neutral-900 border border-dash-border rounded p-1.5 text-[10px] font-bold text-dash-text-primary mb-1.5 focus:outline-none focus:border-dash-accent uppercase tracking-wider"
             />
-            <div className="flex gap-2">
+            <textarea
+              value={newSectionContent}
+              onChange={(e) => setNewSectionContent(e.target.value)}
+              className="w-full h-20 bg-neutral-900 border border-dash-border rounded p-1.5 text-[10px] font-mono text-dash-text-primary resize-none focus:outline-none focus:border-dash-accent"
+              placeholder={t.newSectionContent || "Section content..."}
+            />
+            <div className="flex gap-1.5 mt-1.5">
               <button
-                onClick={handleSave}
-                disabled={saving}
-                className="flex-1 py-1.5 bg-dash-accent/20 text-dash-accent text-[11px] font-bold uppercase tracking-wider rounded hover:bg-dash-accent/30 transition-colors disabled:opacity-50"
+                onClick={saveNewSection}
+                disabled={saving || !newSectionName.trim()}
+                className="flex-1 py-1 bg-dash-accent/20 text-dash-accent text-[10px] font-bold uppercase rounded hover:bg-dash-accent/30 transition-colors disabled:opacity-50"
               >
-                {saving ? t.saving || "Saving..." : t.save || "Save"}
+                {saving ? t.saving || "..." : t.save || "Save"}
               </button>
               <button
-                onClick={handleCancel}
-                className="flex-1 py-1.5 bg-neutral-800 text-dash-text-muted text-[11px] font-bold uppercase tracking-wider rounded hover:bg-neutral-700 transition-colors"
+                onClick={() => setShowNewSection(false)}
+                className="flex-1 py-1 bg-neutral-800 text-dash-text-muted text-[10px] font-bold uppercase rounded hover:bg-neutral-700 transition-colors"
               >
                 {t.cancel || "Cancel"}
               </button>
             </div>
           </div>
-        ) : (
-          <div className="space-y-2">
-            {currentData?.sections && Object.entries(currentData.sections).length > 0 ? (
-              Object.entries(currentData.sections).map(([key, value]) => (
-                <div key={key} className="border border-dash-border rounded bg-neutral-900/50">
-                  <div className="px-2 py-1 bg-neutral-900/80 border-b border-dash-border text-[10px] font-bold uppercase tracking-wider text-dash-accent">
-                    {key}
-                  </div>
-                  <div className="p-2 text-[10px] text-dash-text-primary whitespace-pre-wrap font-mono leading-relaxed">
-                    {value}
+        )}
+
+        {sections.length > 0 ? (
+          sections.map(([key, value]) => (
+            <div key={key} className="border border-dash-border rounded bg-neutral-900/50">
+              <div className="px-2 py-1 bg-neutral-900/80 border-b border-dash-border flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-dash-accent truncate flex-1">
+                  {key}
+                </span>
+                <div className="flex items-center gap-0.5">
+                  <button
+                    onClick={() => startEdit(key, value)}
+                    className="p-0.5 hover:bg-neutral-800 rounded text-dash-text-muted hover:text-white"
+                    title={t.edit || "Edit"}
+                  >
+                    <Edit2 className="w-3 h-3" />
+                  </button>
+                  <button
+                    onClick={() => handleDelete(key)}
+                    className="p-0.5 hover:bg-neutral-800 rounded text-dash-text-muted hover:text-red-400"
+                    title={t.delete || "Delete"}
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+
+              {editingSection === key ? (
+                <div className="p-2 flex flex-col gap-1.5">
+                  <textarea
+                    value={editContent}
+                    onChange={(e) => setEditContent(e.target.value)}
+                    className="w-full h-24 bg-neutral-900 border border-dash-border rounded p-1.5 text-[10px] font-mono text-dash-text-primary resize-none focus:outline-none focus:border-dash-accent"
+                  />
+                  <div className="flex gap-1.5">
+                    <button
+                      onClick={saveEdit}
+                      disabled={saving}
+                      className="flex-1 py-1 bg-dash-accent/20 text-dash-accent text-[10px] font-bold uppercase rounded hover:bg-dash-accent/30 transition-colors disabled:opacity-50"
+                    >
+                      <Save className="w-2.5 h-2.5 inline-block mr-1" />
+                      {t.save || "Save"}
+                    </button>
+                    <button
+                      onClick={cancelEdit}
+                      className="flex-1 py-1 bg-neutral-800 text-dash-text-muted text-[10px] font-bold uppercase rounded hover:bg-neutral-700 transition-colors"
+                    >
+                      <X className="w-2.5 h-2.5 inline-block mr-1" />
+                      {t.cancel || "Cancel"}
+                    </button>
                   </div>
                 </div>
-              ))
-            ) : (
-              <div className="p-3 text-[10px] text-dash-text-muted italic border border-dashed border-dash-border rounded text-center">
-                {activeTab === "memory"
-                  ? t.noMemory || "No persistent memory yet. The agent will write here as it learns."
-                  : t.noUserPrefs || "No user preferences yet."}
-              </div>
-            )}
+              ) : (
+                <div
+                  onClick={() => startEdit(key, value)}
+                  className="p-2 text-[10px] text-dash-text-primary whitespace-pre-wrap font-mono leading-relaxed cursor-text hover:bg-neutral-900/30 min-h-[1.5em]"
+                >
+                  {value || (
+                    <span className="text-dash-text-muted italic">
+                      {t.clickToEdit || "Click to edit..."}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          ))
+        ) : (
+          <div className="p-3 text-[10px] text-dash-text-muted italic border border-dashed border-dash-border rounded text-center">
+            {activeTab === "memory"
+              ? t.noMemory || "No persistent memory yet. Click + to add a section."
+              : t.noUserPrefs || "No user preferences yet. Click + to add a section."}
           </div>
         )}
       </div>

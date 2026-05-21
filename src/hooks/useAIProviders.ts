@@ -7,8 +7,8 @@ const PROVIDERS: AIProvider[] = [
     name: "Google Gemini",
     type: "cloud" as const,
     models: [
-      { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro" },
-      { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash" },
+      { id: "gemini-2.5-pro-preview-05-06", name: "Gemini 2.5 Pro" },
+      { id: "gemini-2.5-flash-preview-05-20", name: "Gemini 2.5 Flash" },
       { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash" },
     ],
     requiresApiKey: true,
@@ -22,9 +22,8 @@ const PROVIDERS: AIProvider[] = [
       { id: "gpt-4.1", name: "GPT-4.1" },
       { id: "gpt-4.1-mini", name: "GPT-4.1 Mini" },
       { id: "gpt-4.1-nano", name: "GPT-4.1 Nano" },
-      { id: "gpt-4o", name: "GPT-4o" },
-      { id: "o3", name: "o3" },
       { id: "o4-mini", name: "o4-mini" },
+      { id: "gpt-4o", name: "GPT-4o" },
     ],
     requiresApiKey: true,
     requiresUrl: false,
@@ -35,8 +34,8 @@ const PROVIDERS: AIProvider[] = [
     type: "cloud" as const,
     models: [
       { id: "claude-sonnet-4-20250514", name: "Claude Sonnet 4" },
+      { id: "claude-opus-4-20250514", name: "Claude Opus 4" },
       { id: "claude-3-5-sonnet-20241022", name: "Claude 3.5 Sonnet" },
-      { id: "claude-3-5-haiku-20241022", name: "Claude 3.5 Haiku" },
     ],
     requiresApiKey: true,
     requiresUrl: false,
@@ -81,9 +80,22 @@ const PROVIDERS: AIProvider[] = [
     name: "Baseten",
     type: "cloud" as const,
     models: [
-      { id: "meta-llama-4-maverick", name: "Llama 4 Maverick" },
-      { id: "meta-llama-4-scout", name: "Llama 4 Scout" },
-      { id: "deepseek-r1", name: "DeepSeek R1" },
+      { id: "deepseek-ai/DeepSeek-V4-Pro", name: "DeepSeek V4 Pro" },
+      { id: "deepseek-ai/DeepSeek-R1-0528", name: "DeepSeek R1 0528" },
+      { id: "deepseek-ai/DeepSeek-V3-0324", name: "DeepSeek V3 0324" },
+      { id: "meta-llama/Llama-4-Maverick-17B-128E-Instruct", name: "Llama 4 Maverick 17B" },
+      { id: "meta-llama/Llama-4-Scout-17B-16E-Instruct", name: "Llama 4 Scout 17B" },
+      { id: "google/gemini-2.5-pro", name: "Gemini 2.5 Pro" },
+      { id: "google/gemini-2.5-flash", name: "Gemini 2.5 Flash" },
+      { id: "anthropic/claude-sonnet-4-20250514", name: "Claude Sonnet 4" },
+      { id: "anthropic/claude-opus-4-20250514", name: "Claude Opus 4" },
+      { id: "mistralai/Mistral-Large", name: "Mistral Large" },
+      { id: "mistralai/Mistral-Small", name: "Mistral Small" },
+      { id: "Qwen/Qwen3-235B-A22B", name: "Qwen 3 235B" },
+      { id: "Qwen/Qwen3-Coder-480B-A35B-Instruct", name: "Qwen 3 Coder 480B" },
+      { id: "Qwen/QwQ-32B", name: "QwQ 32B" },
+      { id: "NousResearch/DeepHermes-3-Llama-3-8B-Preview", name: "DeepHermes 3 8B" },
+      { id: "NousResearch/Hermes-3-Llama-3.1-405B", name: "Hermes 3 405B" },
     ],
     requiresApiKey: true,
     requiresUrl: false,
@@ -93,11 +105,10 @@ const PROVIDERS: AIProvider[] = [
     name: "OpenRouter",
     type: "cloud" as const,
     models: [
-      { id: "google/gemini-2.5-flash:free", name: "Gemini 2.5 Flash (Free)" },
-      { id: "deepseek/deepseek-chat-v3-0324:free", name: "DeepSeek V3 (Free)" },
-      { id: "meta-llama/llama-4-maverick:free", name: "Llama 4 Maverick (Free)" },
-      { id: "qwen/qwen3-235b-a22b:free", name: "Qwen 3 235B (Free)" },
-      { id: "mistralai/mistral-small-3.1-24b-instruct:free", name: "Mistral Small 3.1 (Free)" },
+      { id: "google/gemini-2.5-flash", name: "Gemini 2.5 Flash" },
+      { id: "deepseek/deepseek-chat", name: "DeepSeek V3" },
+      { id: "meta-llama/llama-4-maverick", name: "Llama 4 Maverick" },
+      { id: "anthropic/claude-sonnet-4", name: "Claude Sonnet 4" },
     ],
     requiresApiKey: true,
     requiresUrl: false,
@@ -109,7 +120,6 @@ const PROVIDERS: AIProvider[] = [
     models: [
       { id: "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8", name: "Llama 4 Maverick 17B" },
       { id: "meta-llama/Llama-4-Scout-17B-16E-Instruct", name: "Llama 4 Scout 17B" },
-      { id: "deepseek-ai/DeepSeek-R1", name: "DeepSeek R1" },
       { id: "Qwen/Qwen3-235B-A22B", name: "Qwen 3 235B" },
     ],
     requiresApiKey: true,
@@ -123,6 +133,7 @@ const PROVIDERS: AIProvider[] = [
       { id: "mistral-large-latest", name: "Mistral Large" },
       { id: "mistral-small-latest", name: "Mistral Small" },
       { id: "codestral-latest", name: "Codestral" },
+      { id: "mistral-ocr-latest", name: "Mistral OCR" },
     ],
     requiresApiKey: true,
     requiresUrl: false,
@@ -148,6 +159,8 @@ const PROVIDERS: AIProvider[] = [
 export const useAIProviders = () => {
   const [isDetecting, setIsDetecting] = useState(false);
   const [detectedModels, setDetectedModels] = useState<AIModel[]>([]);
+  const [remoteModels, setRemoteModels] = useState<AIModel[]>([]);
+  const [isRefreshingModels, setIsRefreshingModels] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const getProviders = useCallback((): AIProvider[] => {
@@ -162,6 +175,35 @@ export const useAIProviders = () => {
     const provider = getProviderById(providerId);
     return provider?.models || [];
   }, [getProviderById]);
+
+  const fetchRemoteModels = useCallback(async (providerId: string, apiKey?: string): Promise<AIModel[]> => {
+    setIsRefreshingModels(true);
+    setError(null);
+
+    try {
+      const params = new URLSearchParams({ provider: providerId });
+      if (apiKey) params.set("apiKey", apiKey);
+
+      const response = await fetch(`/api/models?${params.toString()}`, {
+        signal: AbortSignal.timeout(15000),
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({ error: "Failed to fetch models" }));
+        throw new Error((err as any).error || `HTTP ${response.status}`);
+      }
+
+      const data = await response.json() as { models: AIModel[] };
+      setRemoteModels(data.models || []);
+      return data.models || [];
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to fetch models";
+      setError(errorMessage);
+      return [];
+    } finally {
+      setIsRefreshingModels(false);
+    }
+  }, []);
 
   const detectLocalModels = useCallback(async (url: string): Promise<AIModel[]> => {
     setIsDetecting(true);
@@ -248,10 +290,13 @@ export const useAIProviders = () => {
     providers: PROVIDERS,
     isDetecting,
     detectedModels,
+    remoteModels,
+    isRefreshingModels,
     error,
     getProviders,
     getProviderById,
     getModelsForProvider,
+    fetchRemoteModels,
     detectLocalModels,
     testConnection,
   };

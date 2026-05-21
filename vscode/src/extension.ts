@@ -16,7 +16,7 @@ import { createPlan } from '../../src/server/planner.js';
 import { SubagentManager } from '../../src/server/subagentManager.js';
 import { loadAgents, setAgentsDir, getAgentById } from '../../src/server/agentLoader.js';
 import { randomUUID } from 'crypto';
-import { readMemory, writeMemory, readUser, writeUser, setMemoryDir } from '../../src/server/memoryStore.js';
+import { readMemory, writeMemory, replaceMemorySection, deleteMemorySection, readUser, writeUser, replaceUserSection, deleteUserSection, setMemoryDir } from '../../src/server/memoryStore.js';
 import { createSession, addMessage, getSession, listSessions, searchSessions, deleteSession, setSessionDbPath } from '../../src/server/sessionStore.js';
 import { loadSkills, getSkillById, setSkillsDir } from '../../src/server/skillLoader.js';
 import { setSkillCreatorDir } from '../../src/server/skillCreator.js';
@@ -24,7 +24,7 @@ import { ingestDocument, searchRAG, listSources, clearSource, setRagDbPath } fro
 import { setRagEmbedFn } from '../../src/server/tools.js';
 import { setCacheDbPath } from '../../src/server/cache.js';
 import { indexProject } from '../../src/server/projectOracle.js';
-import { loadInstructions, getInstructionsContext, setRulesDir } from '../../src/server/instructionLoader.js';
+import { loadInstructions, getInstructionsContext, setRulesDir, saveInstruction, deleteInstruction } from '../../src/server/instructionLoader.js';
 import { loadCustomTools, setCustomToolsDir } from '../../src/server/customToolLoader.js';
 import { loadPlugins, registerPlugins, getPlugins, enablePlugin, disablePlugin, setPluginsDir } from '../../src/server/pluginManager.js';
 import { cronScheduler } from '../../src/server/cronScheduler.js';
@@ -1126,6 +1126,26 @@ Complete the code at the cursor position:`;
     }
   });
 
+  app.put('/api/memory', async (req: any, res: any) => {
+    try {
+      const { content, section } = req.body;
+      await replaceMemorySection(section, content.split('\n'));
+      res.json({ saved: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.delete('/api/memory', async (req: any, res: any) => {
+    try {
+      const { section } = req.body;
+      await deleteMemorySection(section);
+      res.json({ deleted: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.get('/api/user', async (_req: any, res: any) => {
     try {
       const data = await readUser();
@@ -1140,6 +1160,26 @@ Complete the code at the cursor position:`;
       const { content, section } = req.body;
       await writeUser(content, section);
       res.json({ saved: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.put('/api/user', async (req: any, res: any) => {
+    try {
+      const { content, section } = req.body;
+      await replaceUserSection(section, content.split('\n'));
+      res.json({ saved: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.delete('/api/user', async (req: any, res: any) => {
+    try {
+      const { section } = req.body;
+      await deleteUserSection(section);
+      res.json({ deleted: true });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
@@ -1287,6 +1327,25 @@ Complete the code at the cursor position:`;
     try {
       const ctx = await getInstructionsContext();
       res.json({ context: ctx });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.put('/api/rules/:name', async (req: any, res: any) => {
+    try {
+      const { content, priority } = req.body;
+      await saveInstruction(req.params.name, content, priority ?? 0);
+      res.json({ saved: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.delete('/api/rules/:name', async (req: any, res: any) => {
+    try {
+      await deleteInstruction(req.params.name);
+      res.json({ deleted: true });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }

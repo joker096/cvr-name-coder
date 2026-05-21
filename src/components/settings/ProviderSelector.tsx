@@ -1,8 +1,9 @@
 import React from "react";
-import { Sparkles, Bot, Brain, Search, Zap, Cpu, Box, Router, Users, Wind, Server, Settings } from "lucide-react";
 import { cn } from "../../utils/cn";
+import { ExternalLink } from "lucide-react";
 import type { IconType } from "../../types/ai";
 import type { ChatProviderId } from "../../types/settings";
+import { BrandIcon } from "./BrandIcons";
 
 export interface Provider {
   id: ChatProviderId;
@@ -10,6 +11,19 @@ export interface Provider {
   label: string;
   type: 'cloud' | 'local';
 }
+
+const API_KEY_URLS: Partial<Record<ChatProviderId, string>> = {
+  gemini: "https://aistudio.google.com/apikey",
+  openai: "https://platform.openai.com/api-keys",
+  anthropic: "https://console.anthropic.com/",
+  deepseek: "https://platform.deepseek.com/api_keys",
+  grok: "https://console.x.ai/",
+  groq: "https://console.groq.com/keys",
+  baseten: "https://www.baseten.co/settings/api-keys",
+  openrouter: "https://openrouter.ai/keys",
+  together: "https://api.together.xyz/settings/api-keys",
+  mistral: "https://console.mistral.ai/api-keys",
+};
 
 interface ProviderSelectorProps {
   providers: Provider[];
@@ -22,58 +36,17 @@ export const isValidProviderId = (id: string): id is ChatProviderId => {
   return typeof id === 'string' && id.length > 0;
 };
 
-const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
-  sparkles: Sparkles,
-  bot: Bot,
-  brain: Brain,
-  search: Search,
-  zap: Zap,
-  cpu: Cpu,
-  box: Box,
-  router: Router,
-  users: Users,
-  wind: Wind,
-  server: Server,
-  settings: Settings,
-};
+function ProviderIcon({ providerId, size = "md" }: { providerId: ChatProviderId; size?: "sm" | "md" }) {
+  const px = size === "sm" ? 14 : 18;
 
-const ICON_COLORS: Record<string, string> = {
-  sparkles: "text-blue-400 bg-blue-400/10",
-  bot: "text-emerald-400 bg-emerald-400/10",
-  brain: "text-amber-400 bg-amber-400/10",
-  search: "text-cyan-400 bg-cyan-400/10",
-  zap: "text-yellow-400 bg-yellow-400/10",
-  cpu: "text-orange-400 bg-orange-400/10",
-  box: "text-purple-400 bg-purple-400/10",
-  router: "text-pink-400 bg-pink-400/10",
-  users: "text-indigo-400 bg-indigo-400/10",
-  wind: "text-teal-400 bg-teal-400/10",
-  server: "text-slate-400 bg-slate-400/10",
-  settings: "text-stone-400 bg-stone-400/10",
-};
-
-function ProviderIcon({ icon, size = "md" }: { icon: IconType; size?: "sm" | "md" }) {
-  const sizeClass = size === "sm" ? "w-4 h-4" : "w-5 h-5";
-  if (icon.type === "lucide") {
-    const Comp = ICON_MAP[icon.name];
-    if (Comp) {
-      const colorClass = ICON_COLORS[icon.name] || "text-dash-text-muted bg-dash-text-muted/10";
-      return (
-        <div className={cn("rounded-md p-1", colorClass)}>
-          <Comp className={sizeClass} />
-        </div>
-      );
-    }
-  }
-  if (icon.type === "custom") {
-    const Comp = icon.component;
-    return (
-      <div className="rounded-md p-1 bg-dash-text-muted/10">
-        <Comp className={sizeClass} />
-      </div>
-    );
-  }
-  return null;
+  return (
+    <div
+      className="rounded-md p-1 flex items-center justify-center"
+      style={{ color: "#FFFFFF", backgroundColor: "rgba(255,255,255,0.08)" }}
+    >
+      <BrandIcon provider={providerId} size={px} />
+    </div>
+  );
 }
 
 export const ProviderSelector: React.FC<ProviderSelectorProps> = ({
@@ -95,7 +68,7 @@ export const ProviderSelector: React.FC<ProviderSelectorProps> = ({
           key={provider.id}
           onClick={() => handleProviderSelect(provider.id)}
           className={cn(
-            "card-interactive p-2.5 flex flex-col items-center gap-2 text-[11px] font-mono transition-all",
+            "card-interactive p-2.5 flex flex-col items-center gap-1.5 text-[10px] font-mono transition-all relative group",
             selectedProvider === provider.id
               ? "border-dash-accent bg-dash-accent/10 text-dash-accent ring-1 ring-dash-accent"
               : "text-dash-text-muted"
@@ -103,8 +76,21 @@ export const ProviderSelector: React.FC<ProviderSelectorProps> = ({
           aria-pressed={selectedProvider === provider.id}
           aria-label={`Select ${provider.label} provider`}
         >
-          <ProviderIcon icon={provider.icon} />
+          <ProviderIcon providerId={provider.id} />
           <span className="truncate w-full text-center leading-tight">{provider.label}</span>
+          {API_KEY_URLS[provider.id] && (
+            <a
+              href={API_KEY_URLS[provider.id]}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="text-[8px] text-dash-text-muted hover:text-dash-accent flex items-center gap-0.5"
+              title="Get API key"
+            >
+              <ExternalLink className="w-2 h-2" />
+              key
+            </a>
+          )}
         </button>
       ))}
     </div>

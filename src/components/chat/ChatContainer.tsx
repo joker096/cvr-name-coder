@@ -65,6 +65,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
           voiceLanguage={voiceLanguage}
           voiceAutoSend={voiceAutoSend}
           visionEnabled={visionEnabled}
+          t={t}
         />
       </div>
     </div>

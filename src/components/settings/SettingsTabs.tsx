@@ -28,7 +28,7 @@ export const SettingsTabs: React.FC<SettingsTabsProps> = ({
           key={tab.id}
           onClick={() => onTabChange(tab.id)}
           className={cn(
-            "flex-1 py-1.5 text-[11px] uppercase font-bold tracking-widest rounded transition-all",
+            "flex-1 py-1.5 text-[10px] uppercase font-bold tracking-widest rounded transition-all",
             activeTab === tab.id
               ? "bg-dash-accent text-white shadow-lg"
               : "text-dash-text-muted hover:text-white hover:bg-neutral-800/50"

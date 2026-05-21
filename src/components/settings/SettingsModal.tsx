@@ -5,6 +5,7 @@ import { cn } from "../../utils/cn";
 import { SettingsTabs, type SettingsTab } from "./SettingsTabs";
 import { ProviderSelector, type Provider } from "./ProviderSelector";
 import { ModelConfig, type ModelConfig as ModelConfigType } from "./ModelConfig";
+import { PresetManager } from "./PresetManager";
 import { LanguageSelector } from "./LanguageSelector";
 import type { ChatConfig, Preset, AgentId, ChatProviderId } from "../../types/settings";
 import { toChatProviderId } from "../../types/ai";
@@ -66,6 +67,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onToggleVoiceEnabled,
   onChangeVoiceLanguage,
   onToggleVoiceAutoSend,
+  onPresetSave,
+  onPresetApply,
+  onPresetDelete,
+  presets,
   t,
   lang = "en",
   className,
@@ -73,7 +78,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [activeTab, setActiveTab] = useState<SettingsTab>("chat");
   const [localConfig, setLocalConfig] = useState<ChatConfig>(config);
   const [localKernelConfig, setLocalKernelConfig] = useState<ChatConfig>(kernelConfig);
-  const { getModelsForProvider } = useAIProviders();
+  const { getModelsForProvider, fetchRemoteModels, remoteModels, isRefreshingModels } = useAIProviders();
 
   const currentConfig = activeTab === "chat" ? localConfig : localKernelConfig;
   const setCurrentConfig = activeTab === "chat" ? setLocalConfig : setLocalKernelConfig;
@@ -157,25 +162,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 0.95 }}
-          className={cn("bg-dash-bg border border-dash-border rounded-lg shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden", className)}
+          className={cn("bg-dash-bg border border-dash-border rounded-lg shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden", className)}
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="flex items-center justify-between p-4 border-b border-dash-border">
-            <h2 className="text-lg font-bold text-dash-text-primary">{t.settings || "Settings"}</h2>
+          <div className="flex items-center justify-between p-3 border-b border-dash-border">
+            <h2 className="text-sm font-bold text-dash-text-primary">{t.settings || "Settings"}</h2>
             <button onClick={onClose} className="p-1 hover:bg-neutral-800 rounded transition-colors text-dash-text-muted" aria-label="Close">
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4" />
             </button>
           </div>
 
-          <div className="p-4 overflow-y-auto max-h-[calc(90vh-140px)]">
-            <SettingsTabs tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} className="mb-6" />
+          <div className="p-3 overflow-y-auto max-h-[calc(90vh-120px)]">
+            <SettingsTabs tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} className="mb-4" />
 
             <AnimatePresence mode="wait">
               {activeTab === "chat" || activeTab === "kernel" ? (
-                <motion.div key={activeTab} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="space-y-6">
+                <motion.div key={activeTab} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="space-y-4">
                   {/* Provider Selection */}
                   <div>
-                    <h3 className="text-sm font-bold text-dash-text-muted uppercase tracking-widest mb-3">{t.selectProvider || "Select Provider"}</h3>
+                    <h3 className="text-[10px] font-bold text-dash-text-muted uppercase tracking-widest mb-2">{t.selectProvider || "Select Provider"}</h3>
                     <ProviderSelector providers={providers} selectedProvider={currentConfig.aiProvider} onSelectProvider={handleProviderChange} />
                   </div>
 
@@ -184,22 +189,42 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     provider={currentConfig.aiProvider}
                     config={{
                       aiModel: currentConfig.aiModel ?? "",
+                      apiKey: currentConfig.apiKey ?? "",
                       localUrl: currentConfig.localUrl ?? "",
                       localModelName: currentConfig.localModelName ?? "",
                       customUrl: currentConfig.customUrl ?? "",
                     }}
                     models={getModelsForProvider(currentConfig.aiProvider)}
+                    remoteModels={remoteModels}
+                    isRefreshingModels={isRefreshingModels}
+                    onRefreshModels={() => {
+                      const provider = currentConfig.aiProvider;
+                      const key = currentConfig.apiKey;
+                      if (key) fetchRemoteModels(provider, key).catch(() => {});
+                    }}
                     engineType={activeTab === "chat" ? "chat" : "kernel"}
                     onChange={handleModelConfigChange}
                     t={t}
                   />
 
+                  {/* Presets */}
+                  {onPresetSave && onPresetApply && onPresetDelete && (
+                    <PresetManager
+                      presets={presets}
+                      currentConfig={currentConfig}
+                      onSavePreset={onPresetSave}
+                      onApplyPreset={onPresetApply}
+                      onDeletePreset={onPresetDelete}
+                      t={t}
+                    />
+                  )}
+
                   {/* Multi-Model Swapping */}
-                  <div className="space-y-3 pt-4 border-t border-dash-border">
+                  <div className="space-y-2 pt-2.5 border-t border-dash-border">
                     <div className="flex items-center justify-between">
                       <div>
-                        <div className="text-sm font-medium text-dash-text-primary">{t.multiModelSwapping || "Multi-Model Swapping"}</div>
-                        <div className="text-[11px] text-dash-text-muted">{t.multiModelDesc || "Use a cheaper model for thinking/planning, and a powerful model for code generation"}</div>
+                        <div className="text-xs font-medium text-dash-text-primary">{t.multiModelSwapping || "Multi-Model Swapping"}</div>
+                        <div className="text-[9px] text-dash-text-muted">{t.multiModelDesc || "Use a cheaper model for thinking/planning, and a powerful model for code generation"}</div>
                       </div>
                       <button
                         onClick={() => setCurrentConfig((prev) => ({ ...prev, multiModelEnabled: !prev.multiModelEnabled }))}
@@ -219,13 +244,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     {currentConfig.multiModelEnabled && (
                       <div className="space-y-3 pl-2 border-l-2 border-dash-accent/30">
                         <div>
-                          <h3 className="text-xs font-bold text-dash-text-muted uppercase tracking-widest mb-2">{t.thinkingModel || "Thinking Model"}</h3>
+                          <h3 className="text-[10px] font-bold text-dash-text-muted uppercase tracking-widest mb-2">{t.thinkingModel || "Thinking Model"}</h3>
                           <div className="mb-3">
-                            <label className="block text-[11px] font-medium text-dash-text-muted mb-1">Provider</label>
+                            <label className="block text-[9px] font-medium text-dash-text-muted mb-1">Provider</label>
                             <select
                               value={currentConfig.thinkingProvider || "gemini"}
                               onChange={(e) => setCurrentConfig((prev) => ({ ...prev, thinkingProvider: e.target.value as ChatProviderId }))}
-                              className="w-full px-3 py-2 bg-dash-bg border border-dash-border rounded text-dash-text-primary focus:outline-none focus:ring-2 focus:ring-dash-accent text-sm"
+                              className="w-full px-2.5 py-1.5 bg-dash-bg border border-dash-border rounded text-dash-text-primary focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs"
                             >
                               {providers.map((p) => (
                                 <option key={p.id} value={p.id}>{p.label}</option>
@@ -233,16 +258,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             </select>
                           </div>
                           <div>
-                            <label className="block text-[11px] font-medium text-dash-text-muted mb-1">Model</label>
+                            <label className="block text-[9px] font-medium text-dash-text-muted mb-1">Model</label>
                             <input
                               type="text"
                               value={currentConfig.thinkingModel || ""}
                               onChange={(e) => setCurrentConfig((prev) => ({ ...prev, thinkingModel: e.target.value }))}
-                              className="w-full px-3 py-2 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent text-sm"
+                              className="w-full px-2.5 py-1.5 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs"
                               placeholder="gemini-2.0-flash"
                             />
                           </div>
-                          <p className="text-[10px] text-dash-text-muted mt-2 leading-relaxed">
+                          <p className="text-[9px] text-dash-text-muted mt-2 leading-relaxed">
                             {t.thinkingModelDesc || "Used for planning, analysis, summarization and agent decision-making. Choose a fast, cost-effective model (e.g., Gemini Flash, GPT-4o-mini)."}
                           </p>
                         </div>
@@ -251,14 +276,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
 
                   {/* Agent Settings */}
-                  <div className="space-y-3 pt-4 border-t border-dash-border">
-                    <h3 className="text-sm font-bold text-dash-text-muted uppercase tracking-widest">{t.agentSettings || "Agent Settings"}</h3>
+                  <div className="space-y-2 pt-2.5 border-t border-dash-border">
+                    <h3 className="text-[10px] font-bold text-dash-text-muted uppercase tracking-widest">{t.agentSettings || "Agent Settings"}</h3>
                     <div>
-                      <label className="block text-sm font-medium text-dash-text-primary mb-2">{t.activeAgent || "Active Agent"}</label>
+                      <label className="block text-xs font-medium text-dash-text-primary mb-2">{t.activeAgent || "Active Agent"}</label>
                       <select
                         value={currentConfig.agent || "build"}
                         onChange={(e) => handleAgentChange(e.target.value as AgentId)}
-                        className="w-full px-3 py-2 bg-dash-bg border border-dash-border rounded text-dash-text-primary focus:outline-none focus:ring-2 focus:ring-dash-accent text-sm"
+                        className="w-full px-2.5 py-1.5 bg-dash-bg border border-dash-border rounded text-dash-text-primary focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs"
                       >
                         {AGENT_OPTIONS.map((opt) => (
                           <option key={opt.id} value={opt.id}>{opt.label}</option>
@@ -268,12 +293,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
 
                   {/* Generation Parameters */}
-                  <div className="space-y-3 pt-4 border-t border-dash-border">
-                    <h3 className="text-sm font-bold text-dash-text-muted uppercase tracking-widest">{t.generationParams || "Generation Parameters"}</h3>
+                  <div className="space-y-2 pt-2.5 border-t border-dash-border">
+                    <h3 className="text-[10px] font-bold text-dash-text-muted uppercase tracking-widest">{t.generationParams || "Generation Parameters"}</h3>
                     <div>
                       <div className="flex items-center justify-between mb-2">
-                        <label className="text-sm font-medium text-dash-text-primary">{t.temperature || "Temperature"}</label>
-                        <span className="text-[11px] font-mono text-dash-accent">{currentConfig.temperature ?? 0.7}</span>
+                        <label className="text-xs font-medium text-dash-text-primary">{t.temperature || "Temperature"}</label>
+                        <span className="text-[9px] font-mono text-dash-accent">{currentConfig.temperature ?? 0.7}</span>
                       </div>
                       <input
                         type="range"
@@ -284,14 +309,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         onChange={(e) => handleTemperatureChange(parseFloat(e.target.value))}
                         className="w-full accent-dash-accent"
                       />
-                      <div className="flex justify-between text-[9px] text-dash-text-muted mt-1">
+                      <div className="flex justify-between text-[8px] text-dash-text-muted mt-1">
                         <span>Precise (0)</span>
                         <span>Balanced (0.7)</span>
                         <span>Creative (2)</span>
                       </div>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-dash-text-primary mb-2">{t.maxTokens || "Max Tokens"}</label>
+                      <label className="block text-xs font-medium text-dash-text-primary mb-2">{t.maxTokens || "Max Tokens"}</label>
                       <input
                         type="number"
                         min={256}
@@ -299,18 +324,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         step={256}
                         value={currentConfig.maxTokens ?? 4096}
                         onChange={(e) => handleMaxTokensChange(parseInt(e.target.value))}
-                        className="w-full px-3 py-2 bg-dash-bg border border-dash-border rounded text-dash-text-primary focus:outline-none focus:ring-2 focus:ring-dash-accent text-sm"
+                        className="w-full px-2.5 py-1.5 bg-dash-bg border border-dash-border rounded text-dash-text-primary focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs"
                       />
                     </div>
                   </div>
 
                   {/* Vision Settings */}
-                  <div className="space-y-3 pt-4 border-t border-dash-border">
-                    <h3 className="text-sm font-bold text-dash-text-muted uppercase tracking-widest">{t.visionSettings || "Vision Settings"}</h3>
+                  <div className="space-y-2 pt-2.5 border-t border-dash-border">
+                    <h3 className="text-[10px] font-bold text-dash-text-muted uppercase tracking-widest">{t.visionSettings || "Vision Settings"}</h3>
                     <div className="flex items-center justify-between">
                       <div>
-                        <div className="text-sm font-medium text-dash-text-primary">{t.visionEnabled || "Enable Vision"}</div>
-                        <div className="text-[11px] text-dash-text-muted">{t.visionEnabledDesc || "Allow image upload and vision model usage"}</div>
+                        <div className="text-xs font-medium text-dash-text-primary">{t.visionEnabled || "Enable Vision"}</div>
+                        <div className="text-[9px] text-dash-text-muted">{t.visionEnabledDesc || "Allow image upload and vision model usage"}</div>
                       </div>
                       <button
                         onClick={handleVisionToggle}
@@ -330,8 +355,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     {currentConfig.visionEnabled && (
                       <div>
                         <div className="flex items-center justify-between mb-2">
-                          <label className="text-sm font-medium text-dash-text-primary">{t.maxImageSize || "Max Image Size"}</label>
-                          <span className="text-[11px] font-mono text-dash-accent">{currentConfig.maxImageSize ?? 1024}px</span>
+                          <label className="text-xs font-medium text-dash-text-primary">{t.maxImageSize || "Max Image Size"}</label>
+                          <span className="text-[9px] font-mono text-dash-accent">{currentConfig.maxImageSize ?? 1024}px</span>
                         </div>
                         <input
                           type="range"
@@ -342,7 +367,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           onChange={(e) => handleMaxImageSizeChange(parseInt(e.target.value))}
                           className="w-full accent-dash-accent"
                         />
-                        <div className="flex justify-between text-[9px] text-dash-text-muted mt-1">
+                        <div className="flex justify-between text-[8px] text-dash-text-muted mt-1">
                           <span>Small (512px)</span>
                           <span>Medium (1024px)</span>
                           <span>Large (2048px)</span>
@@ -352,34 +377,34 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
 
                   {/* System Prompt */}
-                  <div className="space-y-3 pt-4 border-t border-dash-border">
-                    <h3 className="text-sm font-bold text-dash-text-muted uppercase tracking-widest">{t.systemPrompt || "System Prompt / Persona"}</h3>
+                  <div className="space-y-2 pt-2.5 border-t border-dash-border">
+                    <h3 className="text-[10px] font-bold text-dash-text-muted uppercase tracking-widest">{t.systemPrompt || "System Prompt / Persona"}</h3>
                     <textarea
                       value={currentConfig.systemPrompt || ""}
                       onChange={(e) => handleSystemPromptChange(e.target.value)}
                       rows={4}
-                      className="w-full px-3 py-2 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent text-sm resize-none"
+                      className="w-full px-2.5 py-1.5 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs resize-none"
                       placeholder={t.systemPromptPlaceholder || "Enter a custom system prompt to define AI behavior and persona..."}
                     />
                   </div>
                 </motion.div>
               ) : activeTab === "mcp" ? (
-                <motion.div key="mcp" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="space-y-6">
+                <motion.div key="mcp" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="space-y-4">
                   <div>
-                    <h3 className="text-sm font-bold text-dash-text-muted uppercase tracking-widest mb-3">MCP Tools</h3>
-                    <p className="text-sm text-dash-text-muted">MCP (Model Context Protocol) tools allow the AI to interact with external services and APIs.</p>
+                    <h3 className="text-[10px] font-bold text-dash-text-muted uppercase tracking-widest mb-2">{t.mcpTools || "MCP Tools"}</h3>
+                    <p className="text-xs text-dash-text-muted">MCP (Model Context Protocol) tools allow the AI to interact with external services and APIs.</p>
                   </div>
                 </motion.div>
               ) : null}
             </AnimatePresence>
 
             {/* Global Settings */}
-            <div className="mt-6 pt-4 border-t border-dash-border space-y-4">
-              <h3 className="text-sm font-bold text-dash-text-muted uppercase tracking-widest">{t.globalSettings || "Global Settings"}</h3>
+            <div className="mt-4 pt-3 border-t border-dash-border space-y-3">
+              <h3 className="text-[10px] font-bold text-dash-text-muted uppercase tracking-widest">{t.globalSettings || "Global Settings"}</h3>
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="text-sm font-medium text-dash-text-primary">{t.autonomousMode || "Autonomous Mode"}</div>
-                  <div className="text-[11px] text-dash-text-muted">{t.autonomousDesc || "Allow AI to trigger itself for multi-step tasks"}</div>
+                  <div className="text-xs font-medium text-dash-text-primary">{t.autonomousMode || "Autonomous Mode"}</div>
+                  <div className="text-[9px] text-dash-text-muted">{t.autonomousDesc || "Allow AI to trigger itself for multi-step tasks"}</div>
                 </div>
                 <button
                   onClick={onToggleAutonomous}
@@ -398,8 +423,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="text-sm font-medium text-dash-text-primary">{t.autoCommit || "Auto-Commit"}</div>
-                  <div className="text-[11px] text-dash-text-muted">{t.autoCommitDesc || "Automatically commit changes after successful agent loop"}</div>
+                  <div className="text-xs font-medium text-dash-text-primary">{t.autoCommit || "Auto-Commit"}</div>
+                  <div className="text-[9px] text-dash-text-muted">{t.autoCommitDesc || "Automatically commit changes after successful agent loop"}</div>
                 </div>
                 <button
                   onClick={onToggleAutoCommit}
@@ -419,10 +444,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <div>
-                    <div className="text-sm font-medium text-dash-text-primary">{t.autoLoopDelay || "Auto-Loop Delay"}</div>
-                    <div className="text-[11px] text-dash-text-muted">{t.autoLoopDelayDesc || "Delay between autonomous iterations (ms)"}</div>
+                    <div className="text-xs font-medium text-dash-text-primary">{t.autoLoopDelay || "Auto-Loop Delay"}</div>
+                    <div className="text-[9px] text-dash-text-muted">{t.autoLoopDelayDesc || "Delay between autonomous iterations (ms)"}</div>
                   </div>
-                  <span className="text-[11px] font-mono text-dash-accent">{autoLoopDelay}ms</span>
+                  <span className="text-[9px] font-mono text-dash-accent">{autoLoopDelay}ms</span>
                 </div>
                 <input
                   type="range"
@@ -433,7 +458,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   onChange={(e) => onChangeAutoLoopDelay?.(parseInt(e.target.value))}
                   className="w-full accent-dash-accent"
                 />
-                <div className="flex justify-between text-[9px] text-dash-text-muted mt-1">
+                <div className="flex justify-between text-[8px] text-dash-text-muted mt-1">
                   <span>Fast (500ms)</span>
                   <span>Normal (2000ms)</span>
                   <span>Slow (10s)</span>
@@ -441,12 +466,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
 
               {/* Voice Input Settings */}
-              <div className="pt-4 border-t border-dash-border space-y-4">
-                <h3 className="text-sm font-bold text-dash-text-muted uppercase tracking-widest">{t.voiceSettings || "Voice Input"}</h3>
+              <div className="pt-2.5 border-t border-dash-border space-y-3">
+                <h3 className="text-[10px] font-bold text-dash-text-muted uppercase tracking-widest">{t.voiceSettings || "Voice Input"}</h3>
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="text-sm font-medium text-dash-text-primary">{t.voiceEnabled || "Enable Voice Input"}</div>
-                    <div className="text-[11px] text-dash-text-muted">{t.voiceEnabledDesc || "Show microphone button in chat input"}</div>
+                    <div className="text-xs font-medium text-dash-text-primary">{t.voiceEnabled || "Enable Voice Input"}</div>
+                    <div className="text-[9px] text-dash-text-muted">{t.voiceEnabledDesc || "Show microphone button in chat input"}</div>
                   </div>
                   <button
                     onClick={onToggleVoiceEnabled}
@@ -464,13 +489,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </button>
                 </div>
                 {voiceEnabled && (
-                  <div className="space-y-4">
+                  <div className="space-y-3">
                     <div>
-                      <label className="block text-sm font-medium text-dash-text-primary mb-2">{t.voiceLanguage || "Speech Recognition Language"}</label>
+                      <label className="block text-xs font-medium text-dash-text-primary mb-2">{t.voiceLanguage || "Speech Recognition Language"}</label>
                       <select
                         value={voiceLanguage}
                         onChange={(e) => onChangeVoiceLanguage?.(e.target.value)}
-                        className="w-full px-3 py-2 bg-dash-bg border border-dash-border rounded text-dash-text-primary focus:outline-none focus:ring-2 focus:ring-dash-accent text-sm"
+                        className="w-full px-2.5 py-1.5 bg-dash-bg border border-dash-border rounded text-dash-text-primary focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs"
                       >
                         <option value="en-US">English (US)</option>
                         <option value="en-GB">English (UK)</option>
@@ -493,8 +518,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </div>
                     <div className="flex items-center justify-between">
                       <div>
-                        <div className="text-sm font-medium text-dash-text-primary">{t.voiceAutoSend || "Auto-Send After Silence"}</div>
-                        <div className="text-[11px] text-dash-text-muted">{t.voiceAutoSendDesc || "Automatically send message after detecting silence"}</div>
+                        <div className="text-xs font-medium text-dash-text-primary">{t.voiceAutoSend || "Auto-Send After Silence"}</div>
+                        <div className="text-[9px] text-dash-text-muted">{t.voiceAutoSendDesc || "Automatically send message after detecting silence"}</div>
                       </div>
                       <button
                         onClick={onToggleVoiceAutoSend}
@@ -517,13 +542,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center justify-between p-4 border-t border-dash-border">
+          <div className="flex items-center justify-between p-3 border-t border-dash-border">
             <div className="flex items-center gap-4">
               <LanguageSelector currentLang={lang} onLanguageChange={onLanguageChange ?? (() => {})} t={t} />
             </div>
             <div className="flex items-center gap-2">
-              <button onClick={onClose} className="px-4 py-2 text-sm text-dash-text-muted hover:text-dash-text-primary transition-colors">{t.cancel || "Cancel"}</button>
-              <button onClick={handleSave} className="px-4 py-2 text-sm bg-dash-accent text-white rounded hover:bg-dash-accent/90 transition-colors">{t.save || "Save"}</button>
+              <button onClick={onClose} className="px-3 py-1.5 text-xs text-dash-text-muted hover:text-dash-text-primary transition-colors">{t.cancel || "Cancel"}</button>
+              <button onClick={handleSave} className="px-3 py-1.5 text-xs bg-dash-accent text-white rounded hover:bg-dash-accent/90 transition-colors">{t.save || "Save"}</button>
             </div>
           </div>
         </motion.div>

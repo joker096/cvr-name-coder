@@ -1,4 +1,4 @@
-import { readdir, readFile, access } from "fs/promises";
+import { readdir, readFile, access, writeFile, unlink, mkdir } from "fs/promises";
 import * as path from "path";
 
 const RULES_DIR = path.resolve(process.cwd(), ".cvr", "rules");
@@ -55,4 +55,20 @@ export async function getInstructionsContext(): Promise<string> {
 
   const parts = instructions.map((f) => `## ${f.name}\n${f.content}`);
   return `## USER RULES\n${parts.join("\n\n")}`;
+}
+
+export async function saveInstruction(name: string, content: string, priority: number = 0): Promise<void> {
+  try { await access(_rulesDir); } catch { await mkdir(_rulesDir, { recursive: true }); }
+  const frontmatter = `---\npriority: ${priority}\n---\n`;
+  const filePath = path.join(_rulesDir, `${name}.md`);
+  await writeFile(filePath, frontmatter + content, "utf-8");
+}
+
+export async function deleteInstruction(name: string): Promise<void> {
+  try {
+    const filePath = path.join(_rulesDir, `${name}.md`);
+    await unlink(filePath);
+  } catch {
+    // File may not exist
+  }
 }

@@ -2,6 +2,16 @@
 
 Run an **autonomous AI coding agent** directly inside VS Code. Fully self-contained, works offline with local models, streams responses in real time, and integrates with your workspace.
 
+
+Скрипт готов: release.ps1
+Использование:
+.\release.ps1 "твоё сообщение коммита"
+Что делает:
+1. npm run type-check — проверка типов
+2. npm run build — сборка основного проекта
+3. npm run package:vscode — сборка и bump версии .vsix
+4. git add . + git commit + git push (пропускается, если нет изменений)
+5. Выводит хеш коммита и путь к .vsix
 ---
 
 ## What It Does
@@ -33,9 +43,6 @@ Run an **autonomous AI coding agent** directly inside VS Code. Fully self-contai
 
 1. Build the extension (or use pre-built `.vsix`):
    ```bash
-   cd vscode
-   
-   npm run build
    npx @vscode/vsce package
    ```
 

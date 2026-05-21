@@ -174,7 +174,7 @@ describe("SettingsModal", () => {
     const mcpTab = screen.getByText("MCP");
     fireEvent.click(mcpTab);
 
-    expect(screen.getByText("MCP settings coming soon")).toBeInTheDocument();
+    expect(screen.getByText("MCP Tools")).toBeInTheDocument();
   });
 
   it("should apply custom className", () => {
