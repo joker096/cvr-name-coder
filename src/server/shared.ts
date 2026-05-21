@@ -37,7 +37,7 @@ export function getProviderDefaults(provider: string): { baseUrl: string; defaul
     together: { baseUrl: 'https://api.together.xyz/v1', defaultModel: 'meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8', envKey: 'TOGETHER_API_KEY' },
     mistral: { baseUrl: 'https://api.mistral.ai/v1', defaultModel: 'mistral-large-latest', envKey: 'MISTRAL_API_KEY' },
     anthropic: { baseUrl: 'https://api.anthropic.com/v1', defaultModel: 'claude-sonnet-4-20250514', envKey: 'ANTHROPIC_API_KEY' },
-    gemini: { baseUrl: '', defaultModel: 'gemini-2.5-flash-preview-05-20', envKey: 'GEMINI_API_KEY' },
+    gemini: { baseUrl: '', defaultModel: 'gemini-2.5-flash', envKey: 'GEMINI_API_KEY' },
   };
 
   return defaults[provider] || { baseUrl: '', defaultModel: 'model', envKey: '' };

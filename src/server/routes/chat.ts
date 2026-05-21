@@ -16,6 +16,7 @@ interface ChatConfig {
   aiModel?: string;
   localModelName?: string;
   apiKey?: string;
+  providerKeys?: Record<string, string>;
   temperature?: number;
   maxTokens?: number;
   systemPrompt?: string;
@@ -43,7 +44,8 @@ function buildDualConfig(cfg: ChatConfig): DualModelConfig {
   if (cfg.multiModelEnabled && cfg.thinkingProvider !== undefined) result.thinkingProvider = cfg.thinkingProvider;
   if (cfg.multiModelEnabled && cfg.thinkingModel !== undefined) result.thinkingModel = cfg.thinkingModel;
   if (cfg.thinkingLocalUrl !== undefined) result.thinkingLocalUrl = cfg.thinkingLocalUrl;
-  if (cfg.apiKey !== undefined) result.apiKey = cfg.apiKey;
+  const providerKey = cfg.providerKeys?.[cfg.aiProvider || "gemini"] || cfg.apiKey;
+  if (providerKey !== undefined) result.apiKey = providerKey;
   if (cfg.temperature !== undefined) result.temperature = cfg.temperature;
   if (cfg.maxTokens !== undefined) result.maxTokens = cfg.maxTokens;
   return result;

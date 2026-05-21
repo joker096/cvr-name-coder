@@ -40,19 +40,25 @@ export abstract class AIProvider {
 }
 
 class GeminiProvider extends AIProvider {
-  private client: GoogleGenAI;
+  private cachedClient: GoogleGenAI | null = null;
+  private cachedKey: string | undefined = undefined;
 
-  constructor() {
-    super();
-    this.client = new GoogleGenAI({
-      apiKey: process.env.GEMINI_API_KEY!,
-    });
+  private getClient(apiKey?: string): GoogleGenAI {
+    const key = this.resolveApiKey("GEMINI_API_KEY", apiKey);
+    if (!apiKey && this.cachedClient && this.cachedKey === key) return this.cachedClient;
+    const client = new GoogleGenAI({ apiKey: key });
+    if (!apiKey) {
+      this.cachedClient = client;
+      this.cachedKey = key;
+    }
+    return client;
   }
 
   async generate(options: AIGenerateOptions): Promise<AIResponse> {
-    const { prompt, contents, modelName } = options;
+    const { prompt, contents, modelName, apiKey } = options;
+    const client = this.getClient(apiKey);
     const model = modelName || PROVIDER_DEFAULT_MODELS.gemini;
-    const result = await this.client.models.generateContent({
+    const result = await client.models.generateContent({
       model: model as string,
       contents: [
         { role: "user", parts: [{ text: prompt }] },
@@ -68,7 +74,8 @@ class GeminiProvider extends AIProvider {
   }
 
   async embed(texts: string[]): Promise<number[][]> {
-    const result = await this.client.models.embedContent({
+    const client = this.getClient();
+    const result = await client.models.embedContent({
       model: "text-embedding-004",
       contents: texts.map((t) => ({ role: "user", parts: [{ text: t }] })),
     });
@@ -183,7 +190,7 @@ class AnthropicProvider extends AIProvider {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: modelName || "claude-3-5-sonnet-20240620",
+        model: modelName || "claude-sonnet-4-20250514",
         max_tokens: maxTokens || 4096,
         system: prompt,
         messages: contents.map((c) => {

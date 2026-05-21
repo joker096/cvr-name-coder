@@ -7,6 +7,7 @@ interface SettingsFooterProps {
   lang: string;
   onLanguageChange: (lang: string) => void;
   t: Record<string, string>;
+  isSaving?: boolean;
 }
 
 export const SettingsFooter: React.FC<SettingsFooterProps> = ({
@@ -15,6 +16,7 @@ export const SettingsFooter: React.FC<SettingsFooterProps> = ({
   lang,
   onLanguageChange,
   t,
+  isSaving,
 }) => (
   <div className="flex items-center justify-between p-3 border-t border-dash-border">
     <div className="flex items-center gap-4">
@@ -23,15 +25,17 @@ export const SettingsFooter: React.FC<SettingsFooterProps> = ({
     <div className="flex items-center gap-2">
       <button
         onClick={onClose}
-        className="px-3 py-1.5 text-xs text-dash-text-muted hover:text-dash-text-primary transition-colors"
+        disabled={isSaving}
+        className="px-3 py-1.5 text-xs text-dash-text-muted hover:text-dash-text-primary transition-colors disabled:text-dash-text-muted/50"
       >
         {t.cancel || "Cancel"}
       </button>
       <button
         onClick={onSave}
-        className="px-3 py-1.5 text-xs bg-dash-accent text-white rounded hover:bg-dash-accent/90 transition-colors"
+        disabled={isSaving}
+        className="px-3 py-1.5 text-xs bg-dash-accent text-white rounded hover:bg-dash-accent/90 transition-colors disabled:opacity-50"
       >
-        {t.save || "Save"}
+        {isSaving ? "Validating..." : t.save || "Save"}
       </button>
     </div>
   </div>

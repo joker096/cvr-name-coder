@@ -7,10 +7,17 @@ import type { AIModel } from "../../types/ai";
 export interface ModelConfig {
   aiModel?: string;
   apiKey?: string;
+  providerKeys?: Record<string, string>;
   baseUrl?: string;
   localUrl?: string;
   localModelName?: string;
   customUrl?: string;
+}
+
+export interface KeyValidationResult {
+  provider: string;
+  valid: boolean;
+  error?: string;
 }
 
 interface ModelConfigProps {
@@ -22,6 +29,9 @@ interface ModelConfigProps {
   onRefreshModels?: () => void;
   isRefreshingModels?: boolean;
   remoteModels?: AIModel[];
+  keyValidation?: KeyValidationResult | null;
+  isValidating?: boolean;
+  onVerifyKey?: () => void;
   t: any;
   className?: string;
 }
@@ -35,6 +45,9 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
   onRefreshModels,
   isRefreshingModels = false,
   remoteModels = [],
+  keyValidation,
+  isValidating,
+  onVerifyKey,
   t,
   className,
 }) => {
@@ -72,8 +85,13 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
   };
 
   const handleApiKeyChange = useCallback((value: string) => {
-    onChange({ apiKey: value });
-  }, [onChange]);
+    onChange({
+      apiKey: value,
+      providerKeys: { ...config.providerKeys, [provider]: value },
+    });
+  }, [onChange, config.providerKeys, provider]);
+  
+  const currentApiKey = config.providerKeys?.[provider] ?? config.apiKey ?? "";
 
   return (
     <div className={cn("space-y-4", className)}>
@@ -90,27 +108,61 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
           <label className="flex items-center gap-1.5 text-xs font-medium text-dash-text-primary mb-2">
             <KeyRound className="w-3.5 h-3.5" />
             {t.apiKeyLabel || "API Key"}
+            {keyValidation && (
+              <span className={`text-[11px] font-bold ${keyValidation.valid ? 'text-green-400' : 'text-red-400'}`}>
+                {keyValidation.valid ? '✓' : '✗'}
+              </span>
+            )}
           </label>
           <div className="relative">
             <input
               type={showApiKey ? "text" : "password"}
-              value={config.apiKey || ""}
+              value={currentApiKey}
               onChange={(e) => handleApiKeyChange(e.target.value)}
-              className="w-full px-2.5 py-1.5 pr-10 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs"
+              className={cn(
+                "w-full px-2.5 py-1.5 bg-dash-bg border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs",
+                keyValidation && !keyValidation.valid && "border-red-500/50 focus:ring-red-500/30",
+                keyValidation && keyValidation.valid && "border-green-500/50 focus:ring-green-500/30",
+                !keyValidation && "border-dash-border",
+              )}
               placeholder={t.apiKeyPlaceholder || "Enter API key or leave empty to use env var"}
             />
+            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+              {isValidating && (
+                <span className="w-3 h-3 border border-dash-accent/50 border-t-dash-accent rounded-full animate-spin" />
+              )}
+              {keyValidation && !isValidating && (
+                <span className={cn("text-xs font-bold", keyValidation.valid ? "text-green-400" : "text-red-400")}>
+                  {keyValidation.valid ? "✓" : "✗"}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => setShowApiKey(!showApiKey)}
+                className="text-dash-text-muted hover:text-dash-text-primary text-xs"
+                tabIndex={-1}
+              >
+                {showApiKey ? (t.apiKeyHide || "HIDE") : (t.apiKeyShow || "SHOW")}
+              </button>
+            </div>
+          </div>
+          {onVerifyKey && currentApiKey && !isValidating && !keyValidation && (
             <button
               type="button"
-              onClick={() => setShowApiKey(!showApiKey)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-dash-text-muted hover:text-dash-text-primary text-xs"
-              tabIndex={-1}
+              onClick={onVerifyKey}
+              className="mt-1.5 text-[10px] text-dash-accent hover:text-dash-accent/80 transition-colors"
             >
-              {showApiKey ? (t.apiKeyHide || "HIDE") : (t.apiKeyShow || "SHOW")}
+              Verify key →
             </button>
-          </div>
-          <p className="text-[10px] text-dash-text-muted mt-1 leading-relaxed">
-            {t.apiKeyStored?.replace("{provider}", provider.toUpperCase()) || `Stored in browser localStorage. Overrides ${provider.toUpperCase()}_API_KEY env var if set.`}
-          </p>
+          )}
+          {keyValidation && !keyValidation.valid && (
+            <p className="text-[10px] text-red-400 mt-1">{keyValidation.error || "Invalid key"}</p>
+          )}
+          {!keyValidation && (
+            <p className="text-[10px] text-dash-text-muted mt-1 leading-relaxed">
+              {t.apiKeyStored?.replace("{provider}", provider.toUpperCase()) || `Stored in browser localStorage. Overrides ${provider.toUpperCase()}_API_KEY env var if set.`}
+            </p>
+          )}
         </div>
       )}
 
@@ -154,7 +206,7 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
             <div className="relative">
               <input
                 type={showApiKey ? "text" : "password"}
-                value={config.apiKey || ""}
+              value={currentApiKey}
                 onChange={(e) => handleApiKeyChange(e.target.value)}
                 className="w-full px-2.5 py-1.5 pr-10 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs"
                 placeholder="CUSTOM_API_KEY or enter here"

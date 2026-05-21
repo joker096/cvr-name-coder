@@ -27,7 +27,7 @@ export const HOST = "127.0.0.1";
 export const BROWSER_VIEWPORT = { width: 1280, height: 720 };
 
 export const PROVIDER_DEFAULT_MODELS: Record<string, string> = {
-  gemini: "gemini-2.5-flash-preview-05-20",
+  gemini: "gemini-2.5-flash",
   openai: "gpt-4.1",
   anthropic: "claude-sonnet-4-20250514",
   deepseek: "deepseek-chat",

@@ -8,7 +8,7 @@ import { AIEngineTab } from "./AIEngineTab";
 import { GlobalSettingsSection } from "./GlobalSettingsSection";
 import { VoiceSettingsSection } from "./VoiceSettingsSection";
 import type { Provider } from "./ProviderSelector";
-import type { ModelConfig as ModelConfigType } from "./ModelConfig";
+import type { ModelConfig as ModelConfigType, KeyValidationResult } from "./ModelConfig";
 import type { ChatConfig, Preset, AgentId } from "../../types/settings";
 import { toChatProviderId } from "../../types/ai";
 import { useAIProviders } from "../../hooks/useAIProviders";
@@ -93,11 +93,45 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [localConfig, setLocalConfig] = useState<ChatConfig>(config);
   const [localKernelConfig, setLocalKernelConfig] = useState<ChatConfig>(kernelConfig);
   const { getModelsForProvider, fetchRemoteModels, remoteModels, isRefreshingModels } = useAIProviders();
+  const [keyValidations, setKeyValidations] = useState<KeyValidationResult[]>([]);
+  const [isValidating, setIsValidating] = useState(false);
 
   const currentConfig = activeTab === "chat" ? localConfig : localKernelConfig;
   const setCurrentConfig = activeTab === "chat" ? setLocalConfig : setLocalKernelConfig;
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    const configs = [
+      { cfg: localConfig, label: "chat" },
+      { cfg: localKernelConfig, label: "kernel" }
+    ];
+
+    const results: KeyValidationResult[] = [];
+    setIsValidating(true);
+
+    for (const { cfg } of configs) {
+      const provider = cfg.aiProvider;
+      if (!provider || provider === "local" || provider === "custom") continue;
+      const key = (cfg.providerKeys?.[provider] || cfg.apiKey || "").trim();
+      if (!key) continue;
+      try {
+        const r = await fetch("/api/validate-key", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ provider, apiKey: key }),
+        });
+        const data = await r.json();
+        results.push({ provider, valid: data.valid, error: data.error || data.warning });
+      } catch {
+        results.push({ provider, valid: false, error: "Validation failed" });
+      }
+    }
+
+    setIsValidating(false);
+    setKeyValidations(results);
+
+    const hasInvalid = results.some(r => !r.valid);
+    if (hasInvalid) return;
+
     onSave(localConfig, localKernelConfig);
     onClose();
   };
@@ -107,13 +141,39 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const handleModelConfigChange = (modelConfig: Partial<ModelConfigType>) => {
-    setCurrentConfig((prev) => ({ ...prev, ...modelConfig }));
+    setCurrentConfig((prev) => {
+      const next = { ...prev, ...modelConfig };
+      if (modelConfig.providerKeys) {
+        next.providerKeys = { ...prev.providerKeys, ...modelConfig.providerKeys };
+      }
+      return next;
+    });
+    if (modelConfig.apiKey !== undefined) setKeyValidations([]);
   };
 
   const handleFetchRemoteModels = () => {
     const provider = currentConfig.aiProvider;
-    const key = currentConfig.apiKey;
+    const key = currentConfig.providerKeys?.[provider] || currentConfig.apiKey;
     if (key) fetchRemoteModels(provider, key).catch(() => {});
+  };
+
+  const handleVerifyKey = async () => {
+    const provider = currentConfig.aiProvider;
+    const key = (currentConfig.providerKeys?.[provider] || currentConfig.apiKey || "").trim();
+    if (!key || !provider || provider === "local" || provider === "custom") return;
+    setIsValidating(true);
+    try {
+      const r = await fetch("/api/validate-key", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider, apiKey: key }),
+      });
+      const data = await r.json();
+      setKeyValidations([{ provider, valid: data.valid, error: data.error || data.warning }]);
+    } catch {
+      setKeyValidations([{ provider, valid: false, error: "Validation failed" }]);
+    }
+    setIsValidating(false);
   };
 
   const tabs = TABS.map((tab) => ({
@@ -172,6 +232,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     onThinkingProviderChange={(providerId) => setCurrentConfig((prev) => ({ ...prev, thinkingProvider: providerId }))}
                     onThinkingModelChange={(model) => setCurrentConfig((prev) => ({ ...prev, thinkingModel: model }))}
                     onFetchRemoteModels={handleFetchRemoteModels}
+                    onVerifyKey={handleVerifyKey}
+                    keyValidation={keyValidations.find(kv => kv.provider === currentConfig.aiProvider) || null}
+                    isValidating={isValidating}
                     onPresetSave={onPresetSave}
                     onPresetApply={onPresetApply}
                     onPresetDelete={onPresetDelete}
@@ -224,6 +287,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <SettingsFooter
             onClose={onClose}
             onSave={handleSave}
+            isSaving={isValidating}
             lang={lang}
             onLanguageChange={onLanguageChange ?? (() => {})}
             t={t as Record<string, string>}

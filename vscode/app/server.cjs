@@ -4695,7 +4695,7 @@ var import_genai = require("@google/genai");
 var TIMEOUT_PERMISSION = 5 * 60 * 1e3;
 var RATE_LIMIT_WINDOW_MS = 1 * 60 * 1e3;
 var PROVIDER_DEFAULT_MODELS = {
-  gemini: "gemini-2.5-flash-preview-05-20",
+  gemini: "gemini-2.5-flash",
   openai: "gpt-4.1",
   anthropic: "claude-sonnet-4-20250514",
   deepseek: "deepseek-chat",
@@ -4785,17 +4785,24 @@ var AIProvider = class {
   }
 };
 var GeminiProvider = class extends AIProvider {
-  client;
-  constructor() {
-    super();
-    this.client = new import_genai.GoogleGenAI({
-      apiKey: process.env.GEMINI_API_KEY
-    });
+  cachedClient = null;
+  cachedKey = void 0;
+  getClient(apiKey) {
+    const key = this.resolveApiKey("GEMINI_API_KEY", apiKey);
+    if (!apiKey && this.cachedClient && this.cachedKey === key)
+      return this.cachedClient;
+    const client = new import_genai.GoogleGenAI({ apiKey: key });
+    if (!apiKey) {
+      this.cachedClient = client;
+      this.cachedKey = key;
+    }
+    return client;
   }
   async generate(options) {
-    const { prompt, contents, modelName } = options;
+    const { prompt, contents, modelName, apiKey } = options;
+    const client = this.getClient(apiKey);
     const model = modelName || PROVIDER_DEFAULT_MODELS.gemini;
-    const result = await this.client.models.generateContent({
+    const result = await client.models.generateContent({
       model,
       contents: [
         { role: "user", parts: [{ text: prompt }] },
@@ -4810,7 +4817,8 @@ var GeminiProvider = class extends AIProvider {
     };
   }
   async embed(texts) {
-    const result = await this.client.models.embedContent({
+    const client = this.getClient();
+    const result = await client.models.embedContent({
       model: "text-embedding-004",
       contents: texts.map((t) => ({ role: "user", parts: [{ text: t }] }))
     });
@@ -4910,7 +4918,7 @@ var AnthropicProvider = class extends AIProvider {
         "anthropic-version": "2023-06-01"
       },
       body: JSON.stringify({
-        model: modelName || "claude-3-5-sonnet-20240620",
+        model: modelName || "claude-sonnet-4-20250514",
         max_tokens: maxTokens || 4096,
         system: prompt,
         messages: contents.map((c) => {
@@ -5944,8 +5952,9 @@ function buildDualConfig(cfg) {
     result.thinkingModel = cfg.thinkingModel;
   if (cfg.thinkingLocalUrl !== void 0)
     result.thinkingLocalUrl = cfg.thinkingLocalUrl;
-  if (cfg.apiKey !== void 0)
-    result.apiKey = cfg.apiKey;
+  const providerKey = cfg.providerKeys?.[cfg.aiProvider || "gemini"] || cfg.apiKey;
+  if (providerKey !== void 0)
+    result.apiKey = providerKey;
   if (cfg.temperature !== void 0)
     result.temperature = cfg.temperature;
   if (cfg.maxTokens !== void 0)
@@ -8053,6 +8062,77 @@ var PORT = 3e3;
 app.use(import_express.default.json());
 setupHealthRoute(app);
 setupSecurityMiddleware(app);
+app.get("/api/settings", (_req, res) => {
+  try {
+    const settingsPath = path23.join(process.cwd(), ".opencode-infinite", "settings.json");
+    if ((0, import_fs.existsSync)(settingsPath)) {
+      const data = JSON.parse((0, import_fs.readFileSync)(settingsPath, "utf-8"));
+      res.json(data);
+    } else {
+      res.json({});
+    }
+  } catch {
+    res.json({});
+  }
+});
+app.post("/api/settings", (req, res) => {
+  try {
+    const settingsPath = path23.join(process.cwd(), ".opencode-infinite", "settings.json");
+    const dir = path23.dirname(settingsPath);
+    if (!(0, import_fs.existsSync)(dir)) (0, import_fs.mkdirSync)(dir, { recursive: true });
+    (0, import_fs.writeFileSync)(settingsPath, JSON.stringify(req.body, null, 2));
+    res.json({ saved: true });
+  } catch (e) {
+    res.status(500).json({ error: "Failed to save settings" });
+  }
+});
+var PROVIDER_VALIDATION_URLS = {
+  openai: "https://api.openai.com/v1/models",
+  deepseek: "https://api.deepseek.com/v1/models",
+  grok: "https://api.x.ai/v1/models",
+  groq: "https://api.groq.com/openai/v1/models",
+  baseten: "https://api.baseten.co/v1/models",
+  openrouter: "https://openrouter.ai/api/v1/models",
+  together: "https://api.together.xyz/v1/models",
+  mistral: "https://api.mistral.ai/v1/models"
+};
+app.post("/api/validate-key", async (req, res) => {
+  const { provider, apiKey } = req.body;
+  if (!provider || !apiKey) {
+    return res.status(400).json({ valid: false, error: "provider and apiKey required" });
+  }
+  try {
+    if (provider === "gemini") {
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`);
+      if (r.ok) return res.json({ valid: true });
+      const d = await r.json().catch(() => ({}));
+      return res.json({ valid: false, error: d.error?.message || `HTTP ${r.status}` });
+    }
+    if (provider === "anthropic") {
+      const r = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
+        body: JSON.stringify({ model: "claude-3-haiku-20240307", max_tokens: 1, messages: [{ role: "user", content: "hi" }] })
+      });
+      if (r.ok) return res.json({ valid: true });
+      const d = await r.json().catch(() => ({}));
+      const err = d.error?.message || `HTTP ${r.status}`;
+      if (d.error?.type === "authentication_error") return res.json({ valid: false, error: err });
+      if (r.status === 401 || r.status === 403) return res.json({ valid: false, error: err });
+      return res.json({ valid: true });
+    }
+    const baseUrl = PROVIDER_VALIDATION_URLS[provider];
+    if (baseUrl) {
+      const r = await fetch(baseUrl, { headers: { Authorization: `Bearer ${apiKey}` } });
+      if (r.ok) return res.json({ valid: true });
+      if (r.status === 401 || r.status === 403) return res.json({ valid: false, error: `HTTP ${r.status} \u2014 key rejected` });
+      return res.json({ valid: true, warning: `HTTP ${r.status}` });
+    }
+    return res.json({ valid: false, error: `Unknown provider: ${provider}` });
+  } catch (e) {
+    return res.json({ valid: false, error: e.message || "Network error" });
+  }
+});
 var requireApiKey = createApiKeyMiddleware();
 app.use("/api", requireApiKey);
 app.use("/mcp", requireApiKey);

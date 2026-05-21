@@ -5,6 +5,39 @@ import { toPresetId } from "../types/ai";
 
 const STORAGE_KEY = "cvr_settings";
 
+const DEPRECATED_MODELS: Record<string, string> = {
+  "gemini-2.5-flash-preview-05-20": "gemini-2.5-flash",
+  "gemini-2.5-pro-preview-05-06": "gemini-2.5-pro",
+  "claude-3-5-sonnet-20240620": "claude-sonnet-4-20250514",
+};
+
+function migrateSettings(settings: Settings): Settings {
+  let changed = false;
+  const chat = { ...settings.chat };
+  if (chat.aiModel && DEPRECATED_MODELS[chat.aiModel] !== undefined) {
+    chat.aiModel = DEPRECATED_MODELS[chat.aiModel]!;
+    changed = true;
+  }
+  if (chat.thinkingModel && DEPRECATED_MODELS[chat.thinkingModel] !== undefined) {
+    chat.thinkingModel = DEPRECATED_MODELS[chat.thinkingModel]!;
+    changed = true;
+  }
+  if (!chat.providerKeys) {
+    chat.providerKeys = {};
+    changed = true;
+  }
+  if (chat.apiKey && !chat.providerKeys[chat.aiProvider]) {
+    chat.providerKeys = { ...chat.providerKeys, [chat.aiProvider]: chat.apiKey };
+    changed = true;
+  }
+  if (changed) {
+    const migrated = { ...settings, chat };
+    storageService.set(STORAGE_KEY, migrated);
+    return migrated;
+  }
+  return settings;
+}
+
 const persistToServer = async (settings: Settings) => {
   try {
     await fetch("/api/settings", {
@@ -41,7 +74,7 @@ interface Settings {
 const DEFAULT_SETTINGS: Settings = {
   chat: {
     aiProvider: "gemini",
-    aiModel: "gemini-2.5-flash-preview-05-20",
+    aiModel: "gemini-2.5-flash",
     apiKey: "",
     localUrl: "",
     localModelName: "",
@@ -54,7 +87,8 @@ const DEFAULT_SETTINGS: Settings = {
     maxImageSize: 1024,
     multiModelEnabled: false,
     thinkingProvider: "gemini",
-    thinkingModel: "gemini-2.0-flash",
+    thinkingModel: "gemini-2.5-flash",
+    providerKeys: {},
   },
   presets: [],
   autoLoopDelay: 2000,
@@ -81,13 +115,17 @@ export const useSettings = () => {
         } else {
           const saved = storageService.get<Settings>(STORAGE_KEY);
           if (saved) {
-            setSettings({ ...DEFAULT_SETTINGS, ...saved });
-            persistToServer(saved);
+            const migrated = migrateSettings(saved);
+            setSettings({ ...DEFAULT_SETTINGS, ...migrated });
+            persistToServer(migrated);
           }
         }
       } catch {
         const saved = storageService.get<Settings>(STORAGE_KEY);
-        if (saved) setSettings({ ...DEFAULT_SETTINGS, ...saved });
+        if (saved) {
+          const migrated = migrateSettings(saved);
+          setSettings({ ...DEFAULT_SETTINGS, ...migrated });
+        }
       }
       isInitialized.current = true;
       setIsLoading(false);

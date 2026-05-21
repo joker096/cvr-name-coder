@@ -275,6 +275,7 @@ async function ensureStorage(storagePath: string) {
 }
 
 async function startAppServer(context: vscode.ExtensionContext): Promise<number> {
+  try {
   const express = require('express');
   const dotenv = require('dotenv');
 
@@ -460,7 +461,7 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
       if (provider === 'mistral') baseUrl = 'https://api.mistral.ai/v1';
       if (!baseUrl) throw new Error(`Provider ${provider} requires a URL. Configure it in Settings.`);
       const key = apiKey || (provider === 'openai' ? process.env.OPENAI_API_KEY : provider === 'deepseek' ? process.env.DEEPSEEK_API_KEY : provider === 'grok' ? process.env.XAI_API_KEY : provider === 'groq' ? process.env.GROQ_API_KEY : '');
-      const model = modelName || (provider === 'openai' ? 'gpt-4o' : provider === 'deepseek' ? 'deepseek-chat' : provider === 'grok' ? 'grok-beta' : provider === 'groq' ? 'llama3-70b-8192' : provider === 'baseten' ? 'llama-3-1-70b-instruct' : provider === 'openrouter' ? 'meta-llama/llama-3.3-70b-instruct:free' : provider === 'together' ? 'meta-llama/Llama-3.3-70B-Instruct-Turbo' : provider === 'mistral' ? 'mistral-large-latest' : 'model');
+      const model = modelName || (provider === 'openai' ? 'gpt-4.1' : provider === 'deepseek' ? 'deepseek-chat' : provider === 'grok' ? 'grok-3' : provider === 'groq' ? 'meta-llama/llama-4-maverick-17b-128e-instruct' : provider === 'baseten' ? 'meta-llama-4-maverick' : provider === 'openrouter' ? 'google/gemini-2.5-flash' : provider === 'together' ? 'meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8' : provider === 'mistral' ? 'mistral-large-latest' : 'custom-model');
 
       const bodyObj: any = { model, messages: msgs, stream: true };
       if (temperature !== undefined) bodyObj.temperature = temperature;
@@ -504,7 +505,7 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': apiKeyValue, 'anthropic-version': '2023-06-01' },
         body: JSON.stringify({
-          model: modelName || 'claude-3-5-sonnet-20240620',
+          model: modelName || 'claude-sonnet-4-20250514',
           max_tokens: maxTokens || 4096,
           stream: true,
           system: prompt,
@@ -539,7 +540,7 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
     // Gemini
     if (!process.env.GEMINI_API_KEY) throw new Error('Gemini requires GEMINI_API_KEY environment variable. Use a local provider in Settings.');
     const streamResult = await getGemini().models.generateContentStream({
-      model: modelName || 'gemini-2.0-flash',
+      model: modelName || 'gemini-2.5-flash',
       contents: [{ role: 'user', parts: [{ text: prompt }] }, ...contents],
     });
     for await (const chunk of streamResult) {
@@ -1475,15 +1476,23 @@ Complete the code at the cursor position:`;
     });
     server.on('error', reject);
   });
+  } catch (err: any) {
+    const msg = err?.message || String(err);
+    console.error('[cvr.name] Server start failed:', msg);
+    vscode.window.showErrorMessage(`cvr.name server failed to start: ${msg}`);
+    throw err;
+  }
 }
 
 let serverStartPromise: Promise<void> | null = null;
+let serverStartError: string | null = null;
 let statusBarItem: vscode.StatusBarItem | null = null;
 
 function ensureServer(context: vscode.ExtensionContext): Promise<void> {
   if (!serverStartPromise) {
     serverStartPromise = startAppServer(context)
       .then(() => {
+        serverStartError = null;
         if (statusBarItem) {
           statusBarItem.text = '$(rocket) cvr.name';
           statusBarItem.tooltip = 'cvr.name kernel running';
@@ -1491,10 +1500,12 @@ function ensureServer(context: vscode.ExtensionContext): Promise<void> {
         }
       })
       .catch(err => {
+        console.error('[cvr.name] ensureServer failed:', err?.message || err);
+        serverStartError = err?.message || String(err);
         serverStartPromise = null;
         if (statusBarItem) {
           statusBarItem.text = '$(error) cvr.name';
-          statusBarItem.tooltip = 'Failed to start: ' + err.message;
+          statusBarItem.tooltip = 'Failed to start: ' + (err?.message || String(err));
           statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
         }
         throw err;
@@ -1635,23 +1646,32 @@ class CvrWebviewViewProvider implements vscode.WebviewViewProvider {
   ) {
     webviewView.webview.options = { enableScripts: true };
 
+    if (serverPort) {
+      webviewView.webview.html = getWebviewContent(`http://127.0.0.1:${serverPort}`);
+      return;
+    }
+
+    if (serverStartError) {
+      webviewView.webview.html = getErrorContent(serverStartError);
+      return;
+    }
+
     // Start server when sidebar is opened
     if (!serverStartPromise) {
       ensureServer(this.context).catch(() => {});
     }
 
-    if (serverPort) {
-      webviewView.webview.html = getWebviewContent(`http://127.0.0.1:${serverPort}`);
-    } else {
-      webviewView.webview.html = getLoadingContent();
-      const check = setInterval(() => {
-        if (serverPort) {
-          webviewView.webview.html = getWebviewContent(`http://127.0.0.1:${serverPort}`);
-          clearInterval(check);
-        }
-      }, 500);
-      setTimeout(() => clearInterval(check), 30000);
-    }
+    webviewView.webview.html = getLoadingContent();
+    const check = setInterval(() => {
+      if (serverPort) {
+        webviewView.webview.html = getWebviewContent(`http://127.0.0.1:${serverPort}`);
+        clearInterval(check);
+      } else if (serverStartError) {
+        webviewView.webview.html = getErrorContent(serverStartError);
+        clearInterval(check);
+      }
+    }, 500);
+    setTimeout(() => clearInterval(check), 30000);
   }
 }
 
@@ -1670,6 +1690,25 @@ p{font-size:11px;color:#707080;margin:4px 0}</style>
   <h1><span class="accent">cvr</span>.<span class="accent">name</span>.coder</h1>
   <p>Starting kernel server...</p>
   <div class="spinner"></div>
+</body>
+</html>`;
+}
+
+function getErrorContent(errorMsg: string) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>cvr.name</title>
+<style>body,html{margin:0;padding:0;height:100vh;overflow:hidden;background:#0F0F11;color:#E0E0E6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:flex;align-items:center;justify-content:center;flex-direction:column;text-align:center}
+h1{font-size:16px;font-weight:800;letter-spacing:1px;text-transform:uppercase;margin:0 0 16px}
+.accent{color:#3E5CFF}
+.err{color:#FF4444;font-size:12px;max-width:320px;line-height:1.5;margin:0 0 16px;padding:8px 12px;background:#1A1015;border:1px solid #3A2025;border-radius:4px}
+.btn{background:#3E5CFF;color:#fff;border:none;padding:8px 20px;border-radius:4px;font-size:12px;cursor:pointer}
+.btn:hover{background:#4E6CFF}</style>
+</head>
+<body>
+  <h1><span class="accent">cvr</span>.<span class="accent">name</span>.coder</h1>
+  <p class="err">${errorMsg}</p>
+  <p style="font-size:11px;color:#707080">Press Ctrl+Shift+P → "cvr.name: Launch Dashboard" to retry</p>
 </body>
 </html>`;
 }

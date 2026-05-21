@@ -1,6 +1,6 @@
 import express from "express";
 import * as path from "path";
-import { readFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import { PermissionEngine } from "./src/server/permissions.js";
@@ -43,6 +43,89 @@ const PORT = 3000;
 app.use(express.json());
 setupHealthRoute(app);
 setupSecurityMiddleware(app);
+// Settings persistence (file-based, no API key needed)
+app.get('/api/settings', (_req, res) => {
+    try {
+        const settingsPath = path.join(process.cwd(), '.opencode-infinite', 'settings.json');
+        if (existsSync(settingsPath)) {
+            const data = JSON.parse(readFileSync(settingsPath, 'utf-8'));
+            res.json(data);
+        }
+        else {
+            res.json({});
+        }
+    }
+    catch {
+        res.json({});
+    }
+});
+app.post('/api/settings', (req, res) => {
+    try {
+        const settingsPath = path.join(process.cwd(), '.opencode-infinite', 'settings.json');
+        const dir = path.dirname(settingsPath);
+        if (!existsSync(dir))
+            mkdirSync(dir, { recursive: true });
+        writeFileSync(settingsPath, JSON.stringify(req.body, null, 2));
+        res.json({ saved: true });
+    }
+    catch (e) {
+        res.status(500).json({ error: 'Failed to save settings' });
+    }
+});
+const PROVIDER_VALIDATION_URLS = {
+    openai: "https://api.openai.com/v1/models",
+    deepseek: "https://api.deepseek.com/v1/models",
+    grok: "https://api.x.ai/v1/models",
+    groq: "https://api.groq.com/openai/v1/models",
+    baseten: "https://api.baseten.co/v1/models",
+    openrouter: "https://openrouter.ai/api/v1/models",
+    together: "https://api.together.xyz/v1/models",
+    mistral: "https://api.mistral.ai/v1/models",
+};
+app.post("/api/validate-key", async (req, res) => {
+    const { provider, apiKey } = req.body;
+    if (!provider || !apiKey) {
+        return res.status(400).json({ valid: false, error: "provider and apiKey required" });
+    }
+    try {
+        if (provider === "gemini") {
+            const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`);
+            if (r.ok)
+                return res.json({ valid: true });
+            const d = await r.json().catch(() => ({}));
+            return res.json({ valid: false, error: d.error?.message || `HTTP ${r.status}` });
+        }
+        if (provider === "anthropic") {
+            const r = await fetch("https://api.anthropic.com/v1/messages", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
+                body: JSON.stringify({ model: "claude-3-haiku-20240307", max_tokens: 1, messages: [{ role: "user", content: "hi" }] }),
+            });
+            if (r.ok)
+                return res.json({ valid: true });
+            const d = await r.json().catch(() => ({}));
+            const err = d.error?.message || `HTTP ${r.status}`;
+            if (d.error?.type === "authentication_error")
+                return res.json({ valid: false, error: err });
+            if (r.status === 401 || r.status === 403)
+                return res.json({ valid: false, error: err });
+            return res.json({ valid: true });
+        }
+        const baseUrl = PROVIDER_VALIDATION_URLS[provider];
+        if (baseUrl) {
+            const r = await fetch(baseUrl, { headers: { Authorization: `Bearer ${apiKey}` } });
+            if (r.ok)
+                return res.json({ valid: true });
+            if (r.status === 401 || r.status === 403)
+                return res.json({ valid: false, error: `HTTP ${r.status} — key rejected` });
+            return res.json({ valid: true, warning: `HTTP ${r.status}` });
+        }
+        return res.json({ valid: false, error: `Unknown provider: ${provider}` });
+    }
+    catch (e) {
+        return res.json({ valid: false, error: e.message || "Network error" });
+    }
+});
 const requireApiKey = createApiKeyMiddleware();
 app.use("/api", requireApiKey);
 app.use("/mcp", requireApiKey);

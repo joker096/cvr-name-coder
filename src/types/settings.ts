@@ -22,6 +22,7 @@ export interface ChatConfig {
   aiProvider: ChatProviderId;
   aiModel: string;
   apiKey?: string;
+  providerKeys?: Record<string, string>;
   localUrl?: string;
   localModelName?: string;
   customUrl?: string;

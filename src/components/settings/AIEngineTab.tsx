@@ -1,7 +1,7 @@
 import React from "react";
 import type { ChatConfig, Preset, AgentId } from "../../types/settings";
 import type { Provider } from "./ProviderSelector";
-import type { ModelConfig as ModelConfigType } from "./ModelConfig";
+import type { ModelConfig as ModelConfigType, KeyValidationResult } from "./ModelConfig";
 import { ProviderSelector } from "./ProviderSelector";
 import { ModelConfig } from "./ModelConfig";
 import { PresetManager } from "./PresetManager";
@@ -31,6 +31,9 @@ interface AIEngineTabProps {
   onThinkingProviderChange: (providerId: ChatProviderId) => void;
   onThinkingModelChange: (model: string) => void;
   onFetchRemoteModels: () => void;
+  onVerifyKey?: () => void;
+  keyValidation?: KeyValidationResult | null;
+  isValidating?: boolean;
   onPresetSave?: ((preset: Omit<Preset, "id" | "createdAt">) => void) | undefined;
   onPresetApply?: ((preset: Preset) => void) | undefined;
   onPresetDelete?: ((id: string) => void) | undefined;
@@ -58,6 +61,9 @@ export const AIEngineTab: React.FC<AIEngineTabProps> = ({
   onThinkingProviderChange,
   onThinkingModelChange,
   onFetchRemoteModels,
+  onVerifyKey,
+  keyValidation,
+  isValidating,
   onPresetSave,
   onPresetApply,
   onPresetDelete,
@@ -80,6 +86,7 @@ export const AIEngineTab: React.FC<AIEngineTabProps> = ({
       config={{
         aiModel: currentConfig.aiModel ?? "",
         apiKey: currentConfig.apiKey ?? "",
+        providerKeys: currentConfig.providerKeys ?? {},
         localUrl: currentConfig.localUrl ?? "",
         localModelName: currentConfig.localModelName ?? "",
         customUrl: currentConfig.customUrl ?? "",
@@ -89,6 +96,9 @@ export const AIEngineTab: React.FC<AIEngineTabProps> = ({
       isRefreshingModels={isRefreshingModels}
       onRefreshModels={onFetchRemoteModels}
       onChange={onModelConfigChange}
+      {...(keyValidation ? { keyValidation } : {})}
+      {...(isValidating !== undefined ? { isValidating } : {})}
+      {...(onVerifyKey ? { onVerifyKey } : {})}
       t={t}
     />
 

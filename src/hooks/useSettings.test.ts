@@ -3,7 +3,7 @@ import { renderHook, act, waitFor } from "@testing-library/react";
 import { useSettings } from "./useSettings";
 import { storageService } from "../services/storageService";
 
-const DEFAULT_MODEL = "gemini-2.5-flash-preview-05-20";
+const DEFAULT_MODEL = "gemini-2.5-flash";
 
 vi.mock("../services/storageService", () => ({
   storageService: {
