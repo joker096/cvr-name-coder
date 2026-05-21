@@ -6,6 +6,7 @@
   "description": "Advanced autonomous AI coding agent with persistent memory and local LLM support",
   "icon": "public/app-icon.png",
   "scripts": {
+    "verify-build": "npm run lint && npm run type-check && npm run build && npm test",
     "dev": "tsx server.ts",
     "build": "tsc --build && vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node dist/server.cjs",

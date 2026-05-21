@@ -1,14 +1,30 @@
-import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { getErrorMessage } from "../types/errors";
 
 interface BrowserSession {
-  browser: Browser;
-  context: BrowserContext;
-  page: Page;
+  browser: any;
+  context: any;
+  page: any;
   createdAt: number;
 }
 
 const browserPool = new Map<string, BrowserSession>();
+
+let playwrightChromium: any = null;
+let playwrightError: Error | null = null;
+
+async function getPlaywright() {
+  if (playwrightChromium) return playwrightChromium;
+  if (playwrightError) throw playwrightError;
+  
+  try {
+    const pw = await import("playwright");
+    playwrightChromium = pw.chromium;
+    return playwrightChromium;
+  } catch (err) {
+    playwrightError = err as Error;
+    throw playwrightError;
+  }
+}
 
 async function getOrCreateSession(sessionId: string, headless = true): Promise<BrowserSession> {
   const existing = browserPool.get(sessionId);
@@ -23,6 +39,7 @@ async function getOrCreateSession(sessionId: string, headless = true): Promise<B
     }
   }
 
+  const chromium = await getPlaywright();
   const browser = await chromium.launch({ headless });
   const context = await browser.newContext({
     viewport: { width: 1280, height: 720 },
@@ -132,7 +149,7 @@ export async function browserEvaluate(sessionId: string, script: string, headles
     if (script.length > 100000) {
       return { success: false, output: "", error: "Script exceeds maximum length" };
     }
-    const result = await page.evaluate((code) => {
+    const result = await page.evaluate((code: string) => {
       try {
         const retval = (globalThis as { eval: (code: string) => unknown }).eval(code);
         return { __ok: true, __value: retval };

@@ -1,17 +1,14 @@
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { cn } from "../../utils/cn";
-import { SettingsTabs, type SettingsTab } from "./SettingsTabs";
 import { SettingsHeader } from "./SettingsHeader";
 import { SettingsFooter } from "./SettingsFooter";
-import { AIEngineTab } from "./AIEngineTab";
-import { GlobalSettingsSection } from "./GlobalSettingsSection";
-import { VoiceSettingsSection } from "./VoiceSettingsSection";
 import type { Provider } from "./ProviderSelector";
 import type { ModelConfig as ModelConfigType, KeyValidationResult } from "./ModelConfig";
-import type { ChatConfig, Preset, AgentId } from "../../types/settings";
+import type { ChatConfig, Preset, ChatProviderId } from "../../types/settings";
 import { toChatProviderId } from "../../types/ai";
 import { useAIProviders } from "../../hooks/useAIProviders";
+import { SettingsBody } from "./SettingsBody";
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -56,17 +53,12 @@ const PROVIDERS: Provider[] = [
   { id: toChatProviderId("custom"), icon: { type: "lucide", name: "settings" }, label: "Custom", type: "cloud" },
 ];
 
-const TABS = [
-  { id: "chat" as const, label: "Chat AI" },
-  { id: "kernel" as const, label: "Agent AI" },
-  { id: "mcp" as const, label: "MCP" },
-];
-
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
   onClose,
   config,
   kernelConfig,
+  presets,
   isAutonomous,
   autoLoopDelay,
   autoCommit,
@@ -74,6 +66,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   voiceLanguage,
   voiceAutoSend,
   onSave,
+  onPresetSave,
+  onPresetApply,
+  onPresetDelete,
   onToggleAutonomous,
   onToggleAutoCommit,
   onChangeAutoLoopDelay,
@@ -81,15 +76,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onToggleVoiceEnabled,
   onChangeVoiceLanguage,
   onToggleVoiceAutoSend,
-  onPresetSave,
-  onPresetApply,
-  onPresetDelete,
-  presets,
   t,
   lang = "en",
   className,
 }) => {
-  const [activeTab, setActiveTab] = useState<SettingsTab>("chat");
+  const [activeTab, setActiveTab] = useState("chat" as "chat" | "kernel" | "mcp");
   const [localConfig, setLocalConfig] = useState<ChatConfig>(config);
   const [localKernelConfig, setLocalKernelConfig] = useState<ChatConfig>(kernelConfig);
   const { getModelsForProvider, fetchRemoteModels, remoteModels, isRefreshingModels } = useAIProviders();
@@ -102,12 +93,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const handleSave = async () => {
     const configs = [
       { cfg: localConfig, label: "chat" },
-      { cfg: localKernelConfig, label: "kernel" }
+      { cfg: localKernelConfig, label: "kernel" },
     ];
-
     const results: KeyValidationResult[] = [];
     setIsValidating(true);
-
     for (const { cfg } of configs) {
       const provider = cfg.aiProvider;
       if (!provider || provider === "local" || provider === "custom") continue;
@@ -125,13 +114,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         results.push({ provider, valid: false, error: "Validation failed" });
       }
     }
-
     setIsValidating(false);
     setKeyValidations(results);
-
-    const hasInvalid = results.some(r => !r.valid);
-    if (hasInvalid) return;
-
+    if (results.some(r => !r.valid)) return;
     onSave(localConfig, localKernelConfig);
     onClose();
   };
@@ -176,11 +161,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setIsValidating(false);
   };
 
-  const tabs = TABS.map((tab) => ({
-    ...tab,
-    label: tab.id === "chat" ? t.chatEngine || tab.label : tab.id === "kernel" ? t.kernelEngine || tab.label : tab.label,
-  }));
-
   if (!isOpen) return null;
 
   return (
@@ -200,90 +180,48 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           onClick={(e) => e.stopPropagation()}
         >
           <SettingsHeader title={t.settings || "Settings"} onClose={onClose} />
-
-          <div className="p-3 overflow-y-auto max-h-[calc(90vh-120px)]">
-            <SettingsTabs tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} className="mb-4" />
-
-            <AnimatePresence mode="wait">
-              {(activeTab === "chat" || activeTab === "kernel") && (
-                <motion.div
-                  key={activeTab}
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 20 }}
-                >
-                  <AIEngineTab
-                    engineType={activeTab === "chat" ? "chat" : "kernel"}
-                    providers={PROVIDERS}
-                    currentConfig={currentConfig}
-                    presets={presets}
-                    remoteModels={remoteModels}
-                    isRefreshingModels={isRefreshingModels}
-                    getModelsForProvider={getModelsForProvider}
-                    onProviderChange={handleProviderChange}
-                    onModelConfigChange={handleModelConfigChange}
-                    onAgentChange={(agent: AgentId) => setCurrentConfig((prev) => ({ ...prev, agent }))}
-                    onTemperatureChange={(temp) => setCurrentConfig((prev) => ({ ...prev, temperature: temp }))}
-                    onMaxTokensChange={(tokens) => setCurrentConfig((prev) => ({ ...prev, maxTokens: tokens }))}
-                    onSystemPromptChange={(prompt) => setCurrentConfig((prev) => ({ ...prev, systemPrompt: prompt }))}
-                    onVisionToggle={() => setCurrentConfig((prev) => ({ ...prev, visionEnabled: !prev.visionEnabled }))}
-                    onMaxImageSizeChange={(size) => setCurrentConfig((prev) => ({ ...prev, maxImageSize: size }))}
-                    onToggleMultiModel={() => setCurrentConfig((prev) => ({ ...prev, multiModelEnabled: !prev.multiModelEnabled }))}
-                    onThinkingProviderChange={(providerId) => setCurrentConfig((prev) => ({ ...prev, thinkingProvider: providerId }))}
-                    onThinkingModelChange={(model) => setCurrentConfig((prev) => ({ ...prev, thinkingModel: model }))}
-                    onFetchRemoteModels={handleFetchRemoteModels}
-                    onVerifyKey={handleVerifyKey}
-                    keyValidation={keyValidations.find(kv => kv.provider === currentConfig.aiProvider) || null}
-                    isValidating={isValidating}
-                    onPresetSave={onPresetSave}
-                    onPresetApply={onPresetApply}
-                    onPresetDelete={onPresetDelete}
-                    t={t}
-                  />
-                </motion.div>
-              )}
-
-              {activeTab === "mcp" && (
-                <motion.div
-                  key="mcp"
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 20 }}
-                  className="space-y-4"
-                >
-                  <div>
-                    <h3 className="text-[10px] font-bold text-dash-text-muted uppercase tracking-widest mb-2">
-                      {t.mcpTools || "MCP Tools"}
-                    </h3>
-                    <p className="text-xs text-dash-text-muted">
-                      MCP (Model Context Protocol) tools allow the AI to interact with external services and APIs.
-                    </p>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            <GlobalSettingsSection
-              isAutonomous={isAutonomous}
-              autoCommit={autoCommit}
-              autoLoopDelay={autoLoopDelay}
-              onToggleAutonomous={onToggleAutonomous}
-              onToggleAutoCommit={onToggleAutoCommit}
-              onChangeAutoLoopDelay={onChangeAutoLoopDelay}
-              t={t}
-            />
-
-            <VoiceSettingsSection
-              voiceEnabled={voiceEnabled}
-              voiceLanguage={voiceLanguage}
-              voiceAutoSend={voiceAutoSend}
-              onToggleVoiceEnabled={onToggleVoiceEnabled}
-              onChangeVoiceLanguage={onChangeVoiceLanguage}
-              onToggleVoiceAutoSend={onToggleVoiceAutoSend}
-              t={t}
-            />
-          </div>
-
+          <SettingsBody
+            activeTab={activeTab}
+            setActiveTab={setActiveTab as (tab: string) => void}
+            t={t}
+            presets={presets}
+            isAutonomous={isAutonomous}
+            autoCommit={autoCommit}
+            autoLoopDelay={autoLoopDelay}
+            voiceEnabled={voiceEnabled}
+            voiceLanguage={voiceLanguage}
+            voiceAutoSend={voiceAutoSend}
+            isValidating={isValidating}
+            keyValidations={keyValidations}
+            config={localConfig}
+            kernelConfig={localKernelConfig}
+            providers={PROVIDERS}
+            remoteModels={remoteModels}
+            isRefreshingModels={isRefreshingModels}
+            getModelsForProvider={getModelsForProvider}
+            onProviderChange={handleProviderChange}
+            onModelConfigChange={handleModelConfigChange}
+            onAgentChange={(agent) => setCurrentConfig((prev) => ({ ...prev, agent }))}
+            onTemperatureChange={(temp) => setCurrentConfig((prev) => ({ ...prev, temperature: temp }))}
+            onMaxTokensChange={(tokens) => setCurrentConfig((prev) => ({ ...prev, maxTokens: tokens }))}
+            onSystemPromptChange={(prompt) => setCurrentConfig((prev) => ({ ...prev, systemPrompt: prompt }))}
+            onVisionToggle={() => setCurrentConfig((prev) => ({ ...prev, visionEnabled: !prev.visionEnabled }))}
+            onMaxImageSizeChange={(size) => setCurrentConfig((prev) => ({ ...prev, maxImageSize: size }))}
+            onToggleMultiModel={() => setCurrentConfig((prev) => ({ ...prev, multiModelEnabled: !prev.multiModelEnabled }))}
+            onThinkingProviderChange={(pid: ChatProviderId) => setCurrentConfig((prev) => ({ ...prev, thinkingProvider: pid }))}
+            onThinkingModelChange={(model) => setCurrentConfig((prev) => ({ ...prev, thinkingModel: model }))}
+            onFetchRemoteModels={handleFetchRemoteModels}
+            onVerifyKey={handleVerifyKey}
+            onPresetSave={onPresetSave}
+            onPresetApply={onPresetApply}
+            onPresetDelete={onPresetDelete}
+            onToggleAutonomous={onToggleAutonomous}
+            onToggleAutoCommit={onToggleAutoCommit}
+            onChangeAutoLoopDelay={onChangeAutoLoopDelay}
+            onToggleVoiceEnabled={onToggleVoiceEnabled}
+            onChangeVoiceLanguage={onChangeVoiceLanguage}
+            onToggleVoiceAutoSend={onToggleVoiceAutoSend}
+          />
           <SettingsFooter
             onClose={onClose}
             onSave={handleSave}

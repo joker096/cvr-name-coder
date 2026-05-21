@@ -30,5 +30,16 @@ export default defineConfig(({mode}) => {
         interopDefault: true,
       },
     },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            vendor: ['react', 'react-dom'],
+            markdown: ['react-markdown', 'react-syntax-highlighter'],
+            motion: ['motion'],
+          },
+        },
+      },
+    },
   };
 });

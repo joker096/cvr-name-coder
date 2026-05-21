@@ -58,6 +58,20 @@ __export(browserTools_exports, {
   closeBrowserSession: () => closeBrowserSession,
   getActiveBrowserSessions: () => getActiveBrowserSessions
 });
+async function getPlaywright() {
+  if (playwrightChromium)
+    return playwrightChromium;
+  if (playwrightError)
+    throw playwrightError;
+  try {
+    const pw = await import("playwright");
+    playwrightChromium = pw.chromium;
+    return playwrightChromium;
+  } catch (err) {
+    playwrightError = err;
+    throw playwrightError;
+  }
+}
 async function getOrCreateSession(sessionId, headless = true) {
   const existing = browserPool.get(sessionId);
   if (existing) {
@@ -68,7 +82,8 @@ async function getOrCreateSession(sessionId, headless = true) {
       await closeBrowserSession(sessionId);
     }
   }
-  const browser = await import_playwright.chromium.launch({ headless });
+  const chromium = await getPlaywright();
+  const browser = await chromium.launch({ headless });
   const context = await browser.newContext({
     viewport: { width: 1280, height: 720 },
     userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -194,13 +209,14 @@ async function browserClose(sessionId) {
 function getActiveBrowserSessions() {
   return Array.from(browserPool.keys());
 }
-var import_playwright, browserPool;
+var browserPool, playwrightChromium, playwrightError;
 var init_browserTools = __esm({
   "src/server/browserTools.js"() {
     "use strict";
-    import_playwright = require("playwright");
     init_errors();
     browserPool = /* @__PURE__ */ new Map();
+    playwrightChromium = null;
+    playwrightError = null;
     process.on("exit", () => {
       for (const [, session] of browserPool) {
         try {
@@ -7580,15 +7596,28 @@ function registerRoutes8(app2) {
 }
 
 // src/server/routes/browser.js
-init_browserTools();
+var browserTools2 = null;
+async function getBrowserTools2() {
+  if (!browserTools2) {
+    try {
+      browserTools2 = await Promise.resolve().then(() => (init_browserTools(), browserTools_exports));
+    } catch {
+      return null;
+    }
+  }
+  return browserTools2;
+}
 function registerRoutes9(app2) {
   app2.post("/api/browser/navigate", validateBody(BrowserNavigateSchema), async (req, res) => {
     try {
+      const bt = await getBrowserTools2();
+      if (!bt)
+        return res.status(503).json({ success: false, output: "", error: "playwright-core not installed" });
       const { url, headless = true, sessionId = "default" } = req.body;
       if (!url || typeof url !== "string") {
         return res.status(400).json({ error: "url is required" });
       }
-      const result = await browserNavigate(sessionId, url, Boolean(headless));
+      const result = await bt.browserNavigate(sessionId, url, Boolean(headless));
       return res.json(result);
     } catch (e) {
       return res.status(500).json({ success: false, output: "", error: e.message });
@@ -7596,11 +7625,14 @@ function registerRoutes9(app2) {
   });
   app2.post("/api/browser/click", validateBody(BrowserActionSchema), async (req, res) => {
     try {
+      const bt = await getBrowserTools2();
+      if (!bt)
+        return res.status(503).json({ success: false, output: "", error: "playwright-core not installed" });
       const { selector, headless = true, sessionId = "default" } = req.body;
       if (!selector || typeof selector !== "string") {
         return res.status(400).json({ error: "selector is required" });
       }
-      const result = await browserClick(sessionId, selector, Boolean(headless));
+      const result = await bt.browserClick(sessionId, selector, Boolean(headless));
       return res.json(result);
     } catch (e) {
       return res.status(500).json({ success: false, output: "", error: e.message });
@@ -7608,11 +7640,14 @@ function registerRoutes9(app2) {
   });
   app2.post("/api/browser/type", validateBody(BrowserActionSchema), async (req, res) => {
     try {
+      const bt = await getBrowserTools2();
+      if (!bt)
+        return res.status(503).json({ success: false, output: "", error: "playwright-core not installed" });
       const { selector, text, headless = true, sessionId = "default" } = req.body;
       if (!selector || typeof selector !== "string" || typeof text !== "string") {
         return res.status(400).json({ error: "selector and text are required" });
       }
-      const result = await browserType(sessionId, selector, text, Boolean(headless));
+      const result = await bt.browserType(sessionId, selector, text, Boolean(headless));
       return res.json(result);
     } catch (e) {
       return res.status(500).json({ success: false, output: "", error: e.message });
@@ -7620,9 +7655,12 @@ function registerRoutes9(app2) {
   });
   app2.get("/api/browser/screenshot", async (req, res) => {
     try {
+      const bt = await getBrowserTools2();
+      if (!bt)
+        return res.status(503).json({ success: false, output: "", error: "playwright-core not installed" });
       const sessionId = String(req.query.sessionId || "default");
       const headless = req.query.headless !== "false";
-      const result = await browserScreenshot(sessionId, headless);
+      const result = await bt.browserScreenshot(sessionId, headless);
       if (result.success && result.base64) {
         return res.json({ success: true, output: result.output, base64: result.base64 });
       }
@@ -7633,11 +7671,14 @@ function registerRoutes9(app2) {
   });
   app2.post("/api/browser/evaluate", async (req, res) => {
     try {
+      const bt = await getBrowserTools2();
+      if (!bt)
+        return res.status(503).json({ success: false, output: "", error: "playwright-core not installed" });
       const { script, headless = true, sessionId = "default" } = req.body;
       if (!script || typeof script !== "string") {
         return res.status(400).json({ error: "script is required" });
       }
-      const result = await browserEvaluate(sessionId, script, Boolean(headless));
+      const result = await bt.browserEvaluate(sessionId, script, Boolean(headless));
       return res.json(result);
     } catch (e) {
       return res.status(500).json({ success: false, output: "", error: e.message });
@@ -7645,9 +7686,12 @@ function registerRoutes9(app2) {
   });
   app2.get("/api/browser/html", async (req, res) => {
     try {
+      const bt = await getBrowserTools2();
+      if (!bt)
+        return res.status(503).json({ success: false, output: "", error: "playwright-core not installed" });
       const sessionId = String(req.query.sessionId || "default");
       const headless = req.query.headless !== "false";
-      const result = await browserGetHtml(sessionId, headless);
+      const result = await bt.browserGetHtml(sessionId, headless);
       return res.json(result);
     } catch (e) {
       return res.status(500).json({ success: false, output: "", error: e.message });
@@ -7655,15 +7699,21 @@ function registerRoutes9(app2) {
   });
   app2.post("/api/browser/close", async (req, res) => {
     try {
+      const bt = await getBrowserTools2();
+      if (!bt)
+        return res.status(503).json({ success: false, output: "", error: "playwright-core not installed" });
       const { sessionId = "default" } = req.body;
-      const result = await browserClose(sessionId);
+      const result = await bt.browserClose(sessionId);
       return res.json(result);
     } catch (e) {
       return res.status(500).json({ success: false, output: "", error: e.message });
     }
   });
-  app2.get("/api/browser/sessions", (_req, res) => {
-    return res.json({ sessions: getActiveBrowserSessions() });
+  app2.get("/api/browser/sessions", async (_req, res) => {
+    const bt = await getBrowserTools2();
+    if (!bt)
+      return res.json({ sessions: [] });
+    return res.json({ sessions: bt.getActiveBrowserSessions() });
   });
 }
 
