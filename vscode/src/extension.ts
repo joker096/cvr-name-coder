@@ -29,6 +29,10 @@ import { loadCustomTools, setCustomToolsDir } from '../../src/server/customToolL
 import { loadPlugins, registerPlugins, getPlugins, enablePlugin, disablePlugin, setPluginsDir } from '../../src/server/pluginManager.js';
 import { cronScheduler } from '../../src/server/cronScheduler.js';
 import { loadMcpConfig, mountMcpSseRoutes } from '../../src/server/mcpServer.js';
+import { initSync } from '../../src/server/teamSync.js';
+import { registerRoutes as registerGitRoutes } from '../../src/server/routes/git.js';
+import { registerRoutes as registerEcosystemRoutes } from '../../src/server/routes/ecosystem.js';
+import { registerRoutes as registerBrowserRoutes } from '../../src/server/routes/browser.js';
 
 const $fetch = (globalThis as any).fetch as (url: string, init?: any) => Promise<{ json(): Promise<any>; status: number }>;
 
@@ -1439,6 +1443,14 @@ Complete the code at the cursor position:`;
     cronScheduler.disableTask(req.params.id);
     res.json({ disabled: true });
   });
+
+  // Register modular routes (git, sync, browser, etc.) for features not duplicated inline
+  registerEcosystemRoutes(app);
+  registerGitRoutes(app);
+  registerBrowserRoutes(app);
+
+  // Initialize team sync
+  initSync().catch((e) => console.error('Team sync init failed:', e));
 
   // MCP Server routes
   const mcpConfig = await loadMcpConfig();

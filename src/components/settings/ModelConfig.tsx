@@ -1,5 +1,6 @@
 import React, { useState, useCallback } from "react";
 import { cn } from "../../utils/cn";
+import { KeyRound } from "lucide-react";
 import type { ChatProviderId } from "../../types/settings";
 import type { AIModel } from "../../types/ai";
 
@@ -86,8 +87,9 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
 
       {requiresApiKey && (
         <div>
-          <label className="block text-xs font-medium text-dash-text-primary mb-2">
-            API Key
+          <label className="flex items-center gap-1.5 text-xs font-medium text-dash-text-primary mb-2">
+            <KeyRound className="w-3.5 h-3.5" />
+            {t.apiKeyLabel || "API Key"}
           </label>
           <div className="relative">
             <input
@@ -95,7 +97,7 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
               value={config.apiKey || ""}
               onChange={(e) => handleApiKeyChange(e.target.value)}
               className="w-full px-2.5 py-1.5 pr-10 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs"
-              placeholder="Enter API key or leave empty to use env var"
+              placeholder={t.apiKeyPlaceholder || "Enter API key or leave empty to use env var"}
             />
             <button
               type="button"
@@ -103,11 +105,11 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
               className="absolute right-2 top-1/2 -translate-y-1/2 text-dash-text-muted hover:text-dash-text-primary text-xs"
               tabIndex={-1}
             >
-              {showApiKey ? "HIDE" : "SHOW"}
+              {showApiKey ? (t.apiKeyHide || "HIDE") : (t.apiKeyShow || "SHOW")}
             </button>
           </div>
           <p className="text-[10px] text-dash-text-muted mt-1 leading-relaxed">
-            Stored in browser localStorage. Overrides {provider.toUpperCase()}_API_KEY env var if set.
+            {t.apiKeyStored?.replace("{provider}", provider.toUpperCase()) || `Stored in browser localStorage. Overrides ${provider.toUpperCase()}_API_KEY env var if set.`}
           </p>
         </div>
       )}
@@ -145,8 +147,9 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
       {requiresCustomConfig && (
         <>
           <div>
-            <label className="block text-xs font-medium text-dash-text-primary mb-2">
-              API Key
+            <label className="flex items-center gap-1.5 text-xs font-medium text-dash-text-primary mb-2">
+              <KeyRound className="w-3.5 h-3.5" />
+              {t.apiKeyLabel || "API Key"}
             </label>
             <div className="relative">
               <input
@@ -162,7 +165,7 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-dash-text-muted hover:text-dash-text-primary text-xs"
                 tabIndex={-1}
               >
-                {showApiKey ? "HIDE" : "SHOW"}
+                {showApiKey ? (t.apiKeyHide || "HIDE") : (t.apiKeyShow || "SHOW")}
               </button>
             </div>
           </div>
