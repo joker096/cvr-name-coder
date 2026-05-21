@@ -15,3 +15,25 @@ vi.mock("./hooks/useSessionSearch", () => ({
 vi.mock("./hooks/useCron", () => ({
   useCron: () => ({ tasks: [], addTask: vi.fn(), removeTask: vi.fn(), toggleTask: vi.fn() }),
 }));
+
+vi.mock("motion/react", () => {
+  const React = require("react");
+  return {
+    motion: new Proxy(
+      {},
+      {
+        get: (_target: unknown, prop: string) => {
+          if (prop === "div" || prop === "span" || prop === "button" || prop === "section" || prop === "p") {
+            return ({ children, className, onClick, onKeyDown, style, ...rest }: any) =>
+              React.createElement(prop, { className, onClick, onKeyDown, style, ...rest }, children);
+          }
+          return ({ children, ...rest }: any) => React.createElement("div", rest, children);
+        },
+      }
+    ),
+    AnimatePresence: ({ children }: any) => children,
+    useAnimation: () => ({ start: () => Promise.resolve(), set: () => {}, stop: () => {} }),
+    useMotionValue: (val: any) => val,
+    useTransform: () => () => {},
+  };
+});

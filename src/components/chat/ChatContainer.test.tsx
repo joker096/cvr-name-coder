@@ -27,7 +27,7 @@ describe("ChatContainer", () => {
   it("should render MessageList and InputArea", () => {
     render(<ChatContainer {...defaultProps} />);
 
-    expect(screen.getByText("Welcome")).toBeInTheDocument();
+    expect(screen.getByText("Start a conversation to begin")).toBeInTheDocument();
     expect(screen.getByRole("textbox")).toBeInTheDocument();
   });
 
@@ -68,7 +68,7 @@ describe("ChatContainer", () => {
       />
     );
 
-    const sendButton = screen.getByRole("button");
+    const sendButton = screen.getByTitle("Send message");
     fireEvent.click(sendButton);
 
     expect(defaultProps.onSendMessage).toHaveBeenCalled();
@@ -170,18 +170,18 @@ describe("ChatContainer", () => {
     expect(container.firstChild).toHaveClass("custom-class");
   });
 
-  it("should render with Russian language", () => {
+  it("should pass through t to InputArea", () => {
     render(
       <ChatContainer
         {...defaultProps}
-        lang="ru"
+        t={{ cancel: "Abort" }}
         isLooming={true}
         onCancelMessage={vi.fn()}
       />
     );
 
     const cancelButton = screen.getByRole("button");
-    expect(cancelButton).toHaveAttribute("title", "Отменить");
+    expect(cancelButton).toHaveAttribute("title", "Abort");
   });
 
   it("should render with English language", () => {

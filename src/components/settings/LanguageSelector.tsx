@@ -34,14 +34,14 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
   className,
 }) => {
   return (
-    <div className={cn("space-y-2", className)}>
-      <label className="text-[14px] uppercase font-bold text-dash-text-muted tracking-widest">
+    <div className={cn("space-y-1.5", className)}>
+      <label className="text-[10px] uppercase font-bold text-dash-text-muted tracking-widest">
         {t.language || "Language"}
       </label>
       <select
         value={currentLang}
         onChange={(e) => onLanguageChange?.(e.target.value)}
-        className="w-full bg-dash-bg border border-dash-border rounded px-3 py-2 text-base text-dash-text-primary focus:border-dash-accent outline-none cursor-pointer"
+        className="w-full bg-dash-bg border border-dash-border rounded px-2.5 py-1.5 text-xs text-dash-text-primary focus:border-dash-accent outline-none cursor-pointer"
       >
         {LANGUAGES.map((lang) => (
           <option key={lang.code} value={lang.code}>

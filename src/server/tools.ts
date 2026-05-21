@@ -1,113 +1,46 @@
-import { readFile, readdir, writeFile, mkdir } from "fs/promises";
-import * as path from "path";
-import { exec } from "child_process";
-import { promisify } from "util";
 import type { ToolResult } from "../types/tools";
 import { READ_ONLY_TOOLS } from "../types/tools";
 import { PermissionEngine } from "./permissions.js";
 import type { PermissionRequest } from "../types/permissions.js";
 import { hookRegistry } from "./hooks.js";
-import { readMemory, writeMemory, readUser, writeUser } from "./memoryStore.js";
-import { loadSkills, getSkillById } from "./skillLoader.js";
-import { searchRAG } from "./ragEngine.js";
-import type { EmbedFunction } from "./ragEngine.js";
 import { loadCustomTools, executeCustomTool } from "./customToolLoader.js";
-import { getGitStatus, getGitDiff, gitCommit, gitPush, getGitLog } from "./gitTools.js";
-import { gatherPRContext, createGitHubPR, listOpenPRs, createBranch as prCreateBranch, switchBranch as prSwitchBranch, listBranches as prListBranches } from "./prAgent.js";
 import { createIssue, listIssues, getIssue, addComment } from "./issueTracker.js";
 import { getErrorMessage } from "../types/errors";
+import {
+  executeReadFile,
+  executeListDirectory,
+  executeSearchFiles,
+  executeWriteFile,
+  executeEditFile,
+} from "./tools/file.js";
+import { executeCommand } from "./tools/system.js";
+import { executeMemoryRead, executeMemoryWrite } from "./tools/memory.js";
+import { executeSkillList, executeSkillRead, executeSkillRun } from "./tools/skill.js";
+import { setRagEmbedFn as setRagFn, executeRagSearch } from "./tools/rag.js";
+import {
+  executeGitStatus,
+  executeGitDiff,
+  executeGitCommit,
+  executeGitPush,
+  executeGitLog,
+  executeGitBranch,
+  executeGitBranches,
+  executeGitSwitchBranch,
+  executeGitPRContext,
+  executeGitListPRs,
+  executeGitCreatePR,
+} from "./tools/git.js";
+import {
+  executeBrowserNavigate,
+  executeBrowserClick,
+  executeBrowserType,
+  executeBrowserScreenshot,
+  executeBrowserEvaluate,
+  executeBrowserGetHtml,
+  executeBrowserClose,
+} from "./tools/browser.js";
 
-interface BrowserToolsModule {
-  browserNavigate: (
-    sessionId: string,
-    url: string,
-    headless: boolean
-  ) => Promise<{ success: boolean; output?: string; error?: string }>;
-  browserClick: (
-    sessionId: string,
-    selector: string,
-    headless: boolean
-  ) => Promise<{ success: boolean; output?: string; error?: string }>;
-  browserType: (
-    sessionId: string,
-    selector: string,
-    text: string,
-    headless: boolean
-  ) => Promise<{ success: boolean; output?: string; error?: string }>;
-  browserScreenshot: (
-    sessionId: string,
-    headless: boolean
-  ) => Promise<{ success: boolean; output?: string; error?: string; base64?: string }>;
-  browserEvaluate: (
-    sessionId: string,
-    script: string,
-    headless: boolean
-  ) => Promise<{ success: boolean; output?: string; error?: string }>;
-  browserGetHtml: (
-    sessionId: string,
-    headless: boolean
-  ) => Promise<{ success: boolean; output?: string; error?: string }>;
-  browserClose: (sessionId: string) => Promise<{ success: boolean; output?: string; error?: string }>;
-}
-
-let browserTools: BrowserToolsModule | null = null;
-
-async function getBrowserTools(): Promise<BrowserToolsModule | null> {
-  if (!browserTools) {
-    try {
-      const modulePath = "./browserTools.js";
-      browserTools = (await import(modulePath)) as BrowserToolsModule;
-    } catch {
-      return null;
-    }
-  }
-  return browserTools;
-}
-
-const execAsync = promisify(exec);
-
-const PROJECT_ROOT = process.cwd();
-
-let ragEmbedFn: EmbedFunction | null = null;
-
-export function setRagEmbedFn(fn: EmbedFunction): void {
-  ragEmbedFn = fn;
-}
-
-function resolveProjectPath(requestedPath: string): string {
-  const resolved = path.resolve(PROJECT_ROOT, requestedPath);
-  const relative = path.relative(PROJECT_ROOT, resolved);
-  if (relative.startsWith("..") || path.isAbsolute(relative)) {
-    throw new Error("Path escapes project root: " + requestedPath);
-  }
-  return resolved;
-}
-
-async function searchDir(dir: string, query: string): Promise<string[]> {
-  const entries = await readdir(dir, { withFileTypes: true });
-  const results: string[] = [];
-  for (const entry of entries) {
-    const fullPath = path.join(dir, entry.name);
-    const relPath = path.relative(PROJECT_ROOT, fullPath);
-    if (entry.isDirectory() && entry.name !== "node_modules" && entry.name !== ".git") {
-      results.push(...(await searchDir(fullPath, query)));
-    } else if (entry.isFile()) {
-      if (entry.name.toLowerCase().includes(query)) {
-        results.push(`[MATCH] ${relPath} (filename)`);
-      } else {
-        try {
-          const content = await readFile(fullPath, "utf-8");
-          if (content.toLowerCase().includes(query)) {
-            results.push(`[MATCH] ${relPath} (content)`);
-          }
-        } catch {
-          // skip unreadable files
-        }
-      }
-    }
-  }
-  return results;
-}
+export { setRagFn as setRagEmbedFn };
 
 export async function executeTool(
   toolCall: { name: string; params: Record<string, unknown> },
@@ -134,11 +67,7 @@ export async function executeTool(
       output: "",
       error: `Tool "${name}" is disabled in PLAN mode. Switch to BUILD mode to make changes.`,
     };
-    await hookRegistry.execute(
-      "tool.after",
-      { tool: name, params, result: result.output, success: false },
-      sessionId
-    );
+    await hookRegistry.execute("tool.after", { tool: name, params, result: result.output, success: false }, sessionId);
     return result;
   }
 
@@ -147,12 +76,8 @@ export async function executeTool(
       tool: name,
       params: params as Record<string, string | number | boolean | null | undefined>,
     };
-    if (params.path) {
-      permissionRequest.filePath = String(params.path);
-    }
-    if (params.command) {
-      permissionRequest.command = String(params.command);
-    }
+    if (params.path) permissionRequest.filePath = String(params.path);
+    if (params.command) permissionRequest.command = String(params.command);
     const checkResult = permissionEngine.check(permissionRequest);
     if (checkResult.action === "deny") {
       result = {
@@ -160,11 +85,7 @@ export async function executeTool(
         output: "",
         error: `Permission denied: ${checkResult.reason || checkResult.rule?.pattern || "default policy"}`,
       };
-      await hookRegistry.execute(
-        "tool.after",
-        { tool: name, params, result: result.output, success: false },
-        sessionId
-      );
+      await hookRegistry.execute("tool.after", { tool: name, params, result: result.output, success: false }, sessionId);
       return result;
     }
     if (checkResult.action === "ask") {
@@ -172,15 +93,10 @@ export async function executeTool(
       const approved = await permissionEngine.waitForResolution(pending.id, 5 * 60 * 1000);
       if (!approved) {
         result = {
-          success: false,
-          output: "",
+          success: false, output: "",
           error: `Permission denied or timed out: ${name}`,
         };
-        await hookRegistry.execute(
-          "tool.after",
-          { tool: name, params, result: result.output, success: false },
-          sessionId
-        );
+        await hookRegistry.execute("tool.after", { tool: name, params, result: result.output, success: false }, sessionId);
         return result;
       }
     }
@@ -188,391 +104,121 @@ export async function executeTool(
 
   try {
     switch (name) {
-      case "read_file": {
-        const filePath = resolveProjectPath(String(params.path));
-        const content = await readFile(filePath, "utf-8");
-        result = { success: true, output: content };
+      case "read_file":
+        result = await executeReadFile(params);
         break;
-      }
-
-      case "list_directory": {
-        const dirPath = resolveProjectPath(String(params.path || "."));
-        const entries = await readdir(dirPath, { withFileTypes: true });
-        const lines = entries.map((e) => (e.isDirectory() ? `[DIR]  ${e.name}` : `[FILE] ${e.name}`));
-        result = { success: true, output: lines.join("\n") };
+      case "list_directory":
+        result = await executeListDirectory(params);
         break;
-      }
-
-      case "search_files": {
-        const searchPath = resolveProjectPath(String(params.path || "."));
-        const query = String(params.query).toLowerCase();
-        const matches = await searchDir(searchPath, query);
-        result = {
-          success: true,
-          output: matches.length > 0 ? matches.join("\n") : "No matches found.",
-        };
+      case "search_files":
+        result = await executeSearchFiles(params);
         break;
-      }
-
-      case "write_file": {
-        const writePath = resolveProjectPath(String(params.path));
-        const content = String(params.content);
-        await hookRegistry.execute("file.write.before", { path: writePath, content }, sessionId);
-        await mkdir(path.dirname(writePath), { recursive: true });
-        await writeFile(writePath, content, "utf-8");
-        await hookRegistry.execute("file.write.after", { path: writePath, content, success: true }, sessionId);
-        result = { success: true, output: `File written: ${String(params.path)}` };
+      case "write_file":
+        result = await executeWriteFile(params, sessionId);
         break;
-      }
-
-      case "edit_file": {
-        const editPath = resolveProjectPath(String(params.path));
-        const oldString = String(params.oldString);
-        const newString = String(params.newString);
-        const content = await readFile(editPath, "utf-8");
-        if (!content.includes(oldString)) {
-          result = { success: false, output: "", error: "oldString not found in file" };
-          break;
-        }
-        const updated = content.replace(oldString, newString);
-        await hookRegistry.execute("file.write.before", { path: editPath, content: updated }, sessionId);
-        await writeFile(editPath, updated, "utf-8");
-        await hookRegistry.execute("file.write.after", { path: editPath, content: updated, success: true }, sessionId);
-        result = { success: true, output: `File edited: ${String(params.path)}` };
+      case "edit_file":
+        result = await executeEditFile(params, sessionId);
         break;
-      }
-
-      case "execute_command": {
-        const cwd = params.cwd ? resolveProjectPath(String(params.cwd)) : PROJECT_ROOT;
-        const command = String(params.command);
-        const { stdout, stderr } = await execAsync(command, { cwd, timeout: 30000 });
-        result = { success: true, output: stdout + (stderr ? "\n" + stderr : "") };
+      case "execute_command":
+        result = await executeCommand(params);
         break;
-      }
-
-      case "memory_read": {
-        const memoryType = String(params.type);
-        if (memoryType === "user") {
-          const userData = await readUser();
-          result = { success: true, output: userData.raw };
-        } else {
-          const memData = await readMemory();
-          result = { success: true, output: memData.raw };
-        }
+      case "memory_read":
+        result = await executeMemoryRead(params);
         break;
-      }
-
-      case "memory_write": {
-        const memoryType = String(params.type);
-        const content = String(params.content);
-        const section = params.section ? String(params.section) : undefined;
-        if (memoryType === "user") {
-          await writeUser(content, section);
-          result = { success: true, output: "User preference recorded." };
-        } else {
-          await writeMemory(content, section);
-          result = { success: true, output: "Project memory recorded." };
-        }
+      case "memory_write":
+        result = await executeMemoryWrite(params);
         break;
-      }
-
-      case "skill_list": {
-        const skills = await loadSkills();
-        const list = skills.map((s) => ({
-          id: s.id,
-          name: s.name,
-          description: s.description,
-          triggers: s.triggers,
-        }));
-        result = { success: true, output: JSON.stringify(list, null, 2) };
+      case "skill_list":
+        result = await executeSkillList();
         break;
-      }
-
-      case "skill_read": {
-        const skillId = String(params.id);
-        const skill = await getSkillById(skillId);
-        if (!skill) {
-          result = { success: false, output: "", error: `Skill not found: ${skillId}` };
-        } else {
-          result = { success: true, output: `## ${skill.name}\n${skill.description}\n\n${skill.content}` };
-        }
+      case "skill_read":
+        result = await executeSkillRead(params);
         break;
-      }
-
-      case "skill_run": {
-        const runId = String(params.id);
-        const runSkill = await getSkillById(runId);
-        if (!runSkill) {
-          result = { success: false, output: "", error: `Skill not found: ${runId}` };
-        } else {
-          result = {
-            success: true,
-            output: `[SKILL: ${runSkill.name}]\nFollow these instructions:\n${runSkill.content}`,
-          };
-        }
+      case "skill_run":
+        result = await executeSkillRun(params);
         break;
-      }
-
-      case "rag_search": {
-        const query = String(params.query);
-        const topK = typeof params.topK === "number" ? params.topK : 3;
-        if (!ragEmbedFn) {
-          result = { success: false, output: "", error: "RAG embedding function not configured" };
-        } else {
-          const ragResults = await searchRAG(query, ragEmbedFn, topK);
-          if (ragResults.length === 0) {
-            result = { success: true, output: "No relevant RAG context found." };
-          } else {
-            const formatted = ragResults
-              .map((r, i) => `[${i + 1}] ${r.source} (score: ${r.score.toFixed(3)})\n${r.content}`)
-              .join("\n\n");
-            result = { success: true, output: `RAG Results:\n${formatted}` };
-          }
-        }
+      case "rag_search":
+        result = await executeRagSearch(params);
         break;
-      }
-
-      case "git_status": {
-        const status = await getGitStatus();
-        result = { success: true, output: JSON.stringify(status, null, 2) };
+      case "git_status":
+        result = await executeGitStatus();
         break;
-      }
-
-      case "git_diff": {
-        const diffs = await getGitDiff(Boolean(params.staged));
-        result = { success: true, output: JSON.stringify(diffs, null, 2) };
+      case "git_diff":
+        result = await executeGitDiff(params);
         break;
-      }
-
-      case "git_commit": {
-        const commitResult = await gitCommit(String(params.message));
-        result = {
-          success: commitResult.success,
-          output: commitResult.output,
-          ...(commitResult.error ? { error: commitResult.error } : {}),
-        };
+      case "git_commit":
+        result = await executeGitCommit(params);
         break;
-      }
-
-      case "git_push": {
-        const pushResult = await gitPush();
-        result = {
-          success: pushResult.success,
-          output: pushResult.output,
-          ...(pushResult.error ? { error: pushResult.error } : {}),
-        };
+      case "git_push":
+        result = await executeGitPush();
         break;
-      }
-
-      case "git_log": {
-        const commits = await getGitLog(typeof params.limit === "number" ? params.limit : 10);
-        result = { success: true, output: JSON.stringify(commits, null, 2) };
+      case "git_log":
+        result = await executeGitLog(params);
         break;
-      }
-
-      case "git_branch": {
-        const output = await prCreateBranch(params.name as string);
-        result = { success: true, output: `Created and switched to branch: ${output}` };
+      case "git_branch":
+        result = await executeGitBranch(params);
         break;
-      }
-
-      case "git_branches": {
-        const branches = await prListBranches();
-        result = { success: true, output: branches };
+      case "git_branches":
+        result = await executeGitBranches();
         break;
-      }
-
-      case "git_switch_branch": {
-        const output = await prSwitchBranch(params.name as string);
-        result = { success: true, output: `Switched to branch: ${output}` };
+      case "git_switch_branch":
+        result = await executeGitSwitchBranch(params);
         break;
-      }
-
-      case "git_pr_context": {
-        const ctx = await gatherPRContext();
-        result = { success: true, output: JSON.stringify(ctx, null, 2) };
+      case "git_pr_context":
+        result = await executeGitPRContext();
         break;
-      }
-
-      case "git_list_prs": {
-        const prs = await listOpenPRs();
-        result = { success: true, output: prs };
+      case "git_list_prs":
+        result = await executeGitListPRs();
         break;
-      }
-
-      case "git_create_pr": {
-        const ctx = await gatherPRContext();
-        if (params.title && params.description) {
-          const pr = await createGitHubPR(
-            params.title as string,
-            params.description as string,
-            ctx.baseBranch,
-            !!params.draft
-          );
-          result = { success: true, output: JSON.stringify(pr, null, 2) };
-        } else {
-          result = {
-            success: true,
-            output: `To create a PR, provide title and description.\n\nPR Context:\n${JSON.stringify(ctx, null, 2)}`,
-          };
-        }
+      case "git_create_pr":
+        result = await executeGitCreatePR(params);
         break;
-      }
-
       case "issue_create": {
-        const input: any = { title: params.title as string };
-        if (params.description !== undefined) input.description = params.description;
-        if (params.priority !== undefined) input.priority = params.priority;
-        if (params.labels !== undefined) input.labels = params.labels;
-        const issue = await createIssue(input);
+        const issueInput = {
+          title: String(params.title),
+          ...(params.description !== undefined ? { description: String(params.description) } : {}),
+          ...(params.priority !== undefined ? { priority: String(params.priority) as "low" | "medium" | "high" | "urgent" } : {}),
+          ...(params.labels !== undefined ? { labels: (Array.isArray(params.labels) ? params.labels : [params.labels]) as string[] } : {}),
+        };
+        const issue = await createIssue(issueInput);
         result = { success: true, output: JSON.stringify(issue, null, 2) };
         break;
       }
-
-      case "issue_list": {
-        const issues = await listIssues(
+      case "issue_list":
+        result = { success: true, output: JSON.stringify(await listIssues(
           params.status as string | undefined,
           typeof params.limit === "number" ? params.limit : 20
-        );
-        result = { success: true, output: JSON.stringify(issues, null, 2) };
+        ), null, 2) };
         break;
-      }
-
-      case "issue_view": {
-        const issue = await getIssue(params.key as string);
-        result = { success: true, output: JSON.stringify(issue, null, 2) };
+      case "issue_view":
+        result = { success: true, output: JSON.stringify(await getIssue(params.key as string), null, 2) };
         break;
-      }
-
       case "issue_comment": {
         await addComment(params.key as string, params.body as string);
         result = { success: true, output: `Comment added to ${params.key}` };
         break;
       }
-
-      case "browser_navigate": {
-        const bt = await getBrowserTools();
-        if (!bt) {
-          result = { success: false, output: "", error: "playwright-core not installed" };
-          break;
-        }
-        const navResult = await bt.browserNavigate(
-          sessionId,
-          String(params.url),
-          Boolean(params.headless ?? true)
-        );
-        result = {
-          success: navResult.success,
-          output: navResult.output ?? "",
-          ...(navResult.error ? { error: navResult.error } : {}),
-        };
+      case "browser_navigate":
+        result = await executeBrowserNavigate(params, sessionId);
         break;
-      }
-
-      case "browser_click": {
-        const bt = await getBrowserTools();
-        if (!bt) {
-          result = { success: false, output: "", error: "playwright-core not installed" };
-          break;
-        }
-        const clickResult = await bt.browserClick(
-          sessionId,
-          String(params.selector),
-          Boolean(params.headless ?? true)
-        );
-        result = {
-          success: clickResult.success,
-          output: clickResult.output ?? "",
-          ...(clickResult.error ? { error: clickResult.error } : {}),
-        };
+      case "browser_click":
+        result = await executeBrowserClick(params, sessionId);
         break;
-      }
-
-      case "browser_type": {
-        const bt = await getBrowserTools();
-        if (!bt) {
-          result = { success: false, output: "", error: "playwright-core not installed" };
-          break;
-        }
-        const typeResult = await bt.browserType(
-          sessionId,
-          String(params.selector),
-          String(params.text),
-          Boolean(params.headless ?? true)
-        );
-        result = {
-          success: typeResult.success,
-          output: typeResult.output ?? "",
-          ...(typeResult.error ? { error: typeResult.error } : {}),
-        };
+      case "browser_type":
+        result = await executeBrowserType(params, sessionId);
         break;
-      }
-
-      case "browser_screenshot": {
-        const bt = await getBrowserTools();
-        if (!bt) {
-          result = { success: false, output: "", error: "playwright-core not installed" };
-          break;
-        }
-        const ssResult = await bt.browserScreenshot(sessionId, Boolean(params.headless ?? true));
-        result = {
-          success: ssResult.success,
-          output: ssResult.output ?? "",
-          ...(ssResult.error ? { error: ssResult.error } : {}),
-          ...(ssResult.base64 ? { base64: ssResult.base64 } : {}),
-        };
+      case "browser_screenshot":
+        result = await executeBrowserScreenshot(params, sessionId);
         break;
-      }
-
-      case "browser_evaluate": {
-        const bt = await getBrowserTools();
-        if (!bt) {
-          result = { success: false, output: "", error: "playwright-core not installed" };
-          break;
-        }
-        const evalResult = await bt.browserEvaluate(
-          sessionId,
-          String(params.script),
-          Boolean(params.headless ?? true)
-        );
-        result = {
-          success: evalResult.success,
-          output: evalResult.output ?? "",
-          ...(evalResult.error ? { error: evalResult.error } : {}),
-        };
+      case "browser_evaluate":
+        result = await executeBrowserEvaluate(params, sessionId);
         break;
-      }
-
-      case "browser_get_html": {
-        const bt = await getBrowserTools();
-        if (!bt) {
-          result = { success: false, output: "", error: "playwright-core not installed" };
-          break;
-        }
-        const htmlResult = await bt.browserGetHtml(sessionId, Boolean(params.headless ?? true));
-        result = {
-          success: htmlResult.success,
-          output: htmlResult.output ?? "",
-          ...(htmlResult.error ? { error: htmlResult.error } : {}),
-        };
+      case "browser_get_html":
+        result = await executeBrowserGetHtml(params, sessionId);
         break;
-      }
-
-      case "browser_close": {
-        const bt = await getBrowserTools();
-        if (!bt) {
-          result = { success: false, output: "", error: "playwright-core not installed" };
-          break;
-        }
-        const closeResult = await bt.browserClose(sessionId);
-        result = {
-          success: closeResult.success,
-          output: closeResult.output ?? "",
-          ...(closeResult.error ? { error: closeResult.error } : {}),
-        };
+      case "browser_close":
+        result = await executeBrowserClose(sessionId);
         break;
-      }
-
       default: {
         const customTools = await loadCustomTools();
         const customTool = customTools.find((t) => t.id === name);
@@ -588,10 +234,6 @@ export async function executeTool(
     result = { success: false, output: "", error: getErrorMessage(err) };
   }
 
-  await hookRegistry.execute(
-    "tool.after",
-    { tool: name, params, result: result.output, success: result.success },
-    sessionId
-  );
+  await hookRegistry.execute("tool.after", { tool: name, params, result: result.output, success: result.success }, sessionId);
   return result;
 }

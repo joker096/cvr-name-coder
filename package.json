@@ -17,6 +17,7 @@
     "test:watch": "vitest",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
     "preview": "vite preview",
+    "type-cov": "type-coverage --detail",
     "package:vscode": "cd vscode && npm run package"
   },
   "dependencies": {

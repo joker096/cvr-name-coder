@@ -36,12 +36,12 @@ export const isValidProviderId = (id: string): id is ChatProviderId => {
   return typeof id === 'string' && id.length > 0;
 };
 
-function ProviderIcon({ providerId, size = "md" }: { providerId: ChatProviderId; size?: "sm" | "md" }) {
+function ProviderIcon({ providerId, size = "sm" }: { providerId: ChatProviderId; size?: "sm" | "md" }) {
   const px = size === "sm" ? 14 : 18;
 
   return (
     <div
-      className="rounded-md p-1 flex items-center justify-center"
+      className="rounded p-0.5 flex items-center justify-center"
       style={{ color: "#FFFFFF", backgroundColor: "rgba(255,255,255,0.08)" }}
     >
       <BrandIcon provider={providerId} size={px} />
@@ -62,13 +62,13 @@ export const ProviderSelector: React.FC<ProviderSelectorProps> = ({
   };
 
   return (
-    <div className={cn("grid grid-cols-4 md:grid-cols-6 gap-2", className)}>
+    <div className={cn("grid grid-cols-4 md:grid-cols-6 gap-1.5", className)}>
       {providers.map((provider) => (
         <button
           key={provider.id}
           onClick={() => handleProviderSelect(provider.id)}
           className={cn(
-            "card-interactive p-2.5 flex flex-col items-center gap-1.5 text-[10px] font-mono transition-all relative group",
+            "card-interactive p-1.5 flex flex-col items-center gap-1 text-[10px] font-mono transition-all relative group",
             selectedProvider === provider.id
               ? "border-dash-accent bg-dash-accent/10 text-dash-accent ring-1 ring-dash-accent"
               : "text-dash-text-muted"

@@ -55,12 +55,12 @@ export const PresetManager: React.FC<PresetManagerProps> = ({
   return (
     <div className={cn("space-y-3", className)}>
       <div className="flex items-center justify-between">
-        <span className="text-[13px] uppercase font-bold text-dash-text-muted tracking-widest">
+        <span className="text-[10px] uppercase font-bold text-dash-text-muted tracking-widest">
           {t.presets || "Presets"}
         </span>
         <button
           onClick={() => setShowCreateForm(!showCreateForm)}
-          className="text-[12px] text-dash-accent hover:text-dash-accent/80 font-mono"
+          className="text-xs text-dash-accent hover:text-dash-accent/80 font-mono"
         >
           {showCreateForm ? (t.cancel || "Cancel") : (t.createPreset || "Create Preset")}
         </button>
@@ -73,19 +73,19 @@ export const PresetManager: React.FC<PresetManagerProps> = ({
             value={presetName}
             onChange={(e) => setPresetName(e.target.value)}
             placeholder={t.presetName || "Preset Name"}
-            className="w-full bg-dash-bg border border-dash-border rounded px-3 py-2 text-sm font-mono text-dash-text-primary focus:border-dash-accent outline-none"
+            className="w-full bg-dash-bg border border-dash-border rounded px-2.5 py-1.5 text-xs font-mono text-dash-text-primary focus:border-dash-accent outline-none"
           />
           <textarea
             value={presetDescription}
             onChange={(e) => setPresetDescription(e.target.value)}
             placeholder={t.presetDescription || "Description (optional)"}
-            className="w-full bg-dash-bg border border-dash-border rounded px-3 py-2 text-sm font-mono text-dash-text-primary focus:border-dash-accent outline-none resize-none"
+            className="w-full bg-dash-bg border border-dash-border rounded px-2.5 py-1.5 text-xs font-mono text-dash-text-primary focus:border-dash-accent outline-none resize-none"
             rows={2}
           />
           <button
             onClick={handleSavePreset}
             disabled={!presetName.trim()}
-            className="w-full py-2 bg-dash-accent hover:bg-dash-accent/80 disabled:bg-neutral-800 disabled:text-neutral-700 rounded text-sm font-bold text-white transition-all"
+            className="w-full py-1.5 bg-dash-accent hover:bg-dash-accent/80 disabled:bg-neutral-800 disabled:text-neutral-700 rounded text-xs font-bold text-white transition-all"
           >
             {t.savePreset || "Save Preset"}
           </button>
@@ -93,7 +93,7 @@ export const PresetManager: React.FC<PresetManagerProps> = ({
       )}
 
       {presets.length === 0 && !showCreateForm && (
-        <div className="text-center py-4 text-dash-text-muted text-sm">
+        <div className="text-center py-4 text-dash-text-muted text-xs">
           {t.noPresets || "No presets saved yet"}
         </div>
       )}
@@ -112,7 +112,7 @@ export const PresetManager: React.FC<PresetManagerProps> = ({
             <div className="flex items-start justify-between gap-2">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="text-sm font-bold text-dash-text-primary truncate">
+                  <span className="text-xs font-bold text-dash-text-primary truncate">
                     {preset.name}
                   </span>
                   {isCurrentConfig(preset) && (

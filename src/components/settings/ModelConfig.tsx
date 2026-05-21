@@ -94,7 +94,7 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
               type={showApiKey ? "text" : "password"}
               value={config.apiKey || ""}
               onChange={(e) => handleApiKeyChange(e.target.value)}
-              className="w-full px-3 py-2 pr-10 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs"
+              className="w-full px-2.5 py-1.5 pr-10 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs"
               placeholder="Enter API key or leave empty to use env var"
             />
             <button
@@ -122,7 +122,7 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
               type="text"
               value={config.localUrl || ""}
               onChange={(e) => onChange({ localUrl: e.target.value })}
-              className="w-full px-3 py-2 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent"
+              className="w-full px-2.5 py-1.5 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs"
               placeholder="http://localhost:11434"
             />
           </div>
@@ -135,7 +135,7 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
               type="text"
               value={config.localModelName || ""}
               onChange={(e) => onChange({ localModelName: e.target.value })}
-              className="w-full px-3 py-2 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent"
+              className="w-full px-2.5 py-1.5 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs"
               placeholder="llama3"
             />
           </div>
@@ -153,7 +153,7 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
                 type={showApiKey ? "text" : "password"}
                 value={config.apiKey || ""}
                 onChange={(e) => handleApiKeyChange(e.target.value)}
-                className="w-full px-3 py-2 pr-10 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs"
+                className="w-full px-2.5 py-1.5 pr-10 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs"
                 placeholder="CUSTOM_API_KEY or enter here"
               />
               <button
@@ -175,7 +175,7 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
               type="text"
               value={config.customUrl || ""}
               onChange={(e) => onChange({ customUrl: e.target.value })}
-              className="w-full px-3 py-2 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent"
+              className="w-full px-2.5 py-1.5 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs"
               placeholder="https://api.example.com"
             />
           </div>
@@ -204,7 +204,7 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
             <select
               value={isCustomModel ? "__custom__" : config.aiModel || ""}
               onChange={(e) => handleModelChange(e.target.value)}
-              className="w-full px-3 py-2 bg-dash-bg border border-dash-border rounded text-dash-text-primary focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs"
+              className="w-full px-2.5 py-1.5 bg-dash-bg border border-dash-border rounded text-dash-text-primary focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs"
             >
               <option value="" disabled>{t.selectModel || "Select a model..."}</option>
               {mergedModels.map((model) => (
@@ -219,7 +219,7 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
                 type="text"
                 value={config.aiModel || ""}
                 onChange={(e) => onChange({ aiModel: e.target.value })}
-                className="w-full px-3 py-2 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs"
+                className="w-full px-2.5 py-1.5 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs"
                 placeholder={t.enterModelName || "Enter model name"}
               />
             )}
@@ -229,7 +229,7 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
             type="text"
             value={config.aiModel || ""}
             onChange={(e) => onChange({ aiModel: e.target.value })}
-            className="w-full px-3 py-2 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs"
+            className="w-full px-2.5 py-1.5 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs"
             placeholder={t.enterModelName || "Enter model name"}
           />
         )}

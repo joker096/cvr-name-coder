@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
-import { useVoiceInput } from "./../../hooks/useVoiceInput";
+import { useVoiceInput } from "../../../hooks/useVoiceInput";
 
 describe("useVoiceInput", () => {
   let mockRecognition: {

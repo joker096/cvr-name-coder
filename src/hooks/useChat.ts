@@ -165,6 +165,16 @@ export const useChat = (config: ChatConfig) => {
                       : msg
                   ),
                 }));
+              } else if (parsed.error) {
+                fullContent += `\n\n⚠ ${parsed.error}`;
+                setState((prev) => ({
+                  ...prev,
+                  messages: prev.messages.map((msg) =>
+                    msg.id === assistantMessage.id
+                      ? { ...msg, content: msg.content + `\n\n⚠ ${parsed.error}` }
+                      : msg
+                  ),
+                }));
               } else if (parsed.content) {
                 fullContent += parsed.content;
                 setState((prev) => ({

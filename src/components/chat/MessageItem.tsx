@@ -11,6 +11,8 @@ interface MessageItemProps {
   message: Message;
   index: number;
   agentLabel?: string | undefined;
+  providerLabel?: string | undefined;
+  modelName?: string | undefined;
   t: any;
 }
 
@@ -18,6 +20,8 @@ export const MessageItem: React.FC<MessageItemProps> = ({
   message,
   index,
   agentLabel,
+  providerLabel,
+  modelName,
   t,
 }) => {
   const tt = t as Record<string, string>;
@@ -106,11 +110,17 @@ export const MessageItem: React.FC<MessageItemProps> = ({
           ? t.input
           : agentLabel?.toUpperCase() || t.agent}
         ]
+        {message.role !== "user" && providerLabel && (
+          <div className="text-[8px] text-dash-text-muted font-normal normal-case mt-0.5 leading-tight">
+            {providerLabel}
+            {modelName && <span className="block">{modelName}</span>}
+          </div>
+        )}
       </span>
       <div
         className={cn(
           "flex-1 prose prose-invert prose-sm max-w-none text-dash-text-primary text-[13px]",
-          message.role === "model" &&
+          message.role !== "user" &&
             "p-2 bg-dash-surface/30 rounded border border-dash-border"
         )}
       >

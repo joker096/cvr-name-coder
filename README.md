@@ -6,12 +6,64 @@
 
 An AI coding assistant that runs **entirely inside VS Code** as a sidebar extension. No external servers, no setup, no cloud dependency — just install the `.vsix` and start coding with AI.
 
-## ✨ Quick Start
+## 📦 Installation
 
-1. Install the extension from `.vsix`
-2. Click the **cvr.name** icon in the Activity Bar
-3. If you have Ollama running, it auto-detects — just start chatting
-4. Or configure a cloud provider (Gemini, DeepSeek, Groq) in Settings
+### Prerequisites
+
+- **VS Code** 1.85+ 
+- **Node.js** 18+ (included with VS Code)
+- **Git** (recommended)
+
+### Quick Install
+
+1. **Get the `.vsix` file** — download from [Releases](https://github.com/your-repo/releases) or build yourself:
+   ```bash
+   git clone <repo-url>
+   cd cvr.name.coder
+   npm install
+   npm run build
+   npm run package:vscode
+   # File: vscode/cvr-name-coder-1.x.x.vsix
+   ```
+
+2. **Install in VS Code:**
+   ```bash
+   code --install-extension vscode/cvr-name-coder-1.x.x.vsix
+   ```
+   Or via VS Code: `Ctrl+Shift+P` → "Extensions: Install from VSIX..." → select the file
+
+3. **Reload VS Code** → `Ctrl+Shift+P` → "Developer: Reload Window"
+
+4. **Click the cvr.name icon** in the Activity Bar (left sidebar)
+
+5. **Configure AI provider:**
+   - Click gear icon ⚙ → Settings
+   - Select provider (Gemini, OpenAI, DeepSeek, etc.)
+   - Enter API key (or use `.env` / environment variable)
+   - Choose model
+   - Click Save
+
+6. **Or use Local AI (no API key):**
+   - Install [Ollama](https://ollama.com)
+   - Run `ollama pull llama3` and `ollama serve`
+   - In Settings → select "Local" provider → enter `http://localhost:11434`
+
+### After Install — Keep Settings When Updating
+
+Settings (provider, model, API keys, language, presets) survive extension reinstalls. They're stored in VS Code's internal state.
+
+To update to a new version, just install the new `.vsix` — old versions are auto-cleaned.
+
+### Troubleshooting
+
+| Problem | Solution |
+|---------|----------|
+| AI not responding | Check API key in Settings, ensure provider URL is correct |
+| Blank responses | Reload VS Code window (`Developer: Reload Window`) |
+| Extension not appearing | Verify VS Code ≥ 1.85, reinstall vsix |
+| Local model not found | Ensure Ollama is running: `ollama serve` |
+
+## ✨ Quick Start
 
 ## 🎯 Key Features
 
@@ -155,18 +207,20 @@ See [VSCODE_EXTENSION.md](VSCODE_EXTENSION.md) for detailed installation instruc
 
 ## 💻 Development
 
-### Setup
-
 ```bash
-# Root project (frontend + server)
+# Install dependencies (root + vscode)
 npm install
+cd vscode && npm install && cd ..
+
+# Dev server (browser mode)
 npm run dev
 
-# VS Code extension
-cd vscode
-npm install
+# Build extension
 npm run build
-npx @vscode/vsce package
+npm run package:vscode
+
+# or use the release script
+.\release.ps1 "your commit message"
 ```
 
 ### Testing

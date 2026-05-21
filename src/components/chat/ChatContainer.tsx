@@ -11,6 +11,8 @@ interface ChatContainerProps {
   onCancelMessage?: (() => void) | undefined;
   isLooming?: boolean;
   agentLabel?: string | undefined;
+  providerLabel?: string | undefined;
+  modelName?: string | undefined;
   t: any;
   lang?: string;
   loadingText?: string | undefined;
@@ -31,6 +33,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   onCancelMessage,
   isLooming = false,
   agentLabel,
+  providerLabel,
+  modelName,
   t,
   lang = "en",
   loadingText,
@@ -47,6 +51,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
       <MessageList
         messages={messages}
         agentLabel={agentLabel}
+        providerLabel={providerLabel}
+        modelName={modelName}
         t={t}
         isLooming={isLooming}
         loadingText={loadingText}

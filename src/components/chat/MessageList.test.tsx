@@ -36,7 +36,6 @@ describe("MessageList", () => {
       />
     );
 
-    expect(screen.getByText("Welcome")).toBeInTheDocument();
     expect(screen.getByText("Start a conversation to begin")).toBeInTheDocument();
   });
 

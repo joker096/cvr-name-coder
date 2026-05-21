@@ -289,6 +289,25 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
     });
   });
 
+  // Settings persistence — survives extension reinstall via globalState
+  app.get('/api/settings', (_req: any, res: any) => {
+    try {
+      const settings = context.globalState.get('cvr_settings', {});
+      res.json(settings);
+    } catch {
+      res.json({});
+    }
+  });
+
+  app.post('/api/settings', (req: any, res: any) => {
+    try {
+      context.globalState.update('cvr_settings', req.body);
+      res.json({ saved: true });
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to save settings' });
+    }
+  });
+
   // Security: Origin validation middleware
   app.use((req: any, res: any, next: any) => {
     const origin = req.headers.origin || req.headers.referer || '';

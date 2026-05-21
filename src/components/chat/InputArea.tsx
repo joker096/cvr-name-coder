@@ -107,12 +107,15 @@ export const InputArea: React.FC<InputAreaProps> = ({
   }, []);
 
   const handleSelectCommand = (cmd: SlashCommand) => {
-    onChange(cmd + " ");
+    const newValue = cmd + " ";
+    onChange(newValue);
     setShowCommands(false);
-    // Focus textarea
-    const textarea = containerRef.current?.querySelector("textarea");
+    const textarea = containerRef.current?.querySelector("textarea") as HTMLTextAreaElement | null;
     if (textarea) {
-      setTimeout(() => textarea.focus(), 0);
+      setTimeout(() => {
+        textarea.focus();
+        textarea.setSelectionRange(newValue.length, newValue.length);
+      }, 0);
     }
   };
 
@@ -227,8 +230,18 @@ export const InputArea: React.FC<InputAreaProps> = ({
             onKeyDown={handleKeyDown}
             placeholder={placeholder}
             disabled={disabled}
-            className="w-full bg-transparent border-none focus:ring-0 text-[13px] font-mono p-1 min-h-[32px] max-h-24 resize-none no-scrollbar text-dash-text-primary placeholder:text-dash-text-label disabled:opacity-50"
+            className="w-full bg-transparent border-none focus:ring-0 text-[13px] font-mono p-1 pr-7 min-h-[32px] max-h-24 resize-none no-scrollbar text-dash-text-primary placeholder:text-dash-text-label disabled:opacity-50"
           />
+          {value && !disabled && (
+            <button
+              onClick={() => onChange("")}
+              className="absolute right-0 top-1/2 -translate-y-1/2 p-0.5 text-dash-text-muted hover:text-dash-text-primary transition-colors"
+              title="Clear input"
+              type="button"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          )}
           {showCommands && filteredCommands.length > 0 && (
             <div className="absolute bottom-full left-0 mb-1 w-full bg-dash-elevated border border-dash-border rounded-lg shadow-2xl overflow-hidden z-50">
               {filteredCommands.map((cmd, index) => (
@@ -300,6 +313,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
             onClick={handleSend}
             disabled={!canSend || disabled}
             className="p-1 bg-dash-accent hover:bg-dash-accent/80 disabled:bg-neutral-800 disabled:text-neutral-700 rounded-md transition-all"
+            title="Send message"
           >
             <CornerDownLeft className="w-3 h-3 text-white" />
           </button>

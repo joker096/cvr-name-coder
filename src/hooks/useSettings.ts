@@ -1,9 +1,30 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { storageService } from "../services/storageService";
 import type { ChatConfig, Preset } from "../types/settings";
 import { toPresetId } from "../types/ai";
 
 const STORAGE_KEY = "cvr_settings";
+
+const persistToServer = async (settings: Settings) => {
+  try {
+    await fetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(settings),
+    });
+  } catch {}
+};
+
+const loadFromServer = async (): Promise<Settings | null> => {
+  try {
+    const res = await fetch("/api/settings");
+    if (res.ok) {
+      const data = await res.json();
+      if (data && typeof data === "object" && data.chat) return data as Settings;
+    }
+  } catch {}
+  return null;
+};
 
 interface Settings {
   chat: ChatConfig;
@@ -11,7 +32,7 @@ interface Settings {
   autoLoopDelay: number;
   isAutonomous: boolean;
   autoCommit: boolean;
-  lang: "en" | "ru";
+  lang: string;
   voiceEnabled: boolean;
   voiceLanguage: string;
   voiceAutoSend: boolean;
@@ -46,15 +67,38 @@ const DEFAULT_SETTINGS: Settings = {
 };
 
 export const useSettings = () => {
-  const [settings, setSettings] = useState<Settings>(() => {
-    const saved = storageService.get<Settings>(STORAGE_KEY);
-    return saved ? { ...DEFAULT_SETTINGS, ...saved } : DEFAULT_SETTINGS;
-  });
-
-  const [isLoading] = useState(false);
+  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  const [isLoading, setIsLoading] = useState(true);
+  const isInitialized = useRef(false);
 
   useEffect(() => {
+    const init = async () => {
+      try {
+        const serverSettings = await loadFromServer();
+        if (serverSettings) {
+          setSettings({ ...DEFAULT_SETTINGS, ...serverSettings });
+          storageService.set(STORAGE_KEY, serverSettings);
+        } else {
+          const saved = storageService.get<Settings>(STORAGE_KEY);
+          if (saved) {
+            setSettings({ ...DEFAULT_SETTINGS, ...saved });
+            persistToServer(saved);
+          }
+        }
+      } catch {
+        const saved = storageService.get<Settings>(STORAGE_KEY);
+        if (saved) setSettings({ ...DEFAULT_SETTINGS, ...saved });
+      }
+      isInitialized.current = true;
+      setIsLoading(false);
+    };
+    init();
+  }, []);
+
+  useEffect(() => {
+    if (!isInitialized.current) return;
     storageService.set(STORAGE_KEY, settings);
+    persistToServer(settings);
   }, [settings]);
 
   const updateChatConfig = (config: Partial<ChatConfig>) => {
@@ -76,7 +120,7 @@ export const useSettings = () => {
     setSettings((prev) => ({ ...prev, autoCommit: !prev.autoCommit }));
   };
 
-  const setLanguage = (lang: "en" | "ru") => {
+  const setLanguage = (lang: string) => {
     setSettings((prev) => ({ ...prev, lang }));
   };
 

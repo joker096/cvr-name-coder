@@ -5,7 +5,9 @@ Run an **autonomous AI coding agent** directly inside VS Code. Fully self-contai
 
 Скрипт готов: release.ps1
 Использование:
+--------------------
 .\release.ps1 "твоё сообщение коммита"
+--------------------
 Что делает:
 1. npm run type-check — проверка типов
 2. npm run build — сборка основного проекта

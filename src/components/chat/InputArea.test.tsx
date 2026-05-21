@@ -9,6 +9,8 @@ describe("InputArea", () => {
     onSend: vi.fn(),
   };
 
+  const getButtons = () => screen.getAllByRole("button");
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -60,30 +62,30 @@ describe("InputArea", () => {
   });
 
   it("should render send button when not looming", () => {
-    render(<InputArea {...defaultProps} value="Hello" />);
+    render(<InputArea {...defaultProps} value="" />);
 
-    const sendButton = screen.getByRole("button");
+    const sendButton = screen.getByTitle("Send message");
     expect(sendButton).toBeInTheDocument();
   });
 
   it("should disable send button when input is empty", () => {
     render(<InputArea {...defaultProps} value="" />);
 
-    const sendButton = screen.getByRole("button");
+    const sendButton = screen.getByTitle("Send message");
     expect(sendButton).toBeDisabled();
   });
 
   it("should enable send button when input has value", () => {
     render(<InputArea {...defaultProps} value="Hello" />);
 
-    const sendButton = screen.getByRole("button");
+    const sendButton = screen.getByTitle("Send message");
     expect(sendButton).not.toBeDisabled();
   });
 
   it("should call onSend when send button is clicked", () => {
     render(<InputArea {...defaultProps} value="Hello" />);
 
-    const sendButton = screen.getByRole("button");
+    const sendButton = screen.getByTitle("Send message");
     fireEvent.click(sendButton);
 
     expect(defaultProps.onSend).toHaveBeenCalled();
@@ -98,7 +100,7 @@ describe("InputArea", () => {
       />
     );
 
-    const cancelButton = screen.getByRole("button");
+    const cancelButton = screen.getByTitle("Cancel");
     expect(cancelButton).toBeInTheDocument();
   });
 
@@ -112,7 +114,7 @@ describe("InputArea", () => {
       />
     );
 
-    const cancelButton = screen.getByRole("button");
+    const cancelButton = screen.getByTitle("Cancel");
     fireEvent.click(cancelButton);
 
     expect(onCancel).toHaveBeenCalled();
@@ -141,21 +143,45 @@ describe("InputArea", () => {
     expect(container.firstChild).toHaveClass("custom-class");
   });
 
-  it("should show Russian cancel title when lang is ru", () => {
+  it("should show clear button when input has value", () => {
+    render(<InputArea {...defaultProps} value="Hello" />);
+
+    const clearButton = screen.getByTitle("Clear input");
+    expect(clearButton).toBeInTheDocument();
+  });
+
+  it("should not show clear button when input is empty", () => {
+    render(<InputArea {...defaultProps} value="" />);
+
+    expect(screen.queryByTitle("Clear input")).not.toBeInTheDocument();
+  });
+
+  it("should clear input when clear button is clicked", () => {
+    const onChange = vi.fn();
+    render(<InputArea {...defaultProps} value="Hello" onChange={onChange} />);
+
+    const clearButton = screen.getByTitle("Clear input");
+    fireEvent.click(clearButton);
+
+    expect(onChange).toHaveBeenCalledWith("");
+  });
+
+  it("should show cancel title from t.cancel", () => {
+    const onCancel = vi.fn();
     render(
       <InputArea
         {...defaultProps}
         isLooming={true}
-        onCancel={vi.fn()}
-        lang="ru"
+        onCancel={onCancel}
+        t={{ cancel: "Abort" }}
       />
     );
 
     const cancelButton = screen.getByRole("button");
-    expect(cancelButton).toHaveAttribute("title", "Отменить");
+    expect(cancelButton).toHaveAttribute("title", "Abort");
   });
 
-  it("should show English cancel title when lang is en", () => {
+  it("should default cancel title to Cancel", () => {
     render(
       <InputArea
         {...defaultProps}

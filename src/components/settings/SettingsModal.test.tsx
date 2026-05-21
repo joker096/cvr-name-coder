@@ -104,10 +104,10 @@ describe("SettingsModal", () => {
   });
 
   it("should call onClose when backdrop is clicked", () => {
-    render(<SettingsModal {...defaultProps} />);
+    const { container } = render(<SettingsModal {...defaultProps} />);
 
-    const backdrop = screen.getByText("Settings").closest("div")?.parentElement;
-    fireEvent.click(backdrop!);
+    const backdrop = container.firstChild as HTMLElement;
+    fireEvent.click(backdrop);
 
     expect(defaultProps.onClose).toHaveBeenCalled();
   });

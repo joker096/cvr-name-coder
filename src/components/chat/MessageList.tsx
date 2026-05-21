@@ -5,6 +5,8 @@ import type { Message } from "../../types/chat";
 interface MessageListProps {
   messages: Message[];
   agentLabel?: string | undefined;
+  providerLabel?: string | undefined;
+  modelName?: string | undefined;
   t: any;
   isLooming?: boolean;
   loadingText?: string | undefined;
@@ -13,6 +15,8 @@ interface MessageListProps {
 export const MessageList: React.FC<MessageListProps> = ({
   messages,
   agentLabel,
+  providerLabel,
+  modelName,
   t,
   isLooming = false,
   loadingText,
@@ -35,6 +39,8 @@ export const MessageList: React.FC<MessageListProps> = ({
           message={message}
           index={index}
           agentLabel={agentLabel}
+          providerLabel={providerLabel}
+          modelName={modelName}
           t={t}
         />
       ))}

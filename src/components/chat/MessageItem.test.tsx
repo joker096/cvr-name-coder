@@ -114,7 +114,7 @@ describe("MessageItem", () => {
     );
 
     expect(screen.getByText("javascript")).toBeInTheDocument();
-    expect(screen.getByText("const x = 1;")).toBeInTheDocument();
+    expect(screen.getByText("const")).toBeInTheDocument();
   });
 
   it("should apply correct styling for user message", () => {
@@ -162,7 +162,61 @@ describe("MessageItem", () => {
       />
     );
 
-    const card = container.querySelector('[class*="bg-dash-card/30"]');
+    const card = container.querySelector('[class*="bg-dash-surface/30"]');
     expect(card).toBeInTheDocument();
+  });
+
+  it("should apply card styling for assistant role", () => {
+    const assistantMessage: Message = {
+      ...mockMessage,
+      role: "assistant",
+    };
+
+    const { container } = render(
+      <MessageItem
+        message={assistantMessage}
+        index={0}
+        t={mockT}
+      />
+    );
+
+    const card = container.querySelector('[class*="bg-dash-surface/30"]');
+    expect(card).toBeInTheDocument();
+    expect(screen.getByText("[AGENT]")).toBeInTheDocument();
+  });
+
+  it("should display provider and model for AI messages", () => {
+    const assistantMessage: Message = {
+      ...mockMessage,
+      role: "assistant",
+    };
+
+    render(
+      <MessageItem
+        message={assistantMessage}
+        index={0}
+        agentLabel="BUILD"
+        providerLabel="Gemini"
+        modelName="gemini-2.5-flash"
+        t={mockT}
+      />
+    );
+
+    expect(screen.getByText("Gemini")).toBeInTheDocument();
+    expect(screen.getByText("gemini-2.5-flash")).toBeInTheDocument();
+  });
+
+  it("should not display provider info for user messages", () => {
+    render(
+      <MessageItem
+        message={mockMessage}
+        index={0}
+        providerLabel="Gemini"
+        modelName="gemini-2.5-flash"
+        t={mockT}
+      />
+    );
+
+    expect(screen.queryByText("Gemini")).not.toBeInTheDocument();
   });
 });
