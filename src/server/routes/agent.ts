@@ -14,7 +14,7 @@ export function registerRoutes(app: Application) {
       const { goal, provider, model, thinkingProvider, thinkingModel, thinkingLocalUrl } = req.body;
       const id = randomUUID();
       const dualCfg: DualModelConfig = {
-        primaryProvider: provider || "gemini",
+        primaryProvider: provider || "",
         primaryModel: model,
         thinkingProvider,
         thinkingModel,
@@ -62,7 +62,7 @@ export function registerRoutes(app: Application) {
     try {
       const { goal, provider, model, thinkingProvider, thinkingModel, thinkingLocalUrl } = req.body;
       const dualCfg: DualModelConfig = {
-        primaryProvider: provider || "gemini",
+        primaryProvider: provider || "",
         primaryModel: model,
         thinkingProvider,
         thinkingModel,
@@ -81,7 +81,7 @@ export function registerRoutes(app: Application) {
     try {
       const { goal, agentConfig, provider, model, thinkingProvider, thinkingModel, thinkingLocalUrl } = req.body;
       const dualCfg: DualModelConfig = {
-        primaryProvider: provider || "gemini",
+        primaryProvider: provider || "",
         primaryModel: model,
         thinkingProvider,
         thinkingModel,

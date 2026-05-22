@@ -13,15 +13,6 @@ describe("SettingsModal", () => {
     customUrl: "",
   };
 
-  const mockKernelConfig: ChatConfig = {
-    aiProvider: "openai",
-    aiModel: "gpt-4",
-    localUrl: "",
-    localModelName: "",
-    customKey: "",
-    customUrl: "",
-  };
-
   const mockPresets: Preset[] = [
     {
       id: "preset1",
@@ -36,7 +27,6 @@ describe("SettingsModal", () => {
     isOpen: true,
     onClose: vi.fn(),
     config: mockConfig,
-    kernelConfig: mockKernelConfig,
     presets: mockPresets,
     onSave: vi.fn(),
     onPresetSave: vi.fn(),
@@ -44,8 +34,7 @@ describe("SettingsModal", () => {
     onPresetDelete: vi.fn(),
     t: {
       settings: "Settings",
-      chatEngine: "Chat Engine",
-      kernelEngine: "Kernel Engine",
+      chatEngine: "AI Engine",
       selectProvider: "Select Provider",
       cloudGemini: "Google Gemini",
       openaiProvider: "OpenAI",
@@ -127,18 +116,24 @@ describe("SettingsModal", () => {
   it("should render tabs", () => {
     render(<SettingsModal {...defaultProps} />);
 
-    expect(screen.getByText("Chat Engine")).toBeInTheDocument();
-    expect(screen.getByText("Kernel Engine")).toBeInTheDocument();
+    expect(screen.getByText("AI Engine")).toBeInTheDocument();
     expect(screen.getByText("MCP")).toBeInTheDocument();
+  });
+
+  it("should not render Kernel Engine tab", () => {
+    render(<SettingsModal {...defaultProps} />);
+
+    expect(screen.queryByText("Kernel Engine")).not.toBeInTheDocument();
+    expect(screen.queryByText("Agent AI")).not.toBeInTheDocument();
   });
 
   it("should switch tabs when tab is clicked", () => {
     render(<SettingsModal {...defaultProps} />);
 
-    const kernelTab = screen.getByText("Kernel Engine");
-    fireEvent.click(kernelTab);
+    const mcpTab = screen.getByText("MCP");
+    fireEvent.click(mcpTab);
 
-    expect(screen.getByText("OpenAI")).toBeInTheDocument();
+    expect(screen.getByText("MCP Tools")).toBeInTheDocument();
   });
 
   it("should render provider selector", () => {
@@ -167,7 +162,7 @@ describe("SettingsModal", () => {
     const saveButton = screen.getByText("Save");
     fireEvent.click(saveButton);
 
-    expect(defaultProps.onSave).toHaveBeenCalledWith(mockConfig, mockKernelConfig);
+    expect(defaultProps.onSave).toHaveBeenCalledWith(mockConfig);
     expect(defaultProps.onClose).toHaveBeenCalled();
   });
 

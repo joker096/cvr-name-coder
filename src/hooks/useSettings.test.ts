@@ -3,7 +3,7 @@ import { renderHook, act, waitFor } from "@testing-library/react";
 import { useSettings } from "./useSettings";
 import { storageService } from "../services/storageService";
 
-const DEFAULT_MODEL = "gemini-2.5-flash";
+const DEFAULT_MODEL = "";
 
 vi.mock("../services/storageService", () => ({
   storageService: {
@@ -31,7 +31,7 @@ describe("useSettings", () => {
       expect(result.current.isLoading).toBe(false);
     });
 
-    expect(result.current.settings.chat.aiProvider).toBe("gemini");
+    expect(result.current.settings.chat.aiProvider).toBe("");
     expect(result.current.settings.chat.aiModel).toBe(DEFAULT_MODEL);
     expect(result.current.settings.autoLoopDelay).toBe(2000);
     expect(result.current.settings.isAutonomous).toBe(true);
@@ -385,7 +385,7 @@ describe("useSettings", () => {
       result.current.resetSettings();
     });
 
-    expect(result.current.settings.chat.aiProvider).toBe("gemini");
+    expect(result.current.settings.chat.aiProvider).toBe("");
     expect(result.current.settings.chat.aiModel).toBe(DEFAULT_MODEL);
     expect(result.current.settings.autoLoopDelay).toBe(2000);
     expect(result.current.settings.isAutonomous).toBe(true);

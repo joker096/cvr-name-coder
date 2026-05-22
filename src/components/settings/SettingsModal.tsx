@@ -14,7 +14,6 @@ interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   config: ChatConfig;
-  kernelConfig: ChatConfig;
   presets: Preset[];
   isAutonomous: boolean;
   autoLoopDelay: number;
@@ -22,7 +21,7 @@ interface SettingsModalProps {
   voiceEnabled: boolean;
   voiceLanguage: string;
   voiceAutoSend: boolean;
-  onSave: (config: ChatConfig, kernelConfig: ChatConfig) => void;
+  onSave: (config: ChatConfig) => void;
   onPresetSave?: ((preset: Omit<Preset, "id" | "createdAt">) => void) | undefined;
   onPresetApply?: (preset: Preset) => void;
   onPresetDelete?: (id: string) => void;
@@ -57,7 +56,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
   onClose,
   config,
-  kernelConfig,
   presets,
   isAutonomous,
   autoLoopDelay,
@@ -80,53 +78,45 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   lang = "en",
   className,
 }) => {
-  const [activeTab, setActiveTab] = useState("chat" as "chat" | "kernel" | "mcp");
+  const [activeTab, setActiveTab] = useState("chat" as "chat" | "mcp");
   const [localConfig, setLocalConfig] = useState<ChatConfig>(config);
-  const [localKernelConfig, setLocalKernelConfig] = useState<ChatConfig>(kernelConfig);
   const { getModelsForProvider, fetchRemoteModels, remoteModels, isRefreshingModels } = useAIProviders();
   const [keyValidations, setKeyValidations] = useState<KeyValidationResult[]>([]);
   const [isValidating, setIsValidating] = useState(false);
 
-  const currentConfig = activeTab === "chat" ? localConfig : localKernelConfig;
-  const setCurrentConfig = activeTab === "chat" ? setLocalConfig : setLocalKernelConfig;
-
   const handleSave = async () => {
-    const configs = [
-      { cfg: localConfig, label: "chat" },
-      { cfg: localKernelConfig, label: "kernel" },
-    ];
+    const provider = localConfig.aiProvider;
     const results: KeyValidationResult[] = [];
     setIsValidating(true);
-    for (const { cfg } of configs) {
-      const provider = cfg.aiProvider;
-      if (!provider || provider === "local" || provider === "custom") continue;
-      const key = (cfg.providerKeys?.[provider] || cfg.apiKey || "").trim();
-      if (!key) continue;
-      try {
-        const r = await fetch("/api/validate-key", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ provider, apiKey: key }),
-        });
-        const data = await r.json();
-        results.push({ provider, valid: data.valid, error: data.error || data.warning });
-      } catch {
-        results.push({ provider, valid: false, error: "Validation failed" });
+    if (provider && provider !== "local" && provider !== "custom") {
+      const key = (localConfig.providerKeys?.[provider] || localConfig.apiKey || "").trim();
+      if (key) {
+        try {
+          const r = await fetch("/api/validate-key", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ provider, apiKey: key }),
+          });
+          const data = await r.json();
+          results.push({ provider, valid: data.valid, error: data.error || data.warning });
+        } catch {
+          results.push({ provider, valid: false, error: "Validation failed" });
+        }
       }
     }
     setIsValidating(false);
     setKeyValidations(results);
     if (results.some(r => !r.valid)) return;
-    onSave(localConfig, localKernelConfig);
+    onSave(localConfig);
     onClose();
   };
 
   const handleProviderChange = (providerId: string) => {
-    setCurrentConfig((prev) => ({ ...prev, aiProvider: providerId as ChatConfig["aiProvider"] }));
+    setLocalConfig((prev) => ({ ...prev, aiProvider: providerId as ChatConfig["aiProvider"] }));
   };
 
   const handleModelConfigChange = (modelConfig: Partial<ModelConfigType>) => {
-    setCurrentConfig((prev) => {
+    setLocalConfig((prev) => {
       const next = { ...prev, ...modelConfig };
       if (modelConfig.providerKeys) {
         next.providerKeys = { ...prev.providerKeys, ...modelConfig.providerKeys };
@@ -137,14 +127,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const handleFetchRemoteModels = () => {
-    const provider = currentConfig.aiProvider;
-    const key = currentConfig.providerKeys?.[provider] || currentConfig.apiKey;
+    const provider = localConfig.aiProvider;
+    const key = localConfig.providerKeys?.[provider] || localConfig.apiKey;
     if (key) fetchRemoteModels(provider, key).catch(() => {});
   };
 
   const handleVerifyKey = async () => {
-    const provider = currentConfig.aiProvider;
-    const key = (currentConfig.providerKeys?.[provider] || currentConfig.apiKey || "").trim();
+    const provider = localConfig.aiProvider;
+    const key = (localConfig.providerKeys?.[provider] || localConfig.apiKey || "").trim();
     if (!key || !provider || provider === "local" || provider === "custom") return;
     setIsValidating(true);
     try {
@@ -194,22 +184,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             isValidating={isValidating}
             keyValidations={keyValidations}
             config={localConfig}
-            kernelConfig={localKernelConfig}
             providers={PROVIDERS}
             remoteModels={remoteModels}
             isRefreshingModels={isRefreshingModels}
             getModelsForProvider={getModelsForProvider}
             onProviderChange={handleProviderChange}
             onModelConfigChange={handleModelConfigChange}
-            onAgentChange={(agent) => setCurrentConfig((prev) => ({ ...prev, agent }))}
-            onTemperatureChange={(temp) => setCurrentConfig((prev) => ({ ...prev, temperature: temp }))}
-            onMaxTokensChange={(tokens) => setCurrentConfig((prev) => ({ ...prev, maxTokens: tokens }))}
-            onSystemPromptChange={(prompt) => setCurrentConfig((prev) => ({ ...prev, systemPrompt: prompt }))}
-            onVisionToggle={() => setCurrentConfig((prev) => ({ ...prev, visionEnabled: !prev.visionEnabled }))}
-            onMaxImageSizeChange={(size) => setCurrentConfig((prev) => ({ ...prev, maxImageSize: size }))}
-            onToggleMultiModel={() => setCurrentConfig((prev) => ({ ...prev, multiModelEnabled: !prev.multiModelEnabled }))}
-            onThinkingProviderChange={(pid: ChatProviderId) => setCurrentConfig((prev) => ({ ...prev, thinkingProvider: pid }))}
-            onThinkingModelChange={(model) => setCurrentConfig((prev) => ({ ...prev, thinkingModel: model }))}
+            onAgentChange={(agent) => setLocalConfig((prev) => ({ ...prev, agent }))}
+            onTemperatureChange={(temp) => setLocalConfig((prev) => ({ ...prev, temperature: temp }))}
+            onMaxTokensChange={(tokens) => setLocalConfig((prev) => ({ ...prev, maxTokens: tokens }))}
+            onSystemPromptChange={(prompt) => setLocalConfig((prev) => ({ ...prev, systemPrompt: prompt }))}
+            onVisionToggle={() => setLocalConfig((prev) => ({ ...prev, visionEnabled: !prev.visionEnabled }))}
+            onMaxImageSizeChange={(size) => setLocalConfig((prev) => ({ ...prev, maxImageSize: size }))}
+            onToggleMultiModel={() => setLocalConfig((prev) => ({ ...prev, multiModelEnabled: !prev.multiModelEnabled }))}
+            onThinkingProviderChange={(pid: ChatProviderId) => setLocalConfig((prev) => ({ ...prev, thinkingProvider: pid }))}
+            onThinkingModelChange={(model) => setLocalConfig((prev) => ({ ...prev, thinkingModel: model }))}
             onFetchRemoteModels={handleFetchRemoteModels}
             onVerifyKey={handleVerifyKey}
             onPresetSave={onPresetSave}

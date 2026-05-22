@@ -1,6 +1,6 @@
 import React from "react";
 import { cn } from "../../utils/cn";
-import { ExternalLink } from "lucide-react";
+import { KeyRound } from "lucide-react";
 import type { IconType } from "../../types/ai";
 import type { ChatProviderId } from "../../types/settings";
 import { BrandIcon } from "./BrandIcons";
@@ -87,8 +87,7 @@ export const ProviderSelector: React.FC<ProviderSelectorProps> = ({
               className="text-[8px] text-dash-text-muted hover:text-dash-accent flex items-center gap-0.5"
               title="Get API key"
             >
-              <ExternalLink className="w-2 h-2" />
-              key
+              <KeyRound className="w-2 h-2" />
             </a>
           )}
         </button>

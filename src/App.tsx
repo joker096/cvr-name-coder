@@ -14,6 +14,9 @@ import { PermissionDialog } from "./components/chat/PermissionDialog";
 import { LeftPanel } from "./components/sidebar/LeftPanel";
 import { AppHeader } from "./components/layout/AppHeader";
 import { completeTask, commitCode } from "./server/gamerState";
+import { useGoal } from "./hooks/useGoal";
+import { GoalPanel } from "./components/goal/GoalPanel";
+import { parseGoalCommand } from "./utils/commands";
 
 const ALL_LANGS = ["en", "ru", "es", "zh", "de", "fr", "pt", "it", "ja", "ko", "ar", "tr", "pl", "uk", "vi", "hi"] as const;
 type Lang = (typeof ALL_LANGS)[number];
@@ -36,6 +39,7 @@ export default function App() {
   const { undo, redo, canUndo, canRedo } = useChanges();
   const { pending, approve, deny } = usePermissions();
   const { isActive: isBrowserActive } = useBrowserStatus();
+  const { goalState, events, startGoal, abortGoal } = useGoal();
 
   useEffect(() => {
     if (!settingsLoading && settings.lang && (ALL_LANGS as readonly string[]).includes(settings.lang)) {
@@ -84,6 +88,13 @@ export default function App() {
       setInput("");
       return;
     }
+    const goalParse = parseGoalCommand(currentInput);
+    if (goalParse) {
+      setInput("");
+      await startGoal(goalParse.goal, goalParse.successCriteria, settings.chat);
+      return;
+    }
+
     if (trimmed.startsWith("/review")) {
       setInput("");
       const loadingId = crypto.randomUUID();
@@ -233,27 +244,35 @@ export default function App() {
         )}
 
         <main className="flex-1 flex flex-col overflow-hidden relative">
-          <div className="flex-1 flex flex-col min-h-0">
-            <ChatContainer
-              messages={messages}
-              input={input}
-              onInputChange={setInput}
-              onSendMessage={handleSendMessage}
-              onCancelMessage={handleCancelMessage}
-              isLooming={isLoading}
-              agentLabel="BUILD"
-              providerLabel={settings.chat.aiProvider}
-              modelName={settings.chat.aiModel}
-              t={t}
-              lang={lang}
-              loadingText={t.processing}
-              placeholder={t.promptPlaceholder}
-              voiceEnabled={settings.voiceEnabled}
-              voiceLanguage={settings.voiceLanguage}
-              voiceAutoSend={settings.voiceAutoSend}
-              visionEnabled={settings.chat.visionEnabled ?? true}
+          {goalState ? (
+            <GoalPanel
+              goalState={goalState}
+              events={events}
+              onAbort={abortGoal}
             />
-          </div>
+          ) : (
+            <div className="flex-1 flex flex-col min-h-0">
+              <ChatContainer
+                messages={messages}
+                input={input}
+                onInputChange={setInput}
+                onSendMessage={handleSendMessage}
+                onCancelMessage={handleCancelMessage}
+                isLooming={isLoading}
+                agentLabel="BUILD"
+                providerLabel={settings.chat.aiProvider}
+                modelName={settings.chat.aiModel}
+                t={t}
+                lang={lang}
+                loadingText={t.processing}
+                placeholder={t.promptPlaceholder}
+                voiceEnabled={settings.voiceEnabled}
+                voiceLanguage={settings.voiceLanguage}
+                voiceAutoSend={settings.voiceAutoSend}
+                visionEnabled={settings.chat.visionEnabled ?? true}
+              />
+            </div>
+          )}
         </main>
       </div>
 
@@ -261,7 +280,6 @@ export default function App() {
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
         config={settings.chat}
-        kernelConfig={settings.chat}
         presets={settings.presets}
         isAutonomous={settings.isAutonomous}
         autoLoopDelay={settings.autoLoopDelay}
@@ -269,7 +287,7 @@ export default function App() {
         voiceEnabled={settings.voiceEnabled}
         voiceLanguage={settings.voiceLanguage}
         voiceAutoSend={settings.voiceAutoSend}
-        onSave={updateChatConfig}
+        onSave={(cfg) => updateChatConfig(cfg)}
         onPresetSave={() => {}}
         onPresetApply={() => {}}
         onPresetDelete={() => {}}

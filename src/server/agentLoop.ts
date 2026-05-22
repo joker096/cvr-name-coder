@@ -18,6 +18,7 @@ export class AgentLoop {
   private onStatus: ((status: string) => void) | undefined;
   private _abort = false;
   private sessionId: string;
+  private additionalContext = "";
 
   constructor(
     goal: string,
@@ -65,44 +66,10 @@ export class AgentLoop {
           break;
         }
 
-        const thought = await this.think();
-        const step: LoopStep = {
-          id: this.state.currentStep,
-          thought,
-          timestamp: Date.now(),
-        };
-
-        const action = this.parseAction(thought);
-        if (action) {
-          step.action = action;
-          this.state.status = "executing";
-          this.onStatus?.("executing");
-
-          try {
-            const result = await this.executeToolFn(
-              { name: action.tool as ToolCall["name"], params: action.params },
-              "build"
-            );
-            step.observation = JSON.stringify(result);
-          } catch (err: unknown) {
-            step.observation = `Error: ${getErrorMessage(err)}`;
-          }
-        } else {
-          this.state.status = "completed";
-        }
-
-        this.state.steps.push(step);
-        this.onStep?.(step);
-        this.state.currentStep++;
-
-        await hookRegistry.execute("loop.step", { step }, this.sessionId);
-
-        if (!action) {
+        const step = await this.runSingleStep();
+        if (!step.action) {
           break;
         }
-
-        this.state.status = "observing";
-        this.onStatus?.("observing");
       }
 
       if (this.state.status !== "error") {
@@ -136,6 +103,50 @@ export class AgentLoop {
     this._abort = true;
   }
 
+  setAdditionalContext(ctx: string): void {
+    this.additionalContext = ctx;
+  }
+
+  async runSingleStep(): Promise<LoopStep> {
+    if (this._abort) {
+      throw new Error("Loop aborted by user");
+    }
+    const thought = await this.think();
+    const step: LoopStep = {
+      id: this.state.currentStep,
+      thought,
+      timestamp: Date.now(),
+    };
+
+    const action = this.parseAction(thought);
+    if (action) {
+      step.action = action;
+      this.state.status = "executing";
+      this.onStatus?.("executing");
+
+      try {
+        const result = await this.executeToolFn(
+          { name: action.tool as ToolCall["name"], params: action.params },
+          "build"
+        );
+        step.observation = JSON.stringify(result);
+      } catch (err: unknown) {
+        step.observation = `Error: ${getErrorMessage(err)}`;
+      }
+    }
+
+    this.state.steps.push(step);
+    this.onStep?.(step);
+    this.state.currentStep++;
+
+    await hookRegistry.execute("loop.step", { step }, this.sessionId);
+
+    this.state.status = "observing";
+    this.onStatus?.("observing");
+
+    return step;
+  }
+
   private async think(): Promise<string> {
     const context = this.buildContext();
     const prompt = `You are an autonomous coding agent working on this goal:
@@ -143,6 +154,7 @@ ${this.state.goal}
 
 Previous steps:
 ${context}
+${this.additionalContext ? `\nAdditional context:\n${this.additionalContext}\n` : ""}
 
 Think about what to do next. If you need to use a tool, respond in this format:
 ACTION: tool_name

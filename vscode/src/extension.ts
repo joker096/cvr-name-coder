@@ -36,6 +36,10 @@ import { registerRoutes as registerGitRoutes } from '../../src/server/routes/git
 import { registerRoutes as registerEcosystemRoutes } from '../../src/server/routes/ecosystem.js';
 import { registerRoutes as registerBrowserRoutes } from '../../src/server/routes/browser.js';
 import { trackCost } from '../../src/server/costTracker.js';
+import { GoalOrchestrator } from '../../src/server/goalOrchestrator.js';
+import { GoalEventBroadcaster } from '../../src/server/goalEventBroadcaster.js';
+import { setGoalStorageDir, loadGoalState, listGoalStates, deleteGoalState } from '../../src/server/goalSessionStore.js';
+import type { GoalConfig } from '../../src/types/goal.js';
 
 const $fetch = (globalThis as any).fetch as (url: string, init?: any) => Promise<{ json(): Promise<any>; status: number }>;
 
@@ -47,8 +51,8 @@ let diagnosticsProvider: DiagnosticsProvider | null = null;
 function getCompletionConfig(): CompletionConfig {
   const cfg = vscode.workspace.getConfiguration('cvr');
   return {
-    provider: cfg.get<string>('completionProvider') || process.env.CVR_COMPLETION_PROVIDER || 'gemini',
-    model: cfg.get<string>('completionModel') || process.env.CVR_COMPLETION_MODEL || 'gemini-2.0-flash',
+    provider: cfg.get<string>('completionProvider') || process.env.CVR_COMPLETION_PROVIDER || '',
+    model: cfg.get<string>('completionModel') || process.env.CVR_COMPLETION_MODEL || '',
     debounceMs: cfg.get<number>('debounceMs', 150),
     maxPrefixLines: cfg.get<number>('maxPrefixLines', 50),
     maxSuffixLines: cfg.get<number>('maxSuffixLines', 10),
@@ -437,6 +441,7 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
   setSkillCreatorDir(resolveCvrDir('skills'));
   setRagDbPath(storagePath);
   setCacheDbPath(storagePath);
+  setGoalStorageDir(storagePath);
   setRulesDir(resolveCvrDir('rules'));
   setCustomToolsDir(resolveCvrDir('tools'));
   setPluginsDir(resolveCvrDir('plugins'));
@@ -498,13 +503,14 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
     return geminiClient;
   }
 
-  async function generateAIContent(prompt: string, contents: any[] = [], provider = 'gemini', localUrl?: string, modelName?: string, apiKey?: string): Promise<string> {
+  async function generateAIContent(prompt: string, contents: any[] = [], provider?: string, localUrl?: string, modelName?: string, apiKey?: string): Promise<string> {
     let full = '';
     await generateContentStream(prompt, contents, (t) => { full += t; }, provider, localUrl, modelName, apiKey);
     return full;
   }
 
-  async function generateContentStream(prompt: string, contents: any[], onToken: (token: string) => void, provider = 'gemini', localUrl?: string, modelName?: string, apiKey?: string, temperature?: number, maxTokens?: number, signal?: AbortSignal): Promise<void> {
+  async function generateContentStream(prompt: string, contents: any[], onToken: (token: string) => void, provider?: string, localUrl?: string, modelName?: string, apiKey?: string, temperature?: number, maxTokens?: number, signal?: AbortSignal): Promise<void> {
+    if (!provider) throw new Error('No AI provider configured. Set it in Settings.');
     const msgs = [
       { role: 'system', content: prompt },
       ...contents.map((c: any) => ({ role: c.role === 'model' ? 'assistant' : c.role, content: c.parts[0].text }))
@@ -632,19 +638,24 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
       return;
     }
 
-    // Gemini
-    if (!process.env.GEMINI_API_KEY) throw new Error('Gemini requires GEMINI_API_KEY environment variable. Use a local provider in Settings.');
-    const streamResult = await getGemini().models.generateContentStream({
-      model: modelName || 'gemini-2.5-flash',
-      contents: [{ role: 'user', parts: [{ text: prompt }] }, ...contents],
-    });
-    for await (const chunk of streamResult) {
-      const text = chunk.text;
-      if (text) onToken(text);
+    if (provider === 'gemini') {
+      if (!process.env.GEMINI_API_KEY) throw new Error('Gemini requires GEMINI_API_KEY environment variable.');
+      const streamResult = await getGemini().models.generateContentStream({
+        model: modelName || 'gemini-2.5-flash',
+        contents: [{ role: 'user', parts: [{ text: prompt }] }, ...contents],
+      });
+      for await (const chunk of streamResult) {
+        const text = chunk.text;
+        if (text) onToken(text);
+      }
+      return;
     }
+
+    // Unknown provider
+    throw new Error(`Unknown provider: ${provider}. Please configure a valid provider in Settings.`);
   }
 
-  async function summarizeLongHistory(messages: any[], provider = 'gemini', localUrl?: string, modelName?: string, apiKey?: string) {
+  async function summarizeLongHistory(messages: any[], provider?: string, localUrl?: string, modelName?: string, apiKey?: string) {
     if (messages.length < 5) return null;
     const instruction = `You are the "cvr.name Dreamer Engine". Examine the conversation below and extract:
 1. KEY_FACTS: Fundamental project decisions or requirements.
@@ -748,7 +759,7 @@ ${contextParts || 'No previous knowledge clusters found. Cold-start mode.'}
   app.post('/api/chat', async (req: any, res: any) => {
     try {
       const { message, config = {}, kernelConfig = {}, agent: bodyAgent } = req.body;
-      const { aiProvider = 'gemini', localUrl, aiModel, localModelName, apiKey, temperature, maxTokens, systemPrompt: customSystemPrompt, agent: configAgent } = config;
+      const { aiProvider, localUrl, aiModel, localModelName, apiKey, temperature, maxTokens, systemPrompt: customSystemPrompt, agent: configAgent } = config;
       const resolvedModel = aiProvider === "local" ? (localModelName || aiModel) : aiModel;
       const kConfig = kernelConfig.aiProvider ? kernelConfig : config;
 
@@ -1001,8 +1012,8 @@ ${wholeFile}
 
 Return ONLY the replacement code for the selection. No explanations, no markdown.`;
 
-      const provider = process.env.CVR_COMPLETION_PROVIDER || 'gemini';
-      const modelName = process.env.CVR_COMPLETION_MODEL || 'gemini-2.0-flash';
+      const provider = process.env.CVR_COMPLETION_PROVIDER || '';
+      const modelName = process.env.CVR_COMPLETION_MODEL || '';
       const apiKey = process.env.CVR_COMPLETION_API_KEY || undefined;
 
       let fullText = '';
@@ -1059,8 +1070,8 @@ ${recentLines}
 ${afterLines ? `Code after cursor:\n\`\`\`\n${afterLines}\n\`\`\`\n` : ''}
 Complete the code at the cursor position:`;
 
-      const provider = process.env.CVR_COMPLETION_PROVIDER || 'gemini';
-      const modelName = process.env.CVR_COMPLETION_MODEL || 'gemini-2.0-flash';
+      const provider = process.env.CVR_COMPLETION_PROVIDER || '';
+      const modelName = process.env.CVR_COMPLETION_MODEL || '';
       const apiKey = process.env.CVR_COMPLETION_API_KEY || undefined;
 
       let completionText = '';
@@ -1179,6 +1190,91 @@ Complete the code at the cursor position:`;
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
+  });
+
+  // Goal API routes
+  const activeGoals = new Map<string, GoalOrchestrator>();
+
+  app.post('/api/goal', async (req: any, res: any) => {
+    try {
+      const config: GoalConfig = req.body;
+      if (!config.provider) {
+        return res.status(400).json({ error: 'AI provider not configured. Please select a provider in Settings.' });
+      }
+      const orchestrator = new GoalOrchestrator(config, {
+        thinkFn: (prompt: string) => generateAIContent(prompt, [], config.provider, undefined, config.model, config.apiKey),
+        permissionEngine,
+      });
+      const goalId = orchestrator.getState().id;
+      activeGoals.set(goalId, orchestrator);
+      const cleanup = (event: any) => {
+        if (event.type === 'goal.complete' || event.type === 'goal.aborted' || event.type === 'goal.error') {
+          orchestrator.getBroadcaster().off('event', cleanup);
+          activeGoals.delete(goalId);
+        }
+      };
+      orchestrator.getBroadcaster().on('event', cleanup);
+      orchestrator.run().catch((err: any) => console.error('Goal orchestrator error:', err));
+      res.json({ id: goalId });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get('/api/goal/:id', async (req: any, res: any) => {
+    const orchestrator = activeGoals.get(req.params.id);
+    if (orchestrator) {
+      return res.json(orchestrator.getState());
+    }
+    const fromDisk = await loadGoalState(req.params.id);
+    if (fromDisk) return res.json(fromDisk);
+    return res.status(404).json({ error: 'Goal not found' });
+  });
+
+  app.get('/api/goal/:id/events', (req: any, res: any) => {
+    const orchestrator = activeGoals.get(req.params.id);
+    if (!orchestrator) return res.status(404).json({ error: 'Goal not found' });
+
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+
+    const broadcaster = orchestrator.getBroadcaster();
+    const handler = (event: any) => {
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+      if (event.type === 'goal.complete' || event.type === 'goal.aborted' || event.type === 'goal.error') {
+        broadcaster.off('event', handler);
+      }
+    };
+    broadcaster.on('event', handler);
+
+    req.on('close', () => {
+      broadcaster.off('event', handler);
+    });
+  });
+
+  app.post('/api/goal/:id/abort', (req: any, res: any) => {
+    const orchestrator = activeGoals.get(req.params.id);
+    if (!orchestrator) return res.status(404).json({ error: 'Goal not found' });
+    orchestrator.abort();
+    res.json({ aborted: true });
+  });
+
+  app.post('/api/goal/:id/resume', async (req: any, res: any) => {
+    const state = await loadGoalState(req.params.id);
+    if (!state) return res.status(404).json({ error: 'Goal not found' });
+    if (state.status !== 'paused' && state.status !== 'error') {
+      return res.status(400).json({ error: 'Goal cannot be resumed from status: ' + state.status });
+    }
+    return res.status(501).json({ error: 'Resume is not yet implemented. Start a new goal instead.' });
+  });
+
+  app.get('/api/goals', async (_req: any, res: any) => {
+    const states = await listGoalStates();
+    res.json({ goals: states });
   });
 
   // Subagent API routes

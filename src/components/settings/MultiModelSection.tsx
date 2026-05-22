@@ -37,7 +37,7 @@ export const MultiModelSection: React.FC<MultiModelSectionProps> = ({
           <div className="mb-3">
             <label className="block text-[9px] font-medium text-dash-text-muted mb-1">Provider</label>
             <select
-              value={currentConfig.thinkingProvider || "gemini"}
+              value={currentConfig.thinkingProvider || ""}
               onChange={(e) => onThinkingProviderChange(e.target.value as ChatProviderId)}
               className="w-full px-2.5 py-1.5 bg-dash-bg border border-dash-border rounded text-dash-text-primary focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs"
             >
@@ -65,7 +65,7 @@ const ThinkingModelSelector: React.FC<{
   getModelsForProvider: (providerId: ChatProviderId) => { id: string; name: string }[];
   onChange: (model: string) => void;
 }> = ({ currentConfig, getModelsForProvider, onChange }) => {
-  const tpId = currentConfig.thinkingProvider || "gemini";
+  const tpId = (currentConfig.thinkingProvider || "") as ChatProviderId;
   const thinkingModels = getModelsForProvider(tpId);
   const allModelIds = thinkingModels.map((m) => m.id);
   const currentModel = currentConfig.thinkingModel || "";

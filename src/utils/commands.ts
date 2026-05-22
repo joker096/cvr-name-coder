@@ -7,7 +7,8 @@ export type SlashCommand =
   | "/refactor"
   | "/review"
   | "/undo"
-  | "/redo";
+  | "/redo"
+  | "/goal";
 
 export interface CommandDefinition {
   command: SlashCommand;
@@ -125,6 +126,13 @@ Preserve functionality while improving quality.`,
     agent: "build",
     prompt: "REDO: Re-apply the most recently undone file change.",
   },
+  "/goal": {
+    command: "/goal",
+    label: "Autonomous Goal",
+    description: "Start an autonomous goal loop with judge evaluation",
+    agent: "hephaestus",
+    prompt: "",
+  },
 };
 
 export const COMMAND_LIST = Object.values(COMMANDS);
@@ -152,4 +160,15 @@ export function getCommandPrompt(command: SlashCommand, userArgs: string): strin
   const def = COMMANDS[command];
   if (!def) return userArgs;
   return `${def.prompt}\n\n${userArgs ? `Additional context: ${userArgs}` : ""}`;
+}
+
+export function parseGoalCommand(input: string): { goal: string; successCriteria?: string } | null {
+  const trimmed = input.trim();
+  if (!trimmed.startsWith("/goal ")) return null;
+  const rest = trimmed.slice(6).trim();
+  const parts = rest.split(" — ");
+  if (parts.length >= 2) {
+    return { goal: (parts[0] || "").trim(), successCriteria: parts.slice(1).join(" — ").trim() };
+  }
+  return { goal: rest };
 }

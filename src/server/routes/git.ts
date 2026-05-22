@@ -21,7 +21,7 @@ interface ChatConfig {
 
 function buildDualConfig(cfg: ChatConfig): DualModelConfig {
   const result: DualModelConfig = {
-    primaryProvider: cfg.aiProvider || "gemini",
+    primaryProvider: cfg.aiProvider || "",
   };
   if (cfg.aiModel !== undefined) result.primaryModel = cfg.aiModel;
   if (cfg.localUrl !== undefined) result.primaryLocalUrl = cfg.localUrl;
@@ -90,7 +90,7 @@ export function registerRoutes(app: Application) {
     try {
       const { draft, config = {} } = req.body || {};
       const {
-        aiProvider = "gemini", localUrl, aiModel, apiKey, temperature, maxTokens,
+        aiProvider, localUrl, aiModel, apiKey, temperature, maxTokens,
         multiModelEnabled, thinkingProvider, thinkingModel, thinkingLocalUrl,
       } = config;
       const dualCfg = buildDualConfig({

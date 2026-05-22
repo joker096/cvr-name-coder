@@ -19,7 +19,7 @@ interface ChatConfig {
 
 function buildDualConfig(cfg: ChatConfig): DualModelConfig {
   const result: DualModelConfig = {
-    primaryProvider: cfg.aiProvider || "gemini",
+    primaryProvider: cfg.aiProvider || "",
   };
   if (cfg.aiModel !== undefined) result.primaryModel = cfg.aiModel;
   if (cfg.localUrl !== undefined) result.primaryLocalUrl = cfg.localUrl;

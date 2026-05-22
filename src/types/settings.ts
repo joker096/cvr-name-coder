@@ -2,6 +2,7 @@ import type { PresetId } from './ai';
 
 // Provider IDs as literal union type
 export type ChatProviderId =
+  | ''
   | 'gemini'
   | 'openai'
   | 'anthropic'

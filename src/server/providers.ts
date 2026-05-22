@@ -273,7 +273,7 @@ const providers: Record<string, AIProvider> = {
 export async function generateAIContent(
   prompt: string,
   contents: any[] = [],
-  provider: string = "gemini",
+  provider?: string,
   localUrl?: string,
   modelName?: string,
   apiKey?: string,
@@ -281,6 +281,9 @@ export async function generateAIContent(
   maxTokens?: number,
   useCache?: boolean
 ): Promise<string> {
+  if (!provider) {
+    throw new Error("AI provider not configured.");
+  }
   if (useCache) {
     const cached = aiCache.get(prompt, contents, provider, modelName);
     if (cached) return cached;

@@ -38,14 +38,14 @@ interface KernelConfig {
 
 function buildDualConfig(cfg: ChatConfig): DualModelConfig {
   const result: DualModelConfig = {
-    primaryProvider: cfg.aiProvider || "gemini",
+    primaryProvider: cfg.aiProvider || "",
   };
   if (cfg.aiModel !== undefined) result.primaryModel = cfg.aiModel;
   if (cfg.localUrl !== undefined) result.primaryLocalUrl = cfg.localUrl;
   if (cfg.multiModelEnabled && cfg.thinkingProvider !== undefined) result.thinkingProvider = cfg.thinkingProvider;
   if (cfg.multiModelEnabled && cfg.thinkingModel !== undefined) result.thinkingModel = cfg.thinkingModel;
   if (cfg.thinkingLocalUrl !== undefined) result.thinkingLocalUrl = cfg.thinkingLocalUrl;
-  const providerKey = cfg.providerKeys?.[cfg.aiProvider || "gemini"] || cfg.apiKey;
+  const providerKey = cfg.providerKeys?.[cfg.aiProvider || ""] || cfg.apiKey;
   if (providerKey !== undefined) result.apiKey = providerKey;
   if (cfg.temperature !== undefined) result.temperature = cfg.temperature;
   if (cfg.maxTokens !== undefined) result.maxTokens = cfg.maxTokens;
@@ -111,7 +111,7 @@ function invalidateMemoryCache(): void {
   _memoryCacheTime = 0;
 }
 
-export async function summarizeLongHistory(messages: HistoryEntry[], provider: string = "gemini", localUrl?: string, modelName?: string, apiKey?: string, dualConfig?: DualModelConfig) {
+export async function summarizeLongHistory(messages: HistoryEntry[], provider?: string, localUrl?: string, modelName?: string, apiKey?: string, dualConfig?: DualModelConfig) {
   if (messages.length < 5) return null;
   
   const instruction = `You are the "cvr.name Dreamer Engine". Examine the conversation below and extract:
@@ -142,7 +142,11 @@ export function registerRoutes(app: Application) {
     try {
       const body = req.body as ChatRequestBody;
       const { message, config = {}, kernelConfig = {}, agent: bodyAgent } = body;
-      const { aiProvider = "gemini", localUrl, aiModel, localModelName, apiKey, temperature, maxTokens, systemPrompt: customSystemPrompt, agent: configAgent, maxImageSize } = config;
+      const { aiProvider, localUrl, aiModel, localModelName, apiKey, temperature, maxTokens, systemPrompt: customSystemPrompt, agent: configAgent, maxImageSize } = config;
+      if (!aiProvider) {
+        res.status(400).json({ error: "AI provider not configured. Please select a provider in Settings." });
+        return;
+      }
       const resolvedModel = aiProvider === "local" ? (localModelName || aiModel) : aiModel;
       const kConfig = kernelConfig?.aiProvider ? kernelConfig : config;
 
@@ -249,7 +253,7 @@ export function registerRoutes(app: Application) {
 
   app.get("/api/models", async (req: Request, res: Response) => {
     try {
-      const provider = (req.query.provider as string) || "gemini";
+      const provider = (req.query.provider as string) || "";
       const apiKey = (req.query.apiKey as string) || undefined;
 
       const baseUrls: Record<string, string> = {

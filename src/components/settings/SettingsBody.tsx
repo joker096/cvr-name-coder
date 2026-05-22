@@ -23,7 +23,6 @@ interface SettingsBodyProps {
   isValidating: boolean;
   keyValidations: KeyValidationResult[];
   config: ChatConfig;
-  kernelConfig: ChatConfig;
   providers: Provider[];
   remoteModels: AIModel[];
   isRefreshingModels: boolean;
@@ -66,7 +65,6 @@ export const SettingsBody: React.FC<SettingsBodyProps> = ({
   isValidating,
   keyValidations,
   config,
-  kernelConfig,
   providers,
   remoteModels,
   isRefreshingModels,
@@ -94,11 +92,8 @@ export const SettingsBody: React.FC<SettingsBodyProps> = ({
   onChangeVoiceLanguage,
   onToggleVoiceAutoSend,
 }) => {
-  const currentConfig = activeTab === "chat" ? config : kernelConfig;
-
   const tabs = [
-    { id: "chat" as const, label: t.chatEngine || "Chat AI" },
-    { id: "kernel" as const, label: t.kernelEngine || "Agent AI" },
+    { id: "chat" as const, label: t.chatEngine || "AI Engine" },
     { id: "mcp" as const, label: "MCP" },
   ];
 
@@ -106,17 +101,17 @@ export const SettingsBody: React.FC<SettingsBodyProps> = ({
     <div className="p-3 overflow-y-auto max-h-[calc(90vh-120px)]">
       <SettingsTabs tabs={tabs} activeTab={activeTab as any} onTabChange={setActiveTab as any} className="mb-4" />
       <AnimatePresence mode="wait">
-        {(activeTab === "chat" || activeTab === "kernel") && (
+        {activeTab === "chat" && (
           <motion.div
-            key={activeTab}
+            key="chat"
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 20 }}
           >
             <AIEngineTab
-              engineType={activeTab === "chat" ? "chat" : "kernel"}
+              engineType="chat"
               providers={providers}
-              currentConfig={currentConfig}
+              currentConfig={config}
               presets={presets}
               remoteModels={remoteModels}
               isRefreshingModels={isRefreshingModels}
@@ -134,7 +129,7 @@ export const SettingsBody: React.FC<SettingsBodyProps> = ({
               onThinkingModelChange={onThinkingModelChange}
               onFetchRemoteModels={onFetchRemoteModels}
               onVerifyKey={onVerifyKey}
-              keyValidation={keyValidations.find(kv => kv.provider === currentConfig.aiProvider) || null}
+              keyValidation={keyValidations.find(kv => kv.provider === config.aiProvider) || null}
               isValidating={isValidating}
               onPresetSave={onPresetSave}
               onPresetApply={onPresetApply}

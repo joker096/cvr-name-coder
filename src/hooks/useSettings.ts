@@ -73,8 +73,8 @@ interface Settings {
 
 const DEFAULT_SETTINGS: Settings = {
   chat: {
-    aiProvider: "gemini",
-    aiModel: "gemini-2.5-flash",
+    aiProvider: "",
+    aiModel: "",
     apiKey: "",
     localUrl: "",
     localModelName: "",
@@ -86,8 +86,8 @@ const DEFAULT_SETTINGS: Settings = {
     visionEnabled: true,
     maxImageSize: 1024,
     multiModelEnabled: false,
-    thinkingProvider: "gemini",
-    thinkingModel: "gemini-2.5-flash",
+    thinkingProvider: "",
+    thinkingModel: "",
     providerKeys: {},
   },
   presets: [],

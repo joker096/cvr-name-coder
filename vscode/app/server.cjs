@@ -3139,8 +3139,8 @@ function parseAgentMarkdown(content) {
     id: config.id || "unknown",
     name: config.name || config.id || "Unknown Agent",
     description: config.description ?? void 0,
-    model: config.model || "gemini-2.5-pro",
-    provider: config.provider || "gemini",
+    model: config.model || "",
+    provider: config.provider || "",
     temperature: config.temperature ?? void 0,
     maxTokens: config.maxTokens ?? void 0,
     tools: config.tools ?? [],
@@ -4584,6 +4584,7 @@ var AgentLoop = class {
   onStatus;
   _abort = false;
   sessionId;
+  additionalContext = "";
   constructor(goal, options) {
     this.sessionId = options.sessionId || crypto.randomUUID();
     this.state = {
@@ -4614,35 +4615,10 @@ var AgentLoop = class {
           this.state.status = "error";
           break;
         }
-        const thought = await this.think();
-        const step = {
-          id: this.state.currentStep,
-          thought,
-          timestamp: Date.now()
-        };
-        const action = this.parseAction(thought);
-        if (action) {
-          step.action = action;
-          this.state.status = "executing";
-          this.onStatus?.("executing");
-          try {
-            const result = await this.executeToolFn({ name: action.tool, params: action.params }, "build");
-            step.observation = JSON.stringify(result);
-          } catch (err) {
-            step.observation = `Error: ${getErrorMessage(err)}`;
-          }
-        } else {
-          this.state.status = "completed";
-        }
-        this.state.steps.push(step);
-        this.onStep?.(step);
-        this.state.currentStep++;
-        await hookRegistry2.execute("loop.step", { step }, this.sessionId);
-        if (!action) {
+        const step = await this.runSingleStep();
+        if (!step.action) {
           break;
         }
-        this.state.status = "observing";
-        this.onStatus?.("observing");
       }
       if (this.state.status !== "error") {
         this.state.status = "completed";
@@ -4670,6 +4646,39 @@ var AgentLoop = class {
   abort() {
     this._abort = true;
   }
+  setAdditionalContext(ctx) {
+    this.additionalContext = ctx;
+  }
+  async runSingleStep() {
+    if (this._abort) {
+      throw new Error("Loop aborted by user");
+    }
+    const thought = await this.think();
+    const step = {
+      id: this.state.currentStep,
+      thought,
+      timestamp: Date.now()
+    };
+    const action = this.parseAction(thought);
+    if (action) {
+      step.action = action;
+      this.state.status = "executing";
+      this.onStatus?.("executing");
+      try {
+        const result = await this.executeToolFn({ name: action.tool, params: action.params }, "build");
+        step.observation = JSON.stringify(result);
+      } catch (err) {
+        step.observation = `Error: ${getErrorMessage(err)}`;
+      }
+    }
+    this.state.steps.push(step);
+    this.onStep?.(step);
+    this.state.currentStep++;
+    await hookRegistry2.execute("loop.step", { step }, this.sessionId);
+    this.state.status = "observing";
+    this.onStatus?.("observing");
+    return step;
+  }
   async think() {
     const context = this.buildContext();
     const prompt = `You are an autonomous coding agent working on this goal:
@@ -4677,6 +4686,10 @@ ${this.state.goal}
 
 Previous steps:
 ${context}
+${this.additionalContext ? `
+Additional context:
+${this.additionalContext}
+` : ""}
 
 Think about what to do next. If you need to use a tool, respond in this format:
 ACTION: tool_name
@@ -5718,7 +5731,10 @@ var providers = {
   custom: new OpenAICompatibleProvider("custom"),
   anthropic: new AnthropicProvider()
 };
-async function generateAIContent(prompt, contents = [], provider = "gemini", localUrl, modelName, apiKey, temperature, maxTokens, useCache) {
+async function generateAIContent(prompt, contents = [], provider, localUrl, modelName, apiKey, temperature, maxTokens, useCache) {
+  if (!provider) {
+    throw new Error("AI provider not configured.");
+  }
   if (useCache) {
     const cached = aiCache.get(prompt, contents, provider, modelName);
     if (cached)
@@ -6312,7 +6328,7 @@ async function processImages(base64Images, options = {}) {
 // src/server/routes/chat.js
 function buildDualConfig(cfg) {
   const result = {
-    primaryProvider: cfg.aiProvider || "gemini"
+    primaryProvider: cfg.aiProvider || ""
   };
   if (cfg.aiModel !== void 0)
     result.primaryModel = cfg.aiModel;
@@ -6324,7 +6340,7 @@ function buildDualConfig(cfg) {
     result.thinkingModel = cfg.thinkingModel;
   if (cfg.thinkingLocalUrl !== void 0)
     result.thinkingLocalUrl = cfg.thinkingLocalUrl;
-  const providerKey = cfg.providerKeys?.[cfg.aiProvider || "gemini"] || cfg.apiKey;
+  const providerKey = cfg.providerKeys?.[cfg.aiProvider || ""] || cfg.apiKey;
   if (providerKey !== void 0)
     result.apiKey = providerKey;
   if (cfg.temperature !== void 0)
@@ -6387,7 +6403,7 @@ function invalidateMemoryCache() {
   _memoryCache = null;
   _memoryCacheTime = 0;
 }
-async function summarizeLongHistory(messages, provider = "gemini", localUrl, modelName, apiKey, dualConfig) {
+async function summarizeLongHistory(messages, provider, localUrl, modelName, apiKey, dualConfig) {
   if (messages.length < 5)
     return null;
   const instruction = `You are the "cvr.name Dreamer Engine". Examine the conversation below and extract:
@@ -6416,7 +6432,11 @@ function registerRoutes(app2) {
     try {
       const body = req.body;
       const { message, config = {}, kernelConfig = {}, agent: bodyAgent } = body;
-      const { aiProvider = "gemini", localUrl, aiModel, localModelName, apiKey, temperature, maxTokens, systemPrompt: customSystemPrompt, agent: configAgent, maxImageSize } = config;
+      const { aiProvider, localUrl, aiModel, localModelName, apiKey, temperature, maxTokens, systemPrompt: customSystemPrompt, agent: configAgent, maxImageSize } = config;
+      if (!aiProvider) {
+        res.status(400).json({ error: "AI provider not configured. Please select a provider in Settings." });
+        return;
+      }
       const resolvedModel = aiProvider === "local" ? localModelName || aiModel : aiModel;
       const kConfig = kernelConfig?.aiProvider ? kernelConfig : config;
       const history = await getHistoryCached();
@@ -6505,7 +6525,7 @@ function registerRoutes(app2) {
   });
   app2.get("/api/models", async (req, res) => {
     try {
-      const provider = req.query.provider || "gemini";
+      const provider = req.query.provider || "";
       const apiKey = req.query.apiKey || void 0;
       const baseUrls = {
         openai: "https://api.openai.com/v1",
@@ -7352,7 +7372,7 @@ async function getChangeState() {
 // src/server/routes/git.js
 function buildDualConfig2(cfg) {
   const result = {
-    primaryProvider: cfg.aiProvider || "gemini"
+    primaryProvider: cfg.aiProvider || ""
   };
   if (cfg.aiModel !== void 0)
     result.primaryModel = cfg.aiModel;
@@ -7422,7 +7442,7 @@ function registerRoutes6(app2) {
   app2.post("/api/git/pr", async (req, res) => {
     try {
       const { draft, config = {} } = req.body || {};
-      const { aiProvider = "gemini", localUrl, aiModel, apiKey, temperature, maxTokens, multiModelEnabled, thinkingProvider, thinkingModel, thinkingLocalUrl } = config;
+      const { aiProvider, localUrl, aiModel, apiKey, temperature, maxTokens, multiModelEnabled, thinkingProvider, thinkingModel, thinkingLocalUrl } = config;
       const dualCfg = buildDualConfig2({
         aiProvider,
         aiModel,
@@ -7534,7 +7554,7 @@ function registerRoutes7(app2) {
       const { goal, provider, model, thinkingProvider, thinkingModel, thinkingLocalUrl } = req.body;
       const id = (0, import_crypto8.randomUUID)();
       const dualCfg = {
-        primaryProvider: provider || "gemini",
+        primaryProvider: provider || "",
         primaryModel: model,
         thinkingProvider,
         thinkingModel,
@@ -7579,7 +7599,7 @@ function registerRoutes7(app2) {
     try {
       const { goal, provider, model, thinkingProvider, thinkingModel, thinkingLocalUrl } = req.body;
       const dualCfg = {
-        primaryProvider: provider || "gemini",
+        primaryProvider: provider || "",
         primaryModel: model,
         thinkingProvider,
         thinkingModel,
@@ -7595,7 +7615,7 @@ function registerRoutes7(app2) {
     try {
       const { goal, agentConfig, provider, model, thinkingProvider, thinkingModel, thinkingLocalUrl } = req.body;
       const dualCfg = {
-        primaryProvider: provider || "gemini",
+        primaryProvider: provider || "",
         primaryModel: model,
         thinkingProvider,
         thinkingModel,
@@ -7837,7 +7857,7 @@ async function analyzeDiff(generateFn, providedDiff) {
 // src/server/routes/review.js
 function buildDualConfig3(cfg) {
   const result = {
-    primaryProvider: cfg.aiProvider || "gemini"
+    primaryProvider: cfg.aiProvider || ""
   };
   if (cfg.aiModel !== void 0)
     result.primaryModel = cfg.aiModel;

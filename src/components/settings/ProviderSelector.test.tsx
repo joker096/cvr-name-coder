@@ -132,10 +132,10 @@ describe("ProviderSelector API key URLs", () => {
     vi.clearAllMocks();
   });
 
-  it("should render key link for all cloud providers", () => {
+  it("should render key icon links for all cloud providers", () => {
     render(<ProviderSelector {...defaultProps} />);
 
-    const keyLinks = screen.getAllByText("key");
+    const keyLinks = screen.getAllByTitle("Get API key");
     expect(keyLinks.length).toBeGreaterThanOrEqual(10);
   });
 
