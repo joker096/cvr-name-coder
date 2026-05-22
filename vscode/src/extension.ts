@@ -285,6 +285,9 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
   const app = express();
   app.use(express.json());
 
+  let _wsContextCache: string | null = null;
+  let _wsContextTime = 0;
+
   // Health check endpoint
   app.get('/api/health', (_req: any, res: any) => {
     res.json({
@@ -651,17 +654,27 @@ ${contextParts || 'No previous knowledge clusters found. Cold-start mode.'}
     const folders = vscode.workspace.workspaceFolders;
     if (!folders || folders.length === 0) return '';
     const root = folders[0].uri.fsPath;
+
+    if (_wsContextCache && _wsContextTime && Date.now() - _wsContextTime < 30000) return _wsContextCache;
+
     try {
       const entries = fs.readdirSync(root, { withFileTypes: true });
       const files = entries.filter(e => !e.name.startsWith('.') && !e.name.startsWith('node_modules')).map(e => e.name + (e.isDirectory() ? '/' : ''));
-      return `Project: ${path.basename(root)}\nFiles: ${files.slice(0, 50).join(', ')}${files.length > 50 ? '...' : ''}`;
-    } catch { return `Project: ${path.basename(root)}`; }
+      _wsContextCache = `Project: ${path.basename(root)}\nFiles: ${files.slice(0, 50).join(', ')}${files.length > 50 ? '...' : ''}`;
+      _wsContextTime = Date.now();
+      return _wsContextCache;
+    } catch {
+      _wsContextCache = `Project: ${path.basename(root)}`;
+      _wsContextTime = Date.now();
+      return _wsContextCache;
+    }
   }
 
   app.post('/api/chat', async (req: any, res: any) => {
     try {
       const { message, config = {}, kernelConfig = {}, agent: bodyAgent } = req.body;
-      const { aiProvider = 'gemini', localUrl, aiModel, apiKey, temperature, maxTokens, systemPrompt: customSystemPrompt, agent: configAgent } = config;
+      const { aiProvider = 'gemini', localUrl, aiModel, localModelName, apiKey, temperature, maxTokens, systemPrompt: customSystemPrompt, agent: configAgent } = config;
+      const resolvedModel = aiProvider === "local" ? (localModelName || aiModel) : aiModel;
       const kConfig = kernelConfig.aiProvider ? kernelConfig : config;
 
       const history = JSON.parse(await fs.promises.readFile(historyFile, 'utf-8'));
@@ -694,7 +707,7 @@ ${contextParts || 'No previous knowledge clusters found. Cold-start mode.'}
         await generateContentStream(systemPrompt, [
           ...history.slice(-10).map((m: any) => ({ role: m.role, parts: [{ text: m.content }] })),
           { role: 'user', parts: [{ text: message }] }
-        ], onToken, aiProvider, localUrl, aiModel, apiKey, temperature, maxTokens, req.signal);
+        ], onToken, aiProvider, localUrl, resolvedModel, apiKey, temperature, maxTokens, req.signal);
       } catch (e: any) {
         res.write(`data: ${JSON.stringify({ error: e.message })}\n\n`);
         res.end();
@@ -728,10 +741,10 @@ ${contextParts || 'No previous knowledge clusters found. Cold-start mode.'}
       const estimatedOutputTokens = Math.ceil(fullText.length / 4);
 
       // Track cost (fire-and-forget)
-      trackCost(aiProvider, aiModel || 'unknown', estimatedInputTokens, estimatedOutputTokens).catch(() => {});
+      trackCost(aiProvider, resolvedModel || 'unknown', estimatedInputTokens, estimatedOutputTokens).catch(() => {});
 
       if (updatedHistory.length % 5 === 0) {
-        summarizeLongHistory(updatedHistory, kConfig.aiProvider, kConfig.localUrl, kConfig.aiModel || kConfig.localModelName, kConfig.apiKey).then(async (summary) => {
+        summarizeLongHistory(updatedHistory, kConfig.aiProvider, kConfig.localUrl, kConfig.aiProvider === "local" ? (kConfig.localModelName || kConfig.aiModel) : kConfig.aiModel, kConfig.apiKey).then(async (summary) => {
           if (summary) {
             const currentMemories = JSON.parse(await fs.promises.readFile(memoryFile, 'utf-8'));
             await fs.promises.writeFile(memoryFile, JSON.stringify([...currentMemories, { content: summary, createdAt: new Date() }]));
@@ -838,42 +851,7 @@ ${contextParts || 'No previous knowledge clusters found. Cold-start mode.'}
     res.json({ diff: [], id: req.params.id });
   });
 
-  // Session management
-  app.get('/api/sessions', async (_req: any, res: any) => {
-    try {
-      const sessionsDir = path.join(storagePath, 'sessions');
-      await fs.promises.mkdir(sessionsDir, { recursive: true });
-      const entries = await fs.promises.readdir(sessionsDir);
-      const sessions = entries.filter(e => e.endsWith('.json')).map(e => ({
-        id: e.replace('.json', ''),
-        name: e.replace('.json', ''),
-        modified: fs.statSync(path.join(sessionsDir, e)).mtimeMs,
-      }));
-      sessions.sort((a: any, b: any) => b.modified - a.modified);
-      res.json({ sessions, current: 'default' });
-    } catch { res.json({ sessions: [], current: 'default' }); }
-  });
-
-  app.post('/api/sessions/save', async (req: any, res: any) => {
-    const { id } = req.body;
-    const sessionsDir = path.join(storagePath, 'sessions');
-    await fs.promises.mkdir(sessionsDir, { recursive: true });
-    const history = JSON.parse(await fs.promises.readFile(historyFile, 'utf-8'));
-    await fs.promises.writeFile(path.join(sessionsDir, `${id || 'default'}.json`), JSON.stringify(history));
-    res.json({ status: 'saved' });
-  });
-
-  app.post('/api/sessions/load', async (req: any, res: any) => {
-    const { id } = req.body;
-    const sessionsDir = path.join(storagePath, 'sessions');
-    try {
-      const data = await fs.promises.readFile(path.join(sessionsDir, `${id || 'default'}.json`), 'utf-8');
-      const history = JSON.parse(data);
-      await fs.promises.writeFile(historyFile, JSON.stringify(history));
-      res.json({ history });
-    } catch { res.json({ history: [] }); }
-  });
-
+  // History/Memory persistence
   app.get('/api/history', async (_req: any, res: any) => {
     try {
       const history = JSON.parse(await fs.promises.readFile(historyFile, 'utf-8'));

@@ -1764,6 +1764,10 @@ async function executeCommand(params) {
 var import_promises3 = require("fs/promises");
 var path3 = __toESM(require("path"), 1);
 var _memoryDir = path3.resolve(process.cwd(), ".opencode-infinite");
+var _memCache = null;
+var _userCache = null;
+var _contextCache = null;
+var _contextTimestamp = 0;
 function getMemoryPath() {
   return path3.join(_memoryDir, "MEMORY.md");
 }
@@ -1863,8 +1867,13 @@ async function readMemory() {
 - \`npm run type-check\` \u2014 TypeScript validation
 - \`npm run build\` \u2014 Production build
 `);
+  if (_memCache && _memCache.mtime === (await (0, import_promises3.stat)(memoryPath).catch(() => ({ mtimeMs: 0 }))).mtimeMs) {
+    return _memCache.data;
+  }
   const raw = await (0, import_promises3.readFile)(memoryPath, "utf-8");
-  return parseMemoryMarkdown(raw);
+  const data = parseMemoryMarkdown(raw);
+  _memCache = { data, mtime: (await (0, import_promises3.stat)(memoryPath).catch(() => ({ mtimeMs: 0 }))).mtimeMs };
+  return data;
 }
 async function writeMemory(content, section) {
   const data = await readMemory();
@@ -1887,6 +1896,8 @@ async function writeMemory(content, section) {
   }
   const raw = rebuildMarkdown(data.sections);
   await atomicWriteFile(getMemoryPath(), raw);
+  _memCache = null;
+  _contextCache = null;
 }
 async function replaceMemorySection(section, lines) {
   const data = await readMemory();
@@ -1898,12 +1909,16 @@ async function replaceMemorySection(section, lines) {
   }
   const raw = rebuildMarkdown(data.sections);
   await atomicWriteFile(getMemoryPath(), raw);
+  _memCache = null;
+  _contextCache = null;
 }
 async function deleteMemorySection(section) {
   const data = await readMemory();
   data.sections = data.sections.filter((s) => s.title.toLowerCase() !== section.toLowerCase());
   const raw = rebuildMarkdown(data.sections);
   await atomicWriteFile(getMemoryPath(), raw);
+  _memCache = null;
+  _contextCache = null;
 }
 async function readUser() {
   const userPath = getUserPath();
@@ -1937,8 +1952,13 @@ async function readUser() {
 - \`npm test\` \u2014 run test suite
 - \`npm run dev\` \u2014 start development server
 `);
+  if (_userCache && _userCache.mtime === (await (0, import_promises3.stat)(userPath).catch(() => ({ mtimeMs: 0 }))).mtimeMs) {
+    return _userCache.data;
+  }
   const raw = await (0, import_promises3.readFile)(userPath, "utf-8");
-  return parseMemoryMarkdown(raw);
+  const data = parseMemoryMarkdown(raw);
+  _userCache = { data, mtime: (await (0, import_promises3.stat)(userPath).catch(() => ({ mtimeMs: 0 }))).mtimeMs };
+  return data;
 }
 async function writeUser(content, section) {
   const data = await readUser();
@@ -1961,6 +1981,8 @@ async function writeUser(content, section) {
   }
   const raw = rebuildMarkdown(data.sections);
   await atomicWriteFile(getUserPath(), raw);
+  _userCache = null;
+  _contextCache = null;
 }
 async function replaceUserSection(section, lines) {
   const data = await readUser();
@@ -1972,12 +1994,16 @@ async function replaceUserSection(section, lines) {
   }
   const raw = rebuildMarkdown(data.sections);
   await atomicWriteFile(getUserPath(), raw);
+  _userCache = null;
+  _contextCache = null;
 }
 async function deleteUserSection(section) {
   const data = await readUser();
   data.sections = data.sections.filter((s) => s.title.toLowerCase() !== section.toLowerCase());
   const raw = rebuildMarkdown(data.sections);
   await atomicWriteFile(getUserPath(), raw);
+  _userCache = null;
+  _contextCache = null;
 }
 async function atomicWriteFile(filePath, content) {
   const tmp = filePath + ".tmp";
@@ -1994,6 +2020,8 @@ function rebuildMarkdown(sections) {
   return lines.join("\n").trim() + "\n";
 }
 async function getMemoryContext() {
+  if (_contextCache && Date.now() - _contextTimestamp < 1e4)
+    return _contextCache;
   const [memory, user] = await Promise.all([readMemory(), readUser()]);
   const parts = [];
   if (memory.sections.some((s) => s.lines.some((l) => l.trim() !== ""))) {
@@ -2002,7 +2030,9 @@ async function getMemoryContext() {
   if (user.sections.some((s) => s.lines.some((l) => l.trim() !== ""))) {
     parts.push("## User Preferences\n" + user.raw.replace(/^# User Preferences\n?/i, "").trim());
   }
-  return parts.join("\n\n---\n\n");
+  _contextCache = parts.join("\n\n---\n\n");
+  _contextTimestamp = Date.now();
+  return _contextCache;
 }
 
 // src/server/tools/memory.js
@@ -3232,17 +3262,24 @@ function initSchema3(db) {
 }
 var AIResponseCache = class {
   cache = /* @__PURE__ */ new Map();
+  _keys = [];
   defaultTTL;
   maxSize;
   stats = { hits: 0, misses: 0 };
   _warmed = false;
-  constructor(defaultTTL = 6e4, maxSize = 100) {
+  _pendingRequests = /* @__PURE__ */ new Map();
+  _pruneInterval = null;
+  constructor(defaultTTL = 3e5, maxSize = 500) {
     this.defaultTTL = defaultTTL;
     this.maxSize = maxSize;
+    this._pruneInterval = setInterval(() => {
+      const pruned = this.prune();
+      if (pruned > 0)
+        log.debug("Background cache prune", { count: pruned });
+    }, 3e5);
   }
   hashKey(prompt, contents, provider, model) {
-    const data = JSON.stringify({ prompt, contents, provider, model });
-    return (0, import_crypto3.createHash)("sha256").update(data).digest("hex").slice(0, 32);
+    return (0, import_crypto3.createHash)("sha256").update(JSON.stringify({ prompt, contents, provider, model })).digest("hex").slice(0, 32);
   }
   warmFromDb() {
     if (this._warmed)
@@ -3267,6 +3304,7 @@ var AIResponseCache = class {
           ttl: row.ttl,
           hits: row.hits
         });
+        this._keys.push(row.key);
         loaded++;
       }
       if (loaded > 0 || expired > 0) {
@@ -3286,9 +3324,9 @@ var AIResponseCache = class {
           this.evictOldest();
         }
         this.cache.set(key, dbEntry);
+        this._keys.push(key);
         dbEntry.hits++;
         this.stats.hits++;
-        log.debug("Cache hit (from DB)", { key: key.slice(0, 8) });
         return dbEntry.value;
       }
       this.stats.misses++;
@@ -3296,13 +3334,13 @@ var AIResponseCache = class {
     }
     if (Date.now() - entry.timestamp > entry.ttl) {
       this.cache.delete(key);
+      this._keys = this._keys.filter((k) => k !== key);
       this.deleteFromDb(key);
       this.stats.misses++;
       return null;
     }
     entry.hits++;
     this.stats.hits++;
-    log.debug("Cache hit", { key: key.slice(0, 8), hits: entry.hits });
     return entry.value;
   }
   set(prompt, contents, provider, response, model, ttl) {
@@ -3318,8 +3356,27 @@ var AIResponseCache = class {
       hits: 0
     };
     this.cache.set(key, entry);
+    this._keys.push(key);
     this.saveToDb(key, entry);
-    log.debug("Cache set", { key: key.slice(0, 8), ttl: ttl ?? this.defaultTTL });
+  }
+  coalesce(prompt, contents, provider, model, factory) {
+    const key = this.hashKey(prompt, contents, provider, model);
+    const cached = this.get(prompt, contents, provider, model);
+    if (cached)
+      return Promise.resolve(cached);
+    const pending = this._pendingRequests.get(key);
+    if (pending)
+      return pending;
+    const promise = factory().then((result) => {
+      this._pendingRequests.delete(key);
+      this.set(prompt, contents, provider, result, model);
+      return result;
+    }).catch((err) => {
+      this._pendingRequests.delete(key);
+      throw err;
+    });
+    this._pendingRequests.set(key, promise);
+    return promise;
   }
   getFromDb(key) {
     try {
@@ -3372,11 +3429,13 @@ var AIResponseCache = class {
     }
     if (oldest) {
       this.cache.delete(oldest);
-      log.debug("Cache evicted", { key: oldest.slice(0, 8) });
+      this._keys = this._keys.filter((k) => k !== oldest);
     }
   }
   clear() {
     this.cache.clear();
+    this._keys = [];
+    this._pendingRequests.clear();
     this.stats = { hits: 0, misses: 0 };
     try {
       const db = getDb3();
@@ -3407,6 +3466,7 @@ var AIResponseCache = class {
         pruned++;
       }
     }
+    this._keys = this._keys.filter((k) => this.cache.has(k));
     try {
       const db = getDb3();
       const result = db.prepare("DELETE FROM cache_entries WHERE timestamp + ttl < ?").run(now);
@@ -3422,6 +3482,12 @@ var AIResponseCache = class {
       log.debug("Cache pruned", { count: pruned });
     }
     return pruned;
+  }
+  dispose() {
+    if (this._pruneInterval) {
+      clearInterval(this._pruneInterval);
+      this._pruneInterval = null;
+    }
   }
 };
 var aiCache = new AIResponseCache();
@@ -3542,8 +3608,8 @@ async function indexDirectory(dir, rootDir, embedFn) {
         continue;
       const filePath = path10.join(dir, entry.name);
       try {
-        const stat3 = fs5.statSync(filePath);
-        if (stat3.size > MAX_FILE_SIZE)
+        const stat5 = fs5.statSync(filePath);
+        if (stat5.size > MAX_FILE_SIZE)
           continue;
         const content = fs5.readFileSync(filePath, "utf-8");
         if (!content.trim())
@@ -4728,6 +4794,7 @@ var PROVIDER_BASE_URLS = {
   openai: "https://api.openai.com/v1",
   deepseek: "https://api.deepseek.com",
   grok: "https://api.x.ai/v1",
+  groq: "https://api.groq.com/openai/v1",
   baseten: "https://api.baseten.co/v1",
   openrouter: "https://openrouter.ai/api/v1",
   together: "https://api.together.xyz/v1",
@@ -4917,13 +4984,14 @@ function getEnvVarForProvider(provider) {
     openai: "OPENAI_API_KEY",
     deepseek: "DEEPSEEK_API_KEY",
     grok: "XAI_API_KEY",
+    groq: "GROQ_API_KEY",
     baseten: "BASETEN_API_KEY",
     openrouter: "OPENROUTER_API_KEY",
     together: "TOGETHER_API_KEY",
     mistral: "MISTRAL_API_KEY",
     custom: "CUSTOM_API_KEY"
   };
-  return map[provider] || "CUSTOM_API_KEY";
+  return map[provider] || "";
 }
 var OpenAICompatibleProvider = class extends AIProvider {
   provider;
@@ -5012,12 +5080,20 @@ var providers = {
   custom: new OpenAICompatibleProvider("custom"),
   anthropic: new AnthropicProvider()
 };
-async function generateAIContent(prompt, contents = [], provider = "gemini", localUrl, modelName, apiKey, temperature, maxTokens) {
+async function generateAIContent(prompt, contents = [], provider = "gemini", localUrl, modelName, apiKey, temperature, maxTokens, useCache) {
+  if (useCache) {
+    const cached = aiCache.get(prompt, contents, provider, modelName);
+    if (cached)
+      return cached;
+  }
   const p = providers[provider];
   if (!p) {
     throw new Error(`Unknown provider: ${provider}`);
   }
   const result = await p.generate({ prompt, contents, localUrl, modelName, apiKey, temperature, maxTokens });
+  if (useCache) {
+    aiCache.set(prompt, contents, provider, result.text, modelName);
+  }
   return result.text;
 }
 async function generateWithDualModel(prompt, contents = [], config, purpose = "auto") {
@@ -5719,9 +5795,10 @@ function setPermissionEngine(pe) {
 
 // src/server/routes/chat.js
 var path19 = __toESM(require("path"), 1);
-var import_promises13 = require("fs/promises");
+var import_promises14 = require("fs/promises");
 
 // src/server/prompts.js
+var import_promises13 = require("fs/promises");
 var AGENT_PROMPTS = {
   build: `[ROLE: BUILD] - DEFAULT DEVELOPER AGENT. You have full access to developer tools (read/write files, execute bash). Focus on iterative coding, bug fixing, and implementation.`,
   general: `[ROLE: GENERAL] - UNIVERSAL ASSISTANT. Help with complex, multi-stage tasks. You can modify files, run parallel processes, and coordinate broad workflows.`,
@@ -5730,8 +5807,34 @@ var AGENT_PROMPTS = {
   prometheus: `[ROLE: PROMETHEUS] - STRATEGIC PLANNER. You are a strategic architect. Before any code is written, you must clarify requirements, define architecture, and scope the work. You create comprehensive plans.`,
   hephaestus: `[ROLE: HEPHAESTUS] - DEEP EXECUTOR. Autonomous specialist. Given a goal, independently research patterns, write code, and finish the task without requiring step-by-step guidance.`
 };
+var _promptCache = /* @__PURE__ */ new Map();
+var PROMPT_CACHE_TTL = 6e4;
+async function getMemoryMtime() {
+  let memory = 0;
+  let user = 0;
+  try {
+    const memStat = await (0, import_promises13.stat)(".opencode-infinite/MEMORY.md");
+    memory = memStat.mtimeMs;
+  } catch {
+  }
+  try {
+    const userStat = await (0, import_promises13.stat)(".opencode-infinite/USER.md");
+    user = userStat.mtimeMs;
+  } catch {
+  }
+  return { memory, user };
+}
+function getCacheKey(agent, mode, contextParts, customSystemPrompt) {
+  return `${agent}|${mode}|${contextParts?.slice(0, 50) || ""}|${customSystemPrompt ? "1" : "0"}`;
+}
 async function buildSystemPrompt(options) {
   const { agent, mode, contextParts, customSystemPrompt } = options;
+  const cacheKey = getCacheKey(agent, mode, contextParts, customSystemPrompt);
+  const { memory: memoryMtime, user: userMtime } = await getMemoryMtime();
+  const cached = _promptCache.get(cacheKey);
+  if (cached && cached.memoryMtime === memoryMtime && cached.userMtime === userMtime && Date.now() - cached.timestamp < PROMPT_CACHE_TTL) {
+    return cached.prompt;
+  }
   const customAgent = getAgentById(agent);
   const agentIdentity = customAgent?.systemPrompt || AGENT_PROMPTS[agent] || AGENT_PROMPTS.build;
   const modeDirective = mode === "plan" ? `[PLANNING MODE ACTIVE]
@@ -5790,8 +5893,9 @@ PERSISTENT CONTEXT CLUSTERS:
 ${persistentContext}
 ${instructionsContext ? "\n" + instructionsContext : ""}
 `;
+  let resultPrompt;
   if (customSystemPrompt && customSystemPrompt.trim()) {
-    return `${customSystemPrompt.trim()}
+    resultPrompt = `${customSystemPrompt.trim()}
 
 ${modeDirective}
 
@@ -5800,8 +5904,16 @@ ${toolDescriptions}
 
 PERSISTENT CONTEXT CLUSTERS:
 ${persistentContext}${instructionsContext ? "\n" + instructionsContext : ""}`;
+  } else {
+    resultPrompt = basePrompt;
   }
-  return basePrompt;
+  _promptCache.set(cacheKey, {
+    prompt: resultPrompt,
+    memoryMtime,
+    userMtime,
+    timestamp: Date.now()
+  });
+  return resultPrompt;
 }
 
 // src/server/contextWindow.js
@@ -6013,20 +6125,54 @@ var HISTORY_FILE = path19.join(STORAGE_DIR2, "history.json");
 var MEMORY_FILE = path19.join(STORAGE_DIR2, "memory.json");
 async function ensureStorage() {
   try {
-    await (0, import_promises13.mkdir)(STORAGE_DIR2, { recursive: true });
+    await (0, import_promises14.mkdir)(STORAGE_DIR2, { recursive: true });
     try {
-      await (0, import_promises13.access)(HISTORY_FILE);
+      await (0, import_promises14.access)(HISTORY_FILE);
     } catch {
-      await (0, import_promises13.writeFile)(HISTORY_FILE, JSON.stringify([]));
+      await (0, import_promises14.writeFile)(HISTORY_FILE, JSON.stringify([]));
     }
     try {
-      await (0, import_promises13.access)(MEMORY_FILE);
+      await (0, import_promises14.access)(MEMORY_FILE);
     } catch {
-      await (0, import_promises13.writeFile)(MEMORY_FILE, JSON.stringify([]));
+      await (0, import_promises14.writeFile)(MEMORY_FILE, JSON.stringify([]));
     }
   } catch (e) {
     console.error("Storage init error:", e);
   }
+}
+var _historyCache = null;
+var _historyCacheTime = 0;
+var _memoryCache = null;
+var _memoryCacheTime = 0;
+async function getHistoryCached() {
+  if (_historyCache && Date.now() - _historyCacheTime < 5e3)
+    return _historyCache;
+  try {
+    _historyCache = JSON.parse(await (0, import_promises14.readFile)(HISTORY_FILE, "utf-8"));
+    _historyCacheTime = Date.now();
+    return _historyCache;
+  } catch {
+    return [];
+  }
+}
+async function getMemoriesCached() {
+  if (_memoryCache && Date.now() - _memoryCacheTime < 5e3)
+    return _memoryCache;
+  try {
+    _memoryCache = JSON.parse(await (0, import_promises14.readFile)(MEMORY_FILE, "utf-8"));
+    _memoryCacheTime = Date.now();
+    return _memoryCache;
+  } catch {
+    return [];
+  }
+}
+function invalidateHistoryCache() {
+  _historyCache = null;
+  _historyCacheTime = 0;
+}
+function invalidateMemoryCache() {
+  _memoryCache = null;
+  _memoryCacheTime = 0;
 }
 async function summarizeLongHistory(messages, provider = "gemini", localUrl, modelName, apiKey, dualConfig) {
   if (messages.length < 5)
@@ -6057,10 +6203,11 @@ function registerRoutes(app2) {
     try {
       const body = req.body;
       const { message, config = {}, kernelConfig = {}, agent: bodyAgent } = body;
-      const { aiProvider = "gemini", localUrl, aiModel, apiKey, temperature, maxTokens, systemPrompt: customSystemPrompt, agent: configAgent, maxImageSize } = config;
+      const { aiProvider = "gemini", localUrl, aiModel, localModelName, apiKey, temperature, maxTokens, systemPrompt: customSystemPrompt, agent: configAgent, maxImageSize } = config;
+      const resolvedModel = aiProvider === "local" ? localModelName || aiModel : aiModel;
       const kConfig = kernelConfig?.aiProvider ? kernelConfig : config;
-      const history = JSON.parse(await (0, import_promises13.readFile)(HISTORY_FILE, "utf-8"));
-      const memories = JSON.parse(await (0, import_promises13.readFile)(MEMORY_FILE, "utf-8"));
+      const history = await getHistoryCached();
+      const memories = await getMemoriesCached();
       const agent = bodyAgent || configAgent || "build";
       const mode = config.mode || "build";
       const contextParts = memories.slice(-5).map((m) => `[CLUSTER_DATA]: ${m.content}`).join("\n");
@@ -6090,8 +6237,12 @@ function registerRoutes(app2) {
         ctxWindow.add(m.role, m.content, priority);
       }
       const visibleHistory = ctxWindow.getMessages();
+      const historyLookup = /* @__PURE__ */ new Map();
+      for (const h of history) {
+        historyLookup.set(`${h.role}:${h.content}`, h);
+      }
       const historyContents = visibleHistory.map((m) => {
-        const hEntry = history.find((h) => h.content === m.content && h.role === m.role);
+        const hEntry = historyLookup.get(`${m.role}:${m.content}`);
         const parts = [{ text: m.content }];
         if (hEntry?.images && Array.isArray(hEntry.images)) {
           for (const img of hEntry.images) {
@@ -6106,7 +6257,7 @@ function registerRoutes(app2) {
       const responseText = await generateAIContent(systemPrompt, [
         ...historyContents,
         { role: "user", parts: buildParts(message, processedImages) }
-      ], aiProvider, localUrl, aiModel, apiKey, temperature, maxTokens);
+      ], aiProvider, localUrl, resolvedModel, apiKey, temperature, maxTokens, true);
       const estimatedInputTokens = Math.ceil((systemPrompt + message).length / 4);
       const estimatedOutputTokens = Math.ceil(responseText.length / 4);
       const userHistoryEntry = { role: "user", content: message, createdAt: /* @__PURE__ */ new Date() };
@@ -6114,14 +6265,16 @@ function registerRoutes(app2) {
         userHistoryEntry.images = processedImages.map((img) => `data:${img.mimeType};base64,${img.base64}`);
       }
       const updatedHistory = [...history, userHistoryEntry, { role: "assistant", content: responseText, createdAt: /* @__PURE__ */ new Date() }];
-      await (0, import_promises13.writeFile)(HISTORY_FILE, JSON.stringify(updatedHistory));
+      await (0, import_promises14.writeFile)(HISTORY_FILE, JSON.stringify(updatedHistory));
+      invalidateHistoryCache();
       if (updatedHistory.length % 5 === 0) {
         const kConfigTyped = kConfig;
         const dualCfg = buildDualConfig(kConfigTyped);
-        summarizeLongHistory(updatedHistory, kConfigTyped.aiProvider, kConfigTyped.localUrl, kConfigTyped.aiModel || kConfigTyped.localModelName, kConfigTyped.apiKey, dualCfg).then(async (summary) => {
+        summarizeLongHistory(updatedHistory, kConfigTyped.aiProvider, kConfigTyped.localUrl, kConfigTyped.aiProvider === "local" ? kConfigTyped.localModelName || kConfigTyped.aiModel : kConfigTyped.aiModel, kConfigTyped.apiKey, dualCfg).then(async (summary) => {
           if (summary) {
-            const currentMemories = JSON.parse(await (0, import_promises13.readFile)(MEMORY_FILE, "utf-8"));
-            await (0, import_promises13.writeFile)(MEMORY_FILE, JSON.stringify([...currentMemories, { content: summary, createdAt: /* @__PURE__ */ new Date() }]));
+            const currentMemories = JSON.parse(await (0, import_promises14.readFile)(MEMORY_FILE, "utf-8"));
+            await (0, import_promises14.writeFile)(MEMORY_FILE, JSON.stringify([...currentMemories, { content: summary, createdAt: /* @__PURE__ */ new Date() }]));
+            invalidateMemoryCache();
           }
         });
       }
@@ -6130,7 +6283,7 @@ function registerRoutes(app2) {
         continueNeeded: responseText.includes("CONTINUE_NEEDED"),
         tokenUsage: { input: estimatedInputTokens, output: estimatedOutputTokens }
       });
-      trackCost(aiProvider, aiModel || "unknown", estimatedInputTokens, estimatedOutputTokens).catch(() => {
+      trackCost(aiProvider, resolvedModel || "unknown", estimatedInputTokens, estimatedOutputTokens).catch(() => {
       });
     } catch (error) {
       console.error("API Error:", getErrorMessage2(error));
@@ -6204,6 +6357,7 @@ function registerRoutes(app2) {
         openai: "OPENAI_API_KEY",
         deepseek: "DEEPSEEK_API_KEY",
         grok: "XAI_API_KEY",
+        groq: "GROQ_API_KEY",
         baseten: "BASETEN_API_KEY",
         openrouter: "OPENROUTER_API_KEY",
         together: "TOGETHER_API_KEY",
@@ -6232,16 +6386,18 @@ function registerRoutes(app2) {
   });
   app2.get("/api/history", async (_req, res) => {
     try {
-      const history = JSON.parse(await (0, import_promises13.readFile)(HISTORY_FILE, "utf-8"));
-      const memories = JSON.parse(await (0, import_promises13.readFile)(MEMORY_FILE, "utf-8"));
+      const history = await getHistoryCached();
+      const memories = await getMemoriesCached();
       res.json({ history, memories });
     } catch {
       res.json({ history: [], memories: [] });
     }
   });
   app2.post("/api/clear", async (_req, res) => {
-    await (0, import_promises13.writeFile)(HISTORY_FILE, JSON.stringify([]));
-    await (0, import_promises13.writeFile)(MEMORY_FILE, JSON.stringify([]));
+    await (0, import_promises14.writeFile)(HISTORY_FILE, JSON.stringify([]));
+    await (0, import_promises14.writeFile)(MEMORY_FILE, JSON.stringify([]));
+    invalidateHistoryCache();
+    invalidateMemoryCache();
     res.json({ status: "cleared" });
   });
 }
@@ -6951,7 +7107,7 @@ function registerRoutes5(app2) {
 }
 
 // src/server/changes.js
-var import_promises14 = require("fs/promises");
+var import_promises15 = require("fs/promises");
 var path20 = __toESM(require("path"), 1);
 var STORAGE_DIR3 = path20.join(process.cwd(), ".opencode-infinite");
 var CHANGES_FILE = path20.join(STORAGE_DIR3, "changes.json");
@@ -6959,24 +7115,24 @@ var MAX_CHANGES = 50;
 var MAX_SNAPSHOT_SIZE = 1024 * 1024;
 async function loadHistory() {
   try {
-    const data = await (0, import_promises14.readFile)(CHANGES_FILE, "utf-8");
+    const data = await (0, import_promises15.readFile)(CHANGES_FILE, "utf-8");
     return JSON.parse(data);
   } catch {
     return { changes: [], undoStack: [], redoStack: [] };
   }
 }
 async function saveHistory(history) {
-  await (0, import_promises14.mkdir)(STORAGE_DIR3, { recursive: true });
-  await (0, import_promises14.writeFile)(CHANGES_FILE, JSON.stringify(history, null, 2));
+  await (0, import_promises15.mkdir)(STORAGE_DIR3, { recursive: true });
+  await (0, import_promises15.writeFile)(CHANGES_FILE, JSON.stringify(history, null, 2));
 }
 async function recordChange(filePath, operation, afterContent, description) {
   const history = await loadHistory();
   let beforeContent = null;
   try {
     const fullPath = path20.join(process.cwd(), filePath);
-    const fileStats = await (0, import_promises14.stat)(fullPath);
+    const fileStats = await (0, import_promises15.stat)(fullPath);
     if (fileStats.size <= MAX_SNAPSHOT_SIZE) {
-      beforeContent = await (0, import_promises14.readFile)(fullPath, "utf-8");
+      beforeContent = await (0, import_promises15.readFile)(fullPath, "utf-8");
     } else {
       beforeContent = "[FILE_TOO_LARGE_FOR_SNAPSHOT]";
     }
@@ -7017,15 +7173,15 @@ async function undoChange() {
   const fullPath = path20.join(process.cwd(), change.filePath);
   if (change.beforeContent === null) {
     try {
-      await (0, import_promises14.unlink)(fullPath);
+      await (0, import_promises15.unlink)(fullPath);
     } catch {
     }
   } else if (change.beforeContent === "[FILE_TOO_LARGE_FOR_SNAPSHOT]") {
     await saveHistory(history);
     return { success: false, error: "Cannot undo: file was too large to snapshot" };
   } else {
-    await (0, import_promises14.mkdir)(path20.dirname(fullPath), { recursive: true });
-    await (0, import_promises14.writeFile)(fullPath, change.beforeContent, "utf-8");
+    await (0, import_promises15.mkdir)(path20.dirname(fullPath), { recursive: true });
+    await (0, import_promises15.writeFile)(fullPath, change.beforeContent, "utf-8");
   }
   await saveHistory(history);
   return { success: true, restored: change };
@@ -7043,8 +7199,8 @@ async function redoChange() {
   history.redoStack.pop();
   history.undoStack = history.undoStack.filter((id) => id !== changeId);
   const fullPath = path20.join(process.cwd(), change.filePath);
-  await (0, import_promises14.mkdir)(path20.dirname(fullPath), { recursive: true });
-  await (0, import_promises14.writeFile)(fullPath, change.afterContent, "utf-8");
+  await (0, import_promises15.mkdir)(path20.dirname(fullPath), { recursive: true });
+  await (0, import_promises15.writeFile)(fullPath, change.afterContent, "utf-8");
   await saveHistory(history);
   return { success: true, restored: change };
 }
@@ -7779,12 +7935,12 @@ function registerRoutes10(app2) {
 }
 
 // src/server/ciPipeline.js
-var import_promises15 = require("fs/promises");
+var import_promises16 = require("fs/promises");
 var path21 = __toESM(require("path"), 1);
 var WORKFLOW_DIR = ".github/workflows";
 async function ensureWorkflowDir() {
   const dir = path21.join(process.cwd(), WORKFLOW_DIR);
-  await (0, import_promises15.mkdir)(dir, { recursive: true });
+  await (0, import_promises16.mkdir)(dir, { recursive: true });
   return dir;
 }
 function generateNodeCIWorkflow(config) {
@@ -8012,7 +8168,7 @@ async function generateCIPipeline(config) {
     default:
       throw new Error(`Unknown pipeline type: ${config.pipelineType}`);
   }
-  await (0, import_promises15.writeFile)(path21.join(dir, filename), content, "utf-8");
+  await (0, import_promises16.writeFile)(path21.join(dir, filename), content, "utf-8");
   return {
     files: [path21.join(WORKFLOW_DIR, filename)],
     pipelineType: config.pipelineType,
@@ -8120,7 +8276,7 @@ function registerRoutes11(app2) {
 
 // src/server/routes/tools.js
 var path22 = __toESM(require("path"), 1);
-var import_promises16 = require("fs/promises");
+var import_promises17 = require("fs/promises");
 var import_crypto9 = require("crypto");
 function registerRoutes12(app2) {
   app2.post("/api/tools/execute", validateBody(ToolExecuteSchema), async (req, res) => {
@@ -8129,7 +8285,7 @@ function registerRoutes12(app2) {
       const result = await executeTool(toolCall, mode, permissionEngine, sessionId);
       incrementToolCall();
       if (result.success && (toolCall.name === "write_file" || toolCall.name === "edit_file")) {
-        const afterContent = toolCall.name === "write_file" ? toolCall.params.content : await (0, import_promises16.readFile)(path22.join(process.cwd(), toolCall.params.path), "utf-8");
+        const afterContent = toolCall.name === "write_file" ? toolCall.params.content : await (0, import_promises17.readFile)(path22.join(process.cwd(), toolCall.params.path), "utf-8");
         const change = await recordChange(toolCall.params.path, toolCall.name === "write_file" ? "write" : "edit", afterContent, `${toolCall.name}: ${toolCall.params.path}`);
         result.changeId = change.id;
       }
@@ -8209,10 +8365,22 @@ app.post("/api/validate-key", async (req, res) => {
     }
     const baseUrl = PROVIDER_VALIDATION_URLS[provider];
     if (baseUrl) {
-      const r = await fetch(baseUrl, { headers: { Authorization: `Bearer ${apiKey}` } });
-      if (r.ok) return res.json({ valid: true });
-      if (r.status === 401 || r.status === 403) return res.json({ valid: false, error: `HTTP ${r.status} \u2014 key rejected` });
-      return res.json({ valid: true, warning: `HTTP ${r.status}` });
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 1e4);
+      try {
+        const r = await fetch(baseUrl, {
+          headers: { Authorization: `Bearer ${apiKey}` },
+          signal: controller.signal
+        });
+        clearTimeout(timeout);
+        if (r.ok) return res.json({ valid: true });
+        if (r.status === 401 || r.status === 403) return res.json({ valid: false, error: `HTTP ${r.status} \u2014 key rejected. \u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u043A\u043B\u044E\u0447 \u0438\u043B\u0438 \u043F\u043E\u0434\u043E\u0436\u0434\u0438\u0442\u0435 \u2014 \u043D\u043E\u0432\u044B\u0435 \u043A\u043B\u044E\u0447\u0438 \u043C\u043E\u0433\u0443\u0442 \u0430\u043A\u0442\u0438\u0432\u0438\u0440\u043E\u0432\u0430\u0442\u044C\u0441\u044F \u043D\u0435 \u0441\u0440\u0430\u0437\u0443.` });
+        return res.json({ valid: true, warning: `HTTP ${r.status}` });
+      } catch (e) {
+        clearTimeout(timeout);
+        if (e.name === "AbortError") return res.json({ valid: false, error: "\u0422\u0430\u0439\u043C\u0430\u0443\u0442 \u0441\u043E\u0435\u0434\u0438\u043D\u0435\u043D\u0438\u044F \u2014 \u043F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u0441\u0435\u0442\u044C" });
+        throw e;
+      }
     }
     return res.json({ valid: false, error: `Unknown provider: ${provider}` });
   } catch (e) {

@@ -155,9 +155,54 @@ export const SettingsBody: React.FC<SettingsBodyProps> = ({
               <h3 className="text-[10px] font-bold text-dash-text-muted uppercase tracking-widest mb-2">
                 {t.mcpTools || "MCP Tools"}
               </h3>
-              <p className="text-xs text-dash-text-muted">
+              <p className="text-xs text-dash-text-muted mb-3 leading-relaxed">
                 MCP (Model Context Protocol) tools allow the AI to interact with external services and APIs.
               </p>
+              
+              <div className="p-3 bg-dash-accent/5 border border-dash-accent/20 rounded-md">
+                <h4 className="text-xs font-medium text-dash-text-primary mb-2">{t.howToAddMcp || "How to add MCP servers"}</h4>
+                <ol className="text-[11px] text-dash-text-muted space-y-1.5 list-decimal list-inside leading-relaxed">
+                  <li>{t.mcpStep1 || "Create a <code>mcp-servers.json</code> file in the cvr.name extension storage"}</li>
+                  <li>{t.mcpStep2 || "Add server entries with <code>name</code>, <code>command</code>, <code>args</code>:"}</li>
+                </ol>
+                <pre className="mt-2 p-2 bg-dash-bg border border-dash-border rounded text-[10px] text-dash-text-muted font-mono overflow-x-auto">
+{`[
+  {
+    "name": "my-server",
+    "command": "npx",
+    "args": ["-y", "@scope/mcp-server"],
+    "env": { "API_KEY": "..." }
+  }
+]`}
+                </pre>
+                <p className="text-[11px] text-dash-text-muted mt-2 leading-relaxed">
+                  {t.mcpStep3 || "Use <code>POST /api/mcp-config</code> to apply, or restart the extension."}
+                </p>
+              </div>
+
+              <div className="p-3 bg-dash-accent/5 border border-dash-accent/20 rounded-md mt-3">
+                <h4 className="text-xs font-medium text-dash-text-primary mb-2">{t.mcpServerOutbound || "Expose cvr.name as MCP server"}</h4>
+                <p className="text-[11px] text-dash-text-muted leading-relaxed">
+                  {t.mcpOutboundDesc || "Edit <code>.cvr/mcp.json</code> to control the outbound MCP server that lets other tools (Claude Desktop, Cursor) use cvr.name:"}
+                </p>
+                <pre className="mt-2 p-2 bg-dash-bg border border-dash-border rounded text-[10px] text-dash-text-muted font-mono overflow-x-auto">
+{`{
+  "enabled": true,
+  "transport": "sse",
+  "basePath": "/mcp"
+}`}
+                </pre>
+              </div>
+
+              <div className="p-3 border border-dash-border rounded-md mt-3">
+                <h4 className="text-xs font-medium text-dash-text-primary mb-1.5">{t.mcpEndpoints || "API Endpoints"}</h4>
+                <div className="space-y-1 text-[10px] font-mono text-dash-text-muted">
+                  <div><span className="text-green-400">GET</span> /api/mcp-config — {t.mcpGetConfig || "List servers & tools"}</div>
+                  <div><span className="text-yellow-400">POST</span> /api/mcp-config — {t.mcpSetConfig || "Update server config"}</div>
+                  <div><span className="text-yellow-400">POST</span> /api/mcp-call — {t.mcpCallTool || "Call tool by name"}</div>
+                  <div><span className="text-yellow-400">POST</span> /api/mcp-refresh — {t.mcpRefresh || "Restart all servers"}</div>
+                </div>
+              </div>
             </div>
           </motion.div>
         )}

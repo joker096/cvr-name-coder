@@ -43,7 +43,7 @@ describe("useAIProviders", () => {
     const models = result.current.getModelsForProvider("gemini");
 
     expect(models.length).toBeGreaterThan(0);
-    expect(models[0].id).toBe("gemini-2.5-pro-preview-05-06");
+    expect(models[0].id).toBe("gemini-2.5-pro");
   });
 
   it("should return empty models for local provider", () => {

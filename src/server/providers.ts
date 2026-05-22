@@ -1,6 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { PROVIDER_DEFAULT_MODELS, PROVIDER_BASE_URLS } from "../utils/constants.js";
 import { estimateTokens } from "./costTracker.js";
+import { aiCache } from "./cache.js";
 
 export interface AIResponse {
   text: string;
@@ -29,6 +30,7 @@ export interface AIGenerateOptions {
   temperature?: number | undefined;
   maxTokens?: number | undefined;
   localUrl?: string | undefined;
+  useCache?: boolean | undefined;
 }
 
 export abstract class AIProvider {
@@ -128,13 +130,14 @@ function getEnvVarForProvider(provider: string): string {
     openai: "OPENAI_API_KEY",
     deepseek: "DEEPSEEK_API_KEY",
     grok: "XAI_API_KEY",
+    groq: "GROQ_API_KEY",
     baseten: "BASETEN_API_KEY",
     openrouter: "OPENROUTER_API_KEY",
     together: "TOGETHER_API_KEY",
     mistral: "MISTRAL_API_KEY",
     custom: "CUSTOM_API_KEY",
   };
-  return map[provider] || "CUSTOM_API_KEY";
+  return map[provider] || "";
 }
 
 interface OpenAIResponse {
@@ -244,13 +247,24 @@ export async function generateAIContent(
   modelName?: string,
   apiKey?: string,
   temperature?: number,
-  maxTokens?: number
+  maxTokens?: number,
+  useCache?: boolean
 ): Promise<string> {
+  if (useCache) {
+    const cached = aiCache.get(prompt, contents, provider, modelName);
+    if (cached) return cached;
+  }
+
   const p = providers[provider];
   if (!p) {
     throw new Error(`Unknown provider: ${provider}`);
   }
   const result = await p.generate({ prompt, contents, localUrl, modelName, apiKey, temperature, maxTokens });
+
+  if (useCache) {
+    aiCache.set(prompt, contents, provider, result.text, modelName);
+  }
+
   return result.text;
 }
 

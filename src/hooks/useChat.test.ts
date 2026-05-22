@@ -245,8 +245,11 @@ describe("useChat", () => {
       expect(callCount).toBe(2);
     });
 
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
     expect(result.current.messages.length).toBeGreaterThanOrEqual(2);
-    expect(result.current.isLoading).toBe(false);
   });
 
   it("should set isStreaming during message send", async () => {

@@ -150,19 +150,28 @@ function initSchema(db: Database): void {
 
 export class AIResponseCache {
   private cache: Map<string, CacheEntry> = new Map();
+  private _keys: string[] = [];
   private defaultTTL: number;
   private maxSize: number;
   private stats = { hits: 0, misses: 0 };
   private _warmed = false;
+  private _pendingRequests = new Map<string, Promise<string>>();
+  private _pruneInterval: ReturnType<typeof setInterval> | null = null;
 
-  constructor(defaultTTL = 60000, maxSize = 100) {
+  constructor(defaultTTL = 300000, maxSize = 500) {
     this.defaultTTL = defaultTTL;
     this.maxSize = maxSize;
+    this._pruneInterval = setInterval(() => {
+      const pruned = this.prune();
+      if (pruned > 0) log.debug('Background cache prune', { count: pruned });
+    }, 300000);
   }
 
   private hashKey(prompt: string, contents: unknown[], provider: string, model?: string): string {
-    const data = JSON.stringify({ prompt, contents, provider, model });
-    return createHash('sha256').update(data).digest('hex').slice(0, 32);
+    return createHash('sha256')
+      .update(JSON.stringify({ prompt, contents, provider, model }))
+      .digest('hex')
+      .slice(0, 32);
   }
 
   private warmFromDb(): void {
@@ -189,6 +198,7 @@ export class AIResponseCache {
           ttl: row.ttl,
           hits: row.hits,
         });
+        this._keys.push(row.key);
         loaded++;
       }
 
@@ -196,7 +206,7 @@ export class AIResponseCache {
         log.info('Cache warmed from DB', { loaded, expired, size: this.cache.size });
       }
     } catch {
-      /* warm silently fails — in-memory cache still works */
+      /* warm silently fails */
     }
   }
 
@@ -213,9 +223,9 @@ export class AIResponseCache {
           this.evictOldest();
         }
         this.cache.set(key, dbEntry);
+        this._keys.push(key);
         dbEntry.hits++;
         this.stats.hits++;
-        log.debug('Cache hit (from DB)', { key: key.slice(0, 8) });
         return dbEntry.value;
       }
       this.stats.misses++;
@@ -224,6 +234,7 @@ export class AIResponseCache {
 
     if (Date.now() - entry.timestamp > entry.ttl) {
       this.cache.delete(key);
+      this._keys = this._keys.filter((k) => k !== key);
       this.deleteFromDb(key);
       this.stats.misses++;
       return null;
@@ -231,7 +242,6 @@ export class AIResponseCache {
 
     entry.hits++;
     this.stats.hits++;
-    log.debug('Cache hit', { key: key.slice(0, 8), hits: entry.hits });
     return entry.value;
   }
 
@@ -251,9 +261,29 @@ export class AIResponseCache {
     };
 
     this.cache.set(key, entry);
+    this._keys.push(key);
     this.saveToDb(key, entry);
+  }
 
-    log.debug('Cache set', { key: key.slice(0, 8), ttl: ttl ?? this.defaultTTL });
+  coalesce(prompt: string, contents: unknown[], provider: string, model: string | undefined, factory: () => Promise<string>): Promise<string> {
+    const key = this.hashKey(prompt, contents, provider, model);
+    const cached = this.get(prompt, contents, provider, model);
+    if (cached) return Promise.resolve(cached);
+
+    const pending = this._pendingRequests.get(key);
+    if (pending) return pending;
+
+    const promise = factory().then((result) => {
+      this._pendingRequests.delete(key);
+      this.set(prompt, contents, provider, result, model);
+      return result;
+    }).catch((err) => {
+      this._pendingRequests.delete(key);
+      throw err;
+    });
+
+    this._pendingRequests.set(key, promise);
+    return promise;
   }
 
   private getFromDb(key: string): CacheEntry | null {
@@ -286,7 +316,7 @@ export class AIResponseCache {
       ).run!(key, entry.value, entry.timestamp, entry.ttl, entry.hits);
       if (_useFallback) saveJson();
     } catch {
-      /* persist silently fails — in-memory cache still works */
+      /* persist silently fails */
     }
   }
 
@@ -316,12 +346,14 @@ export class AIResponseCache {
 
     if (oldest) {
       this.cache.delete(oldest);
-      log.debug('Cache evicted', { key: oldest.slice(0, 8) });
+      this._keys = this._keys.filter((k) => k !== oldest);
     }
   }
 
   clear(): void {
     this.cache.clear();
+    this._keys = [];
+    this._pendingRequests.clear();
     this.stats = { hits: 0, misses: 0 };
 
     try {
@@ -360,6 +392,7 @@ export class AIResponseCache {
         pruned++;
       }
     }
+    this._keys = this._keys.filter((k) => this.cache.has(k));
 
     try {
       const db = getDb();
@@ -378,6 +411,13 @@ export class AIResponseCache {
     }
 
     return pruned;
+  }
+
+  dispose(): void {
+    if (this._pruneInterval) {
+      clearInterval(this._pruneInterval);
+      this._pruneInterval = null;
+    }
   }
 }
 

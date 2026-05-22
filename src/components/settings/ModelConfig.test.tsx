@@ -181,6 +181,66 @@ describe("ModelConfig", () => {
     expect(localUrlInput).toHaveValue("http://localhost:11434");
     expect(modelNameInput).toHaveValue("llama3");
   });
+
+  it("should NOT show generic model input for local provider", () => {
+    render(
+      <ModelConfig
+        {...defaultProps}
+        provider="local"
+        models={[]}
+        config={{
+          localModelName: "mistral",
+          aiModel: "gemini-2.5-flash",
+        }}
+      />
+    );
+
+    expect(screen.getByPlaceholderText("llama3")).toHaveValue("mistral");
+    expect(screen.queryByDisplayValue("gemini-2.5-flash")).not.toBeInTheDocument();
+  });
+
+  it("should show only localModelName, not aiModel, for local provider", () => {
+    render(
+      <ModelConfig
+        {...defaultProps}
+        provider="local"
+        models={[]}
+      />
+    );
+
+    const modelNameLabels = screen.getAllByText("Model Name");
+    expect(modelNameLabels.length).toBe(1);
+  });
+
+  it("should show generic model input for non-local provider", () => {
+    render(
+      <ModelConfig
+        {...defaultProps}
+        provider="deepseek"
+        models={[]}
+        config={{ aiModel: "deepseek-chat" }}
+      />
+    );
+
+    expect(screen.getByPlaceholderText("Enter model name")).toHaveValue("deepseek-chat");
+  });
+
+  it("should show model selector when models list is provided", () => {
+    render(
+      <ModelConfig
+        {...defaultProps}
+        provider="openai"
+        models={[
+          { id: "gpt-4", name: "GPT-4" },
+          { id: "gpt-4o", name: "GPT-4o" },
+        ]}
+      />
+    );
+
+    expect(screen.getByRole("combobox")).toBeInTheDocument();
+    expect(screen.getByText("GPT-4")).toBeInTheDocument();
+    expect(screen.getByText("GPT-4o")).toBeInTheDocument();
+  });
 });
 
 

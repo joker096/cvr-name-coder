@@ -118,10 +118,22 @@ app.post("/api/validate-key", async (req, res) => {
 
     const baseUrl = PROVIDER_VALIDATION_URLS[provider];
     if (baseUrl) {
-      const r = await fetch(baseUrl, { headers: { Authorization: `Bearer ${apiKey}` } });
-      if (r.ok) return res.json({ valid: true });
-      if (r.status === 401 || r.status === 403) return res.json({ valid: false, error: `HTTP ${r.status} — key rejected` });
-      return res.json({ valid: true, warning: `HTTP ${r.status}` });
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
+      try {
+        const r = await fetch(baseUrl, {
+          headers: { Authorization: `Bearer ${apiKey}` },
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        if (r.ok) return res.json({ valid: true });
+        if (r.status === 401 || r.status === 403) return res.json({ valid: false, error: `HTTP ${r.status} — key rejected. Проверьте ключ или подождите — новые ключи могут активироваться не сразу.` });
+        return res.json({ valid: true, warning: `HTTP ${r.status}` });
+      } catch (e: any) {
+        clearTimeout(timeout);
+        if (e.name === "AbortError") return res.json({ valid: false, error: "Таймаут соединения — проверьте сеть" });
+        throw e;
+      }
     }
 
     return res.json({ valid: false, error: `Unknown provider: ${provider}` });

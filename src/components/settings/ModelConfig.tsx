@@ -237,63 +237,65 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
         </>
       )}
 
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <label className="text-xs font-medium text-dash-text-primary">
-            {t.modelName || "Model"}
-          </label>
-          {requiresApiKey && onRefreshModels && (
-            <button
-              type="button"
-              onClick={onRefreshModels}
-              disabled={isRefreshingModels}
-              className="text-[10px] text-dash-accent hover:text-dash-accent/80 disabled:text-dash-text-muted disabled:cursor-not-allowed transition-colors"
-            >
-              {isRefreshingModels ? "Loading..." : "Fetch models"}
-            </button>
-          )}
-        </div>
-
-        {mergedModels.length > 0 && provider !== "local" && provider !== "custom" ? (
-          <div className="space-y-2">
-            <select
-              value={isCustomModel ? "__custom__" : config.aiModel || ""}
-              onChange={(e) => handleModelChange(e.target.value)}
-              className="w-full px-2.5 py-1.5 bg-dash-bg border border-dash-border rounded text-dash-text-primary focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs"
-            >
-              <option value="" disabled>{t.selectModel || "Select a model..."}</option>
-              {mergedModels.map((model) => (
-                <option key={model.id} value={model.id}>
-                  {model.name}
-                </option>
-              ))}
-              <option value="__custom__">{t.customModel || "Custom / Other..."}</option>
-            </select>
-            {isCustomModel && (
-              <input
-                type="text"
-                value={config.aiModel || ""}
-                onChange={(e) => onChange({ aiModel: e.target.value })}
-                className="w-full px-2.5 py-1.5 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs"
-                placeholder={t.enterModelName || "Enter model name"}
-              />
+      {provider !== "local" && (
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-xs font-medium text-dash-text-primary">
+              {t.modelName || "Model"}
+            </label>
+            {requiresApiKey && onRefreshModels && (
+              <button
+                type="button"
+                onClick={onRefreshModels}
+                disabled={isRefreshingModels}
+                className="text-[10px] text-dash-accent hover:text-dash-accent/80 disabled:text-dash-text-muted disabled:cursor-not-allowed transition-colors"
+              >
+                {isRefreshingModels ? "Loading..." : "Fetch models"}
+              </button>
             )}
           </div>
-        ) : (
-          <input
-            type="text"
-            value={config.aiModel || ""}
-            onChange={(e) => onChange({ aiModel: e.target.value })}
-            className="w-full px-2.5 py-1.5 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs"
-            placeholder={t.enterModelName || "Enter model name"}
-          />
-        )}
-        {remoteModels.length > 0 && (
-          <p className="text-[10px] text-dash-text-muted mt-1">
-            {remoteModels.length} models fetched from API. Predefined models are also included.
-          </p>
-        )}
-      </div>
+
+          {mergedModels.length > 0 && provider !== "custom" ? (
+            <div className="space-y-2">
+              <select
+                value={isCustomModel ? "__custom__" : config.aiModel || ""}
+                onChange={(e) => handleModelChange(e.target.value)}
+                className="w-full px-2.5 py-1.5 bg-dash-bg border border-dash-border rounded text-dash-text-primary focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs"
+              >
+                <option value="" disabled>{t.selectModel || "Select a model..."}</option>
+                {mergedModels.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.name}
+                  </option>
+                ))}
+                <option value="__custom__">{t.customModel || "Custom / Other..."}</option>
+              </select>
+              {isCustomModel && (
+                <input
+                  type="text"
+                  value={config.aiModel || ""}
+                  onChange={(e) => onChange({ aiModel: e.target.value })}
+                  className="w-full px-2.5 py-1.5 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs"
+                  placeholder={t.enterModelName || "Enter model name"}
+                />
+              )}
+            </div>
+          ) : (
+            <input
+              type="text"
+              value={config.aiModel || ""}
+              onChange={(e) => onChange({ aiModel: e.target.value })}
+              className="w-full px-2.5 py-1.5 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs"
+              placeholder={t.enterModelName || "Enter model name"}
+            />
+          )}
+          {remoteModels.length > 0 && (
+            <p className="text-[10px] text-dash-text-muted mt-1">
+              {remoteModels.length} models fetched from API. Predefined models are also included.
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 };

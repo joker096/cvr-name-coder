@@ -1,10 +1,18 @@
-import { readFile, writeFile, access, rename } from "fs/promises";
+import { readFile, writeFile, access, rename, stat } from "fs/promises";
 import * as path from "path";
 
 let _memoryDir = path.resolve(process.cwd(), ".opencode-infinite");
 
+let _memCache: { data: MemoryData; mtime: number } | null = null;
+let _userCache: { data: MemoryData; mtime: number } | null = null;
+let _contextCache: string | null = null;
+let _contextTimestamp = 0;
+
 export function setMemoryDir(dir: string): void {
   _memoryDir = dir;
+  _memCache = null;
+  _userCache = null;
+  _contextCache = null;
 }
 
 function getMemoryPath(): string { return path.join(_memoryDir, "MEMORY.md"); }
@@ -102,9 +110,19 @@ export async function readMemory(): Promise<MemoryData> {
 - \`npm run build\` — Production build
 `
   );
+
+  if (_memCache &&
+    _memCache.mtime === (await stat(memoryPath).catch(() => ({ mtimeMs: 0 }))).mtimeMs) {
+    return _memCache.data;
+  }
+
   const raw = await readFile(memoryPath, "utf-8");
-  return parseMemoryMarkdown(raw);
+  const data = parseMemoryMarkdown(raw);
+  _memCache = { data, mtime: (await stat(memoryPath).catch(() => ({ mtimeMs: 0 }))).mtimeMs };
+  return data;
 }
+
+
 
 export async function writeMemory(content: string, section?: string): Promise<void> {
   const data = await readMemory();
@@ -130,6 +148,8 @@ export async function writeMemory(content: string, section?: string): Promise<vo
 
   const raw = rebuildMarkdown(data.sections);
   await atomicWriteFile(getMemoryPath(), raw);
+  _memCache = null;
+  _contextCache = null;
 }
 
 export async function replaceMemorySection(section: string, lines: string[]): Promise<void> {
@@ -142,6 +162,8 @@ export async function replaceMemorySection(section: string, lines: string[]): Pr
   }
   const raw = rebuildMarkdown(data.sections);
   await atomicWriteFile(getMemoryPath(), raw);
+  _memCache = null;
+  _contextCache = null;
 }
 
 export async function deleteMemorySection(section: string): Promise<void> {
@@ -149,6 +171,8 @@ export async function deleteMemorySection(section: string): Promise<void> {
   data.sections = data.sections.filter((s) => s.title.toLowerCase() !== section.toLowerCase());
   const raw = rebuildMarkdown(data.sections);
   await atomicWriteFile(getMemoryPath(), raw);
+  _memCache = null;
+  _contextCache = null;
 }
 
 export async function readUser(): Promise<MemoryData> {
@@ -186,8 +210,16 @@ export async function readUser(): Promise<MemoryData> {
 - \`npm run dev\` — start development server
 `
   );
+
+  if (_userCache &&
+    _userCache.mtime === (await stat(userPath).catch(() => ({ mtimeMs: 0 }))).mtimeMs) {
+    return _userCache.data;
+  }
+
   const raw = await readFile(userPath, "utf-8");
-  return parseMemoryMarkdown(raw);
+  const data = parseMemoryMarkdown(raw);
+  _userCache = { data, mtime: (await stat(userPath).catch(() => ({ mtimeMs: 0 }))).mtimeMs };
+  return data;
 }
 
 export async function writeUser(content: string, section?: string): Promise<void> {
@@ -213,6 +245,8 @@ export async function writeUser(content: string, section?: string): Promise<void
 
   const raw = rebuildMarkdown(data.sections);
   await atomicWriteFile(getUserPath(), raw);
+  _userCache = null;
+  _contextCache = null;
 }
 
 export async function replaceUserSection(section: string, lines: string[]): Promise<void> {
@@ -225,6 +259,8 @@ export async function replaceUserSection(section: string, lines: string[]): Prom
   }
   const raw = rebuildMarkdown(data.sections);
   await atomicWriteFile(getUserPath(), raw);
+  _userCache = null;
+  _contextCache = null;
 }
 
 export async function deleteUserSection(section: string): Promise<void> {
@@ -232,6 +268,8 @@ export async function deleteUserSection(section: string): Promise<void> {
   data.sections = data.sections.filter((s) => s.title.toLowerCase() !== section.toLowerCase());
   const raw = rebuildMarkdown(data.sections);
   await atomicWriteFile(getUserPath(), raw);
+  _userCache = null;
+  _contextCache = null;
 }
 
 async function atomicWriteFile(filePath: string, content: string): Promise<void> {
@@ -251,6 +289,8 @@ function rebuildMarkdown(sections: MemorySection[]): string {
 }
 
 export async function getMemoryContext(): Promise<string> {
+  if (_contextCache && Date.now() - _contextTimestamp < 10000) return _contextCache;
+
   const [memory, user] = await Promise.all([readMemory(), readUser()]);
 
   const parts: string[] = [];
@@ -263,5 +303,7 @@ export async function getMemoryContext(): Promise<string> {
     parts.push("## User Preferences\n" + user.raw.replace(/^# User Preferences\n?/i, "").trim());
   }
 
-  return parts.join("\n\n---\n\n");
+  _contextCache = parts.join("\n\n---\n\n");
+  _contextTimestamp = Date.now();
+  return _contextCache;
 }

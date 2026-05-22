@@ -4,6 +4,7 @@ import { getAgentById } from "./agentLoader.js";
 import { getMemoryContext } from "./memoryStore.js";
 import { getInstructionsContext } from "./instructionLoader.js";
 import { loadCustomTools } from "./customToolLoader.js";
+import { stat } from "fs/promises";
 
 const AGENT_PROMPTS: Record<string, string> = {
   build: `[ROLE: BUILD] - DEFAULT DEVELOPER AGENT. You have full access to developer tools (read/write files, execute bash). Focus on iterative coding, bug fixing, and implementation.`,
@@ -14,6 +15,34 @@ const AGENT_PROMPTS: Record<string, string> = {
   hephaestus: `[ROLE: HEPHAESTUS] - DEEP EXECUTOR. Autonomous specialist. Given a goal, independently research patterns, write code, and finish the task without requiring step-by-step guidance.`,
 };
 
+interface PromptCacheEntry {
+  prompt: string;
+  memoryMtime: number;
+  userMtime: number;
+  timestamp: number;
+}
+
+const _promptCache = new Map<string, PromptCacheEntry>();
+const PROMPT_CACHE_TTL = 60000;
+
+async function getMemoryMtime(): Promise<{ memory: number; user: number }> {
+  let memory = 0;
+  let user = 0;
+  try {
+    const memStat = await stat(".opencode-infinite/MEMORY.md");
+    memory = memStat.mtimeMs;
+  } catch { /* ignore */ }
+  try {
+    const userStat = await stat(".opencode-infinite/USER.md");
+    user = userStat.mtimeMs;
+  } catch { /* ignore */ }
+  return { memory, user };
+}
+
+function getCacheKey(agent: string, mode: string, contextParts?: string, customSystemPrompt?: string): string {
+  return `${agent}|${mode}|${contextParts?.slice(0, 50) || ''}|${customSystemPrompt ? '1' : '0'}`;
+}
+
 export async function buildSystemPrompt(options: {
   agent: AgentId;
   mode: "plan" | "build" | "review";
@@ -21,6 +50,17 @@ export async function buildSystemPrompt(options: {
   customSystemPrompt?: string;
 }): Promise<string> {
   const { agent, mode, contextParts, customSystemPrompt } = options;
+
+  const cacheKey = getCacheKey(agent, mode, contextParts, customSystemPrompt);
+  const { memory: memoryMtime, user: userMtime } = await getMemoryMtime();
+  const cached = _promptCache.get(cacheKey);
+
+  if (cached &&
+    cached.memoryMtime === memoryMtime &&
+    cached.userMtime === userMtime &&
+    Date.now() - cached.timestamp < PROMPT_CACHE_TTL) {
+    return cached.prompt;
+  }
 
   const customAgent = getAgentById(agent);
   const agentIdentity = customAgent?.systemPrompt || AGENT_PROMPTS[agent] || AGENT_PROMPTS.build;
@@ -88,9 +128,19 @@ ${persistentContext}
 ${instructionsContext ? "\n" + instructionsContext : ""}
 `;
 
+  let resultPrompt: string;
   if (customSystemPrompt && customSystemPrompt.trim()) {
-    return `${customSystemPrompt.trim()}\n\n${modeDirective}\n\nAVAILABLE TOOLS:\n${toolDescriptions}\n\nPERSISTENT CONTEXT CLUSTERS:\n${persistentContext}${instructionsContext ? "\n" + instructionsContext : ""}`;
+    resultPrompt = `${customSystemPrompt.trim()}\n\n${modeDirective}\n\nAVAILABLE TOOLS:\n${toolDescriptions}\n\nPERSISTENT CONTEXT CLUSTERS:\n${persistentContext}${instructionsContext ? "\n" + instructionsContext : ""}`;
+  } else {
+    resultPrompt = basePrompt;
   }
 
-  return basePrompt;
+  _promptCache.set(cacheKey, {
+    prompt: resultPrompt,
+    memoryMtime,
+    userMtime,
+    timestamp: Date.now(),
+  });
+
+  return resultPrompt;
 }

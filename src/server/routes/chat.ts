@@ -74,6 +74,43 @@ export async function ensureStorage() {
   }
 }
 
+let _historyCache: HistoryEntry[] | null = null;
+let _historyCacheTime = 0;
+let _memoryCache: MemoryEntry[] | null = null;
+let _memoryCacheTime = 0;
+
+async function getHistoryCached(): Promise<HistoryEntry[]> {
+  if (_historyCache && Date.now() - _historyCacheTime < 5000) return _historyCache;
+  try {
+    _historyCache = JSON.parse(await readFile(HISTORY_FILE, "utf-8")) as HistoryEntry[];
+    _historyCacheTime = Date.now();
+    return _historyCache;
+  } catch {
+    return [];
+  }
+}
+
+async function getMemoriesCached(): Promise<MemoryEntry[]> {
+  if (_memoryCache && Date.now() - _memoryCacheTime < 5000) return _memoryCache;
+  try {
+    _memoryCache = JSON.parse(await readFile(MEMORY_FILE, "utf-8")) as MemoryEntry[];
+    _memoryCacheTime = Date.now();
+    return _memoryCache;
+  } catch {
+    return [];
+  }
+}
+
+function invalidateHistoryCache(): void {
+  _historyCache = null;
+  _historyCacheTime = 0;
+}
+
+function invalidateMemoryCache(): void {
+  _memoryCache = null;
+  _memoryCacheTime = 0;
+}
+
 export async function summarizeLongHistory(messages: HistoryEntry[], provider: string = "gemini", localUrl?: string, modelName?: string, apiKey?: string, dualConfig?: DualModelConfig) {
   if (messages.length < 5) return null;
   
@@ -105,11 +142,12 @@ export function registerRoutes(app: Application) {
     try {
       const body = req.body as ChatRequestBody;
       const { message, config = {}, kernelConfig = {}, agent: bodyAgent } = body;
-      const { aiProvider = "gemini", localUrl, aiModel, apiKey, temperature, maxTokens, systemPrompt: customSystemPrompt, agent: configAgent, maxImageSize } = config;
+      const { aiProvider = "gemini", localUrl, aiModel, localModelName, apiKey, temperature, maxTokens, systemPrompt: customSystemPrompt, agent: configAgent, maxImageSize } = config;
+      const resolvedModel = aiProvider === "local" ? (localModelName || aiModel) : aiModel;
       const kConfig = kernelConfig?.aiProvider ? kernelConfig : config;
 
-      const history = JSON.parse(await readFile(HISTORY_FILE, "utf-8")) as HistoryEntry[];
-      const memories = JSON.parse(await readFile(MEMORY_FILE, "utf-8")) as MemoryEntry[];
+      const history = await getHistoryCached();
+      const memories = await getMemoriesCached();
 
       const agent = (bodyAgent || configAgent || "build") as import("../../types/settings.js").AgentId;
       const mode = config.mode || "build";
@@ -147,8 +185,13 @@ export function registerRoutes(app: Application) {
       }
       const visibleHistory = ctxWindow.getMessages();
 
+      const historyLookup = new Map<string, HistoryEntry>();
+      for (const h of history) {
+        historyLookup.set(`${h.role}:${h.content}`, h);
+      }
+
       const historyContents = visibleHistory.map((m) => {
-        const hEntry = history.find((h: HistoryEntry) => h.content === m.content && h.role === m.role);
+        const hEntry = historyLookup.get(`${m.role}:${m.content}`);
         const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [{ text: m.content }];
         if (hEntry?.images && Array.isArray(hEntry.images)) {
           for (const img of hEntry.images) {
@@ -164,7 +207,7 @@ export function registerRoutes(app: Application) {
       const responseText = await generateAIContent(systemPrompt, [
         ...historyContents,
         { role: 'user', parts: buildParts(message, processedImages) }
-      ], aiProvider, localUrl, aiModel, apiKey, temperature, maxTokens);
+      ], aiProvider, localUrl, resolvedModel, apiKey, temperature, maxTokens, true);
 
       const estimatedInputTokens = Math.ceil((systemPrompt + message).length / 4);
       const estimatedOutputTokens = Math.ceil(responseText.length / 4);
@@ -175,14 +218,16 @@ export function registerRoutes(app: Application) {
       }
       const updatedHistory: HistoryEntry[] = [...history, userHistoryEntry, { role: 'assistant' as const, content: responseText, createdAt: new Date() }];
       await writeFile(HISTORY_FILE, JSON.stringify(updatedHistory));
+      invalidateHistoryCache();
 
       if (updatedHistory.length % 5 === 0) {
         const kConfigTyped = kConfig as ChatConfig;
         const dualCfg = buildDualConfig(kConfigTyped);
-        summarizeLongHistory(updatedHistory, kConfigTyped.aiProvider, kConfigTyped.localUrl, kConfigTyped.aiModel || kConfigTyped.localModelName, kConfigTyped.apiKey, dualCfg).then(async (summary) => {
+        summarizeLongHistory(updatedHistory, kConfigTyped.aiProvider, kConfigTyped.localUrl, kConfigTyped.aiProvider === "local" ? (kConfigTyped.localModelName || kConfigTyped.aiModel) : kConfigTyped.aiModel, kConfigTyped.apiKey, dualCfg).then(async (summary) => {
           if (summary) {
             const currentMemories = JSON.parse(await readFile(MEMORY_FILE, "utf-8")) as MemoryEntry[];
             await writeFile(MEMORY_FILE, JSON.stringify([...currentMemories, { content: summary, createdAt: new Date() }]));
+            invalidateMemoryCache();
           }
         });
       }
@@ -194,7 +239,7 @@ export function registerRoutes(app: Application) {
       });
 
       // Track cost (fire-and-forget)
-      trackCost(aiProvider, aiModel || 'unknown', estimatedInputTokens, estimatedOutputTokens).catch(() => {});
+      trackCost(aiProvider, resolvedModel || 'unknown', estimatedInputTokens, estimatedOutputTokens).catch(() => {});
 
     } catch (error: unknown) {
       console.error("API Error:", getErrorMessage(error));
@@ -271,7 +316,7 @@ export function registerRoutes(app: Application) {
 
       const envKeyMap: Record<string, string> = {
         openai: "OPENAI_API_KEY", deepseek: "DEEPSEEK_API_KEY", grok: "XAI_API_KEY",
-        baseten: "BASETEN_API_KEY", openrouter: "OPENROUTER_API_KEY",
+        groq: "GROQ_API_KEY", baseten: "BASETEN_API_KEY", openrouter: "OPENROUTER_API_KEY",
         together: "TOGETHER_API_KEY", mistral: "MISTRAL_API_KEY",
       };
       const key = apiKey || process.env[envKeyMap[provider] || ""] || "";
@@ -301,8 +346,8 @@ export function registerRoutes(app: Application) {
 
   app.get("/api/history", async (_req: Request, res: Response) => {
     try {
-      const history = JSON.parse(await readFile(HISTORY_FILE, "utf-8")) as HistoryEntry[];
-      const memories = JSON.parse(await readFile(MEMORY_FILE, "utf-8")) as MemoryEntry[];
+      const history = await getHistoryCached();
+      const memories = await getMemoriesCached();
       res.json({ history, memories });
     } catch {
       res.json({ history: [], memories: [] });
@@ -312,6 +357,8 @@ export function registerRoutes(app: Application) {
   app.post("/api/clear", async (_req: Request, res: Response) => {
     await writeFile(HISTORY_FILE, JSON.stringify([]));
     await writeFile(MEMORY_FILE, JSON.stringify([]));
+    invalidateHistoryCache();
+    invalidateMemoryCache();
     res.json({ status: "cleared" });
   });
 }

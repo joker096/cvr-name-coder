@@ -13,7 +13,7 @@ export interface Provider {
 }
 
 const API_KEY_URLS: Partial<Record<ChatProviderId, string>> = {
-  gemini: "https://aistudio.google.com/apikey",
+  gemini: "https://aistudio.google.com/apikeys",
   openai: "https://platform.openai.com/api-keys",
   anthropic: "https://console.anthropic.com/",
   deepseek: "https://platform.deepseek.com/api_keys",
@@ -22,7 +22,7 @@ const API_KEY_URLS: Partial<Record<ChatProviderId, string>> = {
   baseten: "https://www.baseten.co/settings/api-keys",
   openrouter: "https://openrouter.ai/keys",
   together: "https://api.together.xyz/settings/api-keys",
-  mistral: "https://console.mistral.ai/api-keys",
+  mistral: "https://admin.mistral.ai/organization/api-keys",
 };
 
 interface ProviderSelectorProps {

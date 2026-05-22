@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { TRANSLATIONS } from "./i18n";
 import { ChatContainer } from "./components/chat/ChatContainer";
 import { SettingsModal } from "./components/settings/SettingsModal";
@@ -22,6 +22,8 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [input, setInput] = useState("");
+  const inputRef = useRef(input);
+  inputRef.current = input;
   const [lang, setLang] = useState<Lang>(() => {
     const saved = localStorage.getItem("cvr_lang");
     return saved && (ALL_LANGS as readonly string[]).includes(saved) ? (saved as Lang) : "en";
@@ -51,10 +53,11 @@ export default function App() {
   const t = TRANSLATIONS[lang] || TRANSLATIONS.en;
   const tt = t as Record<string, string>;
 
-  const handleSendMessage = async (images?: string[]) => {
-    if (!input.trim() && (!images || images.length === 0)) return;
+  const handleSendMessage = useCallback(async (images?: string[]) => {
+    const currentInput = inputRef.current;
+    if (!currentInput.trim() && (!images || images.length === 0)) return;
 
-    const trimmed = input.trim();
+    const trimmed = currentInput.trim();
     if (trimmed === "/undo") {
       const result = await undo();
       addMessage({
@@ -121,17 +124,17 @@ export default function App() {
       return;
     }
 
-    const result = await sendMessage(input, images);
+    const result = await sendMessage(currentInput, images);
     setInput("");
 
     if (result?.continueNeeded && settings.isAutonomous) {
-      startLoop(input, settings.chat.aiProvider, settings.chat.aiModel);
+      startLoop(currentInput, settings.chat.aiProvider, settings.chat.aiModel);
     }
-  };
+  }, [sendMessage, settings, startLoop, undo, redo, addMessage, deleteMessage, tt]);
 
-  const handleCancelMessage = () => {
+  const handleCancelMessage = useCallback(() => {
     cancelMessage();
-  };
+  }, [cancelMessage]);
 
   // Auto-commit after successful agent loop
   const prevAgentRunningRef = useRef(false);

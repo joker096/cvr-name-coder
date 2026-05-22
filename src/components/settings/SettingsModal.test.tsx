@@ -69,6 +69,18 @@ describe("SettingsModal", () => {
       localUrl: "Local URL",
       localModelName: "Model Name",
       mcpSettings: "MCP settings coming soon",
+      mcpTools: "MCP Tools",
+      howToAddMcp: "How to add MCP servers",
+      mcpStep1: "Step 1",
+      mcpStep2: "Step 2",
+      mcpStep3: "Step 3",
+      mcpServerOutbound: "Expose cvr.name as MCP server",
+      mcpOutboundDesc: "Desc",
+      mcpEndpoints: "API Endpoints",
+      mcpGetConfig: "List servers",
+      mcpSetConfig: "Update config",
+      mcpCallTool: "Call tool",
+      mcpRefresh: "Restart servers",
       save: "Save",
     },
   };
@@ -175,6 +187,40 @@ describe("SettingsModal", () => {
     fireEvent.click(mcpTab);
 
     expect(screen.getByText("MCP Tools")).toBeInTheDocument();
+  });
+
+  it("should render MCP setup instructions", () => {
+    render(<SettingsModal {...defaultProps} />);
+
+    const mcpTab = screen.getByText("MCP");
+    fireEvent.click(mcpTab);
+
+    expect(screen.getByText("How to add MCP servers")).toBeInTheDocument();
+    expect(screen.getByText("Expose cvr.name as MCP server")).toBeInTheDocument();
+    expect(screen.getByText("API Endpoints")).toBeInTheDocument();
+  });
+
+  it("should render MCP API endpoints list", () => {
+    render(<SettingsModal {...defaultProps} />);
+
+    const mcpTab = screen.getByText("MCP");
+    fireEvent.click(mcpTab);
+
+    expect(screen.getByText(/List servers/)).toBeInTheDocument();
+    expect(screen.getByText(/Update config/)).toBeInTheDocument();
+    expect(screen.getByText(/Call tool/)).toBeInTheDocument();
+    expect(screen.getByText(/Restart servers/)).toBeInTheDocument();
+  });
+
+  it("should render MCP config example", () => {
+    render(<SettingsModal {...defaultProps} />);
+
+    const mcpTab = screen.getByText("MCP");
+    fireEvent.click(mcpTab);
+
+    expect(screen.getByText(/my-server/)).toBeInTheDocument();
+    expect(screen.getByText(/@scope\/mcp-server/)).toBeInTheDocument();
+    expect(screen.getByText(/"enabled": true/)).toBeInTheDocument();
   });
 
   it("should apply custom className", () => {

@@ -30,6 +30,8 @@ function parseToolCalls(content: string): ToolCall[] {
   return calls;
 }
 
+const SSE_BATCH_MS = 50;
+
 export const useChat = (config: ChatConfig) => {
   const [state, setState] = useState<ChatState>({
     messages: [],
@@ -94,7 +96,6 @@ export const useChat = (config: ChatConfig) => {
       const isJson = contentType.includes("application/json");
 
       if (isJson) {
-        // Standalone server returns JSON
         const data = await response.json();
         const assistantMessage: Message = {
           id: toMessageId(crypto.randomUUID()),
@@ -112,7 +113,6 @@ export const useChat = (config: ChatConfig) => {
         return { content: assistantMessage.content, continueNeeded: !!data.continueNeeded };
       }
 
-      // VS Code extension server returns SSE
       const reader = response.body?.getReader();
       if (!reader) {
         throw new Error("No response body");
@@ -135,11 +135,31 @@ export const useChat = (config: ChatConfig) => {
       let buffer = "";
       let fullContent = "";
       let continueNeeded = false;
+      let batchedToken = "";
+      let lastBatchTime = 0;
+      let batchTimer: ReturnType<typeof setTimeout> | null = null;
+
+      const flushBatch = (msgId: string) => {
+        if (batchedToken) {
+          const token = batchedToken;
+          batchedToken = "";
+          setState((prev) => ({
+            ...prev,
+            messages: prev.messages.map((msg) =>
+              msg.id === msgId
+                ? { ...msg, content: msg.content + token }
+                : msg
+            ),
+          }));
+        }
+      };
 
       while (true) {
         const { done, value } = await reader.read();
 
         if (done) {
+          flushBatch(assistantMessage.id);
+          if (batchTimer) clearTimeout(batchTimer);
           break;
         }
 
@@ -158,16 +178,21 @@ export const useChat = (config: ChatConfig) => {
               const parsed = JSON.parse(data);
               if (typeof parsed === "string") {
                 fullContent += parsed;
-                setState((prev) => ({
-                  ...prev,
-                  messages: prev.messages.map((msg) =>
-                    msg.id === assistantMessage.id
-                      ? { ...msg, content: msg.content + parsed }
-                      : msg
-                  ),
-                }));
+                batchedToken += parsed;
+                const now = Date.now();
+                if (now - lastBatchTime >= SSE_BATCH_MS) {
+                  flushBatch(assistantMessage.id);
+                  lastBatchTime = now;
+                } else if (!batchTimer) {
+                  batchTimer = setTimeout(() => {
+                    flushBatch(assistantMessage.id);
+                    lastBatchTime = Date.now();
+                    batchTimer = null;
+                  }, SSE_BATCH_MS - (now - lastBatchTime));
+                }
               } else if (parsed.error) {
                 fullContent += `\n\n⚠ ${parsed.error}`;
+                flushBatch(assistantMessage.id);
                 setState((prev) => ({
                   ...prev,
                   messages: prev.messages.map((msg) =>
@@ -178,18 +203,23 @@ export const useChat = (config: ChatConfig) => {
                 }));
               } else if (parsed.content) {
                 fullContent += parsed.content;
-                setState((prev) => ({
-                  ...prev,
-                  messages: prev.messages.map((msg) =>
-                    msg.id === assistantMessage.id
-                      ? { ...msg, content: msg.content + parsed.content }
-                      : msg
-                  ),
-                }));
+                batchedToken += parsed.content;
+                const now = Date.now();
+                if (now - lastBatchTime >= SSE_BATCH_MS) {
+                  flushBatch(assistantMessage.id);
+                  lastBatchTime = now;
+                } else if (!batchTimer) {
+                  batchTimer = setTimeout(() => {
+                    flushBatch(assistantMessage.id);
+                    lastBatchTime = Date.now();
+                    batchTimer = null;
+                  }, SSE_BATCH_MS - (now - lastBatchTime));
+                }
               } else if (parsed.done) {
                 continueNeeded = !!parsed.continueNeeded;
                 if (parsed.tokenUsage) {
                   const usage = parsed.tokenUsage as { input: number; output: number };
+                  flushBatch(assistantMessage.id);
                   setState((prev) => ({
                     ...prev,
                     messages: prev.messages.map((msg) =>
