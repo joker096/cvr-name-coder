@@ -43,7 +43,7 @@ export const PROVIDER_DEFAULT_MODELS: Record<string, string> = {
 
 export const PROVIDER_BASE_URLS: Record<string, string> = {
   openai: "https://api.openai.com/v1",
-  deepseek: "https://api.deepseek.com",
+  deepseek: "https://api.deepseek.com/v1",
   grok: "https://api.x.ai/v1",
   groq: "https://api.groq.com/openai/v1",
   baseten: "https://api.baseten.co/v1",

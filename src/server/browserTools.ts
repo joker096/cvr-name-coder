@@ -44,6 +44,28 @@ async function getOrCreateSession(sessionId: string, headless = true): Promise<B
   const context = await browser.newContext({
     viewport: { width: 1280, height: 720 },
     userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    permissions: [],
+    bypassCSP: false,
+    ignoreHTTPSErrors: false,
+  });
+  await context.route("**/*", (route: any, request: any) => {
+    const url = request.url();
+    try {
+      const parsed = new URL(url);
+      const hostname = parsed.hostname.toLowerCase();
+      if (
+        hostname === "localhost" ||
+        hostname === "127.0.0.1" ||
+        hostname === "0.0.0.0" ||
+        hostname.startsWith("192.168.") ||
+        hostname.startsWith("10.") ||
+        hostname.startsWith("172.")
+      ) {
+        route.abort("blockedbyclient");
+        return;
+      }
+    } catch {}
+    route.continue();
   });
   const page = await context.newPage();
   const session: BrowserSession = { browser, context, page, createdAt: Date.now() };

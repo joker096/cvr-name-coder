@@ -26,11 +26,14 @@ export function setupSecurityMiddleware(app: express.Application): void {
 }
 
 export function createApiKeyMiddleware(): express.RequestHandler {
-  const API_KEY = process.env.CVR_API_KEY || (process.env.NODE_ENV === "production" ? null : "dev");
-  
+  const API_KEY = process.env.CVR_API_KEY;
+
   return (req: express.Request, res: express.Response, next: express.NextFunction) => {
-    if (!API_KEY || API_KEY === "dev") {
-      return next();
+    if (!API_KEY) {
+      if (process.env.NODE_ENV !== "production") {
+        return next();
+      }
+      return res.status(500).json({ error: "CVR_API_KEY not configured" });
     }
     const headerKey = req.headers["x-api-key"];
     if (headerKey !== API_KEY) {

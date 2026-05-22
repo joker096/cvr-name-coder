@@ -20,6 +20,7 @@ import { getAgents, getAgentById, loadAgents } from "./agentLoader.js";
 import { readFile, readdir } from "fs/promises";
 import * as path from "path";
 import { getErrorMessage } from "../types/errors.js";
+import { permissionEngine } from "./serverState.js";
 
 const PROJECT_ROOT = process.cwd();
 
@@ -101,7 +102,7 @@ export async function createMcpServer() {
       const result = await executeTool(
         { name, params: (args as Record<string, unknown>) || {} },
         "build",
-        undefined,
+        permissionEngine,
         "mcp-session"
       );
       return {

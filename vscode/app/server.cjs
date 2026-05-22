@@ -86,7 +86,23 @@ async function getOrCreateSession(sessionId, headless = true) {
   const browser = await chromium.launch({ headless });
   const context = await browser.newContext({
     viewport: { width: 1280, height: 720 },
-    userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    permissions: [],
+    bypassCSP: false,
+    ignoreHTTPSErrors: false
+  });
+  await context.route("**/*", (route, request) => {
+    const url = request.url();
+    try {
+      const parsed = new URL(url);
+      const hostname = parsed.hostname.toLowerCase();
+      if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "0.0.0.0" || hostname.startsWith("192.168.") || hostname.startsWith("10.") || hostname.startsWith("172.")) {
+        route.abort("blockedbyclient");
+        return;
+      }
+    } catch {
+    }
+    route.continue();
   });
   const page = await context.newPage();
   const session = { browser, context, page, createdAt: Date.now() };
@@ -614,7 +630,7 @@ function sendTo(peerId, data) {
 }
 async function loadSharedStore() {
   try {
-    const raw = await (0, import_promises11.readFile)(STORAGE_FILE, "utf-8");
+    const raw = await (0, import_promises12.readFile)(STORAGE_FILE, "utf-8");
     const items2 = JSON.parse(raw);
     for (const item of items2) {
       sharedStore.set(item.id, item);
@@ -623,9 +639,9 @@ async function loadSharedStore() {
   }
 }
 async function saveSharedStore() {
-  await (0, import_promises11.mkdir)(path17.dirname(STORAGE_FILE), { recursive: true });
+  await (0, import_promises12.mkdir)(path18.dirname(STORAGE_FILE), { recursive: true });
   const items2 = Array.from(sharedStore.values());
-  await (0, import_promises11.writeFile)(STORAGE_FILE, JSON.stringify(items2, null, 2), "utf-8");
+  await (0, import_promises12.writeFile)(STORAGE_FILE, JSON.stringify(items2, null, 2), "utf-8");
 }
 function setupP2PSync(server, config) {
   if (!config.enabled)
@@ -762,20 +778,20 @@ function closeP2PSync() {
 function isP2PActive() {
   return wss !== null;
 }
-var import_ws, import_crypto6, import_promises11, path17, wss, p2pConfig, peers, peerInfo, sharedStore, STORAGE_FILE;
+var import_ws, import_crypto6, import_promises12, path18, wss, p2pConfig, peers, peerInfo, sharedStore, STORAGE_FILE;
 var init_p2pSync = __esm({
   "src/server/p2pSync.js"() {
     "use strict";
     import_ws = require("ws");
     import_crypto6 = require("crypto");
-    import_promises11 = require("fs/promises");
-    path17 = __toESM(require("path"), 1);
+    import_promises12 = require("fs/promises");
+    path18 = __toESM(require("path"), 1);
     wss = null;
     p2pConfig = null;
     peers = /* @__PURE__ */ new Map();
     peerInfo = /* @__PURE__ */ new Map();
     sharedStore = /* @__PURE__ */ new Map();
-    STORAGE_FILE = path17.join(process.cwd(), ".opencode-infinite", "p2p-store.json");
+    STORAGE_FILE = path18.join(process.cwd(), ".opencode-infinite", "p2p-store.json");
   }
 });
 
@@ -1750,14 +1766,77 @@ async function executeEditFile(params, sessionId = "default") {
 
 // src/server/tools/system.js
 var import_child_process2 = require("child_process");
-var import_util2 = require("util");
-var execAsync = (0, import_util2.promisify)(import_child_process2.exec);
 var PROJECT_ROOT2 = process.cwd();
+function splitArgs(cmd) {
+  const args = [];
+  let current = "";
+  let inQuotes = false;
+  let quoteChar = "";
+  for (const ch of cmd) {
+    if (inQuotes) {
+      if (ch === quoteChar) {
+        inQuotes = false;
+        continue;
+      }
+      current += ch;
+    } else if (ch === '"' || ch === "'") {
+      inQuotes = true;
+      quoteChar = ch;
+    } else if (ch === " " || ch === "	") {
+      if (current) {
+        args.push(current);
+        current = "";
+      }
+    } else {
+      current += ch;
+    }
+  }
+  if (current)
+    args.push(current);
+  return args;
+}
 async function executeCommand(params) {
-  const cwd = params.cwd ? resolveProjectPath(String(params.cwd)) : PROJECT_ROOT2;
+  const resolvedCwd = params.cwd !== void 0 && params.cwd !== null ? resolveProjectPath(String(params.cwd)) : PROJECT_ROOT2;
   const command = String(params.command);
-  const { stdout, stderr } = await execAsync(command, { cwd, timeout: 3e4 });
-  return { success: true, output: stdout + (stderr ? "\n" + stderr : "") };
+  const args = splitArgs(command);
+  if (args.length === 0) {
+    return { success: false, output: "", error: "Empty command" };
+  }
+  const [program, ...programArgs] = args;
+  const timeoutMs = 3e4;
+  return new Promise((resolve13) => {
+    let settled = false;
+    const child = (0, import_child_process2.spawn)(program, programArgs, { cwd: resolvedCwd, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+    let stdoutData = "";
+    let stderrData = "";
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        child.kill("SIGTERM");
+        resolve13({ success: false, output: "", error: "Command timed out after 30s" });
+      }
+    }, timeoutMs);
+    child.stdout.on("data", (data) => {
+      stdoutData += data.toString();
+    });
+    child.stderr.on("data", (data) => {
+      stderrData += data.toString();
+    });
+    child.on("error", (err) => {
+      if (!settled) {
+        settled = true;
+        clearTimeout(timer);
+        resolve13({ success: false, output: "", error: err.message });
+      }
+    });
+    child.on("close", (code) => {
+      if (!settled) {
+        settled = true;
+        clearTimeout(timer);
+        resolve13({ success: code === 0, output: stdoutData + (stderrData ? "\n" + stderrData : "") });
+      }
+    });
+  });
 }
 
 // src/server/memoryStore.js
@@ -2376,9 +2455,9 @@ async function executeRagSearch(params) {
 
 // src/server/gitTools.js
 var import_child_process3 = require("child_process");
-var import_util3 = require("util");
+var import_util2 = require("util");
 init_errors();
-var execFileAsync2 = (0, import_util3.promisify)(import_child_process3.execFile);
+var execFileAsync2 = (0, import_util2.promisify)(import_child_process3.execFile);
 var PROJECT_ROOT3 = process.cwd();
 async function runGit(args) {
   const { stdout, stderr } = await execFileAsync2("git", args, { cwd: PROJECT_ROOT3, timeout: 3e4 });
@@ -2539,8 +2618,8 @@ async function hasGitRepo() {
 
 // src/server/prAgent.js
 var import_child_process4 = require("child_process");
-var import_util4 = require("util");
-var execFileAsync3 = (0, import_util4.promisify)(import_child_process4.execFile);
+var import_util3 = require("util");
+var execFileAsync3 = (0, import_util3.promisify)(import_child_process4.execFile);
 var PROJECT_ROOT4 = process.cwd();
 async function runGit2(args) {
   const { stdout, stderr } = await execFileAsync3("git", args, {
@@ -4180,8 +4259,8 @@ var READ_ONLY_TOOLS2 = new Set(TOOL_DEFINITIONS2.filter((t) => t.isReadOnly).map
 var ALL_TOOL_NAMES2 = TOOL_DEFINITIONS2.map((t) => t.name);
 
 // src/server/mcpServer.js
-var import_promises7 = require("fs/promises");
-var path13 = __toESM(require("path"), 1);
+var import_promises8 = require("fs/promises");
+var path14 = __toESM(require("path"), 1);
 
 // src/types/errors.js
 function isError2(e) {
@@ -4194,1076 +4273,6 @@ function getErrorMessage2(e) {
     return e;
   return "Unknown error";
 }
-
-// src/server/mcpServer.js
-var PROJECT_ROOT5 = process.cwd();
-async function loadMcpConfig() {
-  try {
-    const configPath = path13.join(PROJECT_ROOT5, ".cvr", "mcp.json");
-    const data = await (0, import_promises7.readFile)(configPath, "utf-8");
-    return JSON.parse(data);
-  } catch {
-    return { enabled: false, transport: "stdio" };
-  }
-}
-function customParamsToSchema(params) {
-  if (!params || params.length === 0) {
-    return { type: "object", properties: {}, required: [] };
-  }
-  const properties = {};
-  const required = [];
-  for (const p of params) {
-    properties[p.name] = { type: p.type, description: p.description };
-    if (p.default !== void 0) {
-      const prop = properties[p.name];
-      if (prop)
-        prop.default = p.default;
-    }
-    if (p.required) {
-      required.push(p.name);
-    }
-  }
-  return { type: "object", properties, required };
-}
-async function createMcpServer() {
-  const server = new import_server.Server({ name: "cvr-name-coder", version: "1.3.0" }, {
-    capabilities: {
-      tools: {},
-      resources: {},
-      prompts: {}
-    }
-  });
-  server.setRequestHandler(import_types.ListToolsRequestSchema, async () => {
-    const tools = TOOL_DEFINITIONS2.map((t) => ({
-      name: t.name,
-      description: t.description,
-      inputSchema: t.parameters
-    }));
-    try {
-      const customTools = await loadCustomTools();
-      for (const ct of customTools) {
-        tools.push({
-          name: ct.id,
-          description: ct.description || ct.name,
-          inputSchema: customParamsToSchema(ct.parameters)
-        });
-      }
-    } catch (e) {
-      console.error("Failed to load custom tools for MCP:", e);
-    }
-    return { tools };
-  });
-  server.setRequestHandler(import_types.CallToolRequestSchema, async (request) => {
-    const { name, arguments: args } = request.params;
-    try {
-      const result = await executeTool({ name, params: args || {} }, "build", void 0, "mcp-session");
-      return {
-        content: [
-          {
-            type: "text",
-            text: result.success ? result.output : result.error || "Unknown error"
-          }
-        ],
-        isError: !result.success
-      };
-    } catch (err) {
-      throw new import_types.McpError(import_types.ErrorCode.InternalError, `Tool execution failed: ${getErrorMessage2(err)}`);
-    }
-  });
-  server.setRequestHandler(import_types.ListResourcesRequestSchema, async () => {
-    try {
-      const entries = await (0, import_promises7.readdir)(PROJECT_ROOT5, { withFileTypes: true });
-      const resources = entries.filter((e) => !e.name.startsWith(".") && !e.name.startsWith("node_modules") && e.isFile()).map((e) => ({
-        uri: `file://${path13.join(PROJECT_ROOT5, e.name)}`,
-        name: e.name,
-        mimeType: "text/plain"
-      }));
-      return { resources };
-    } catch (e) {
-      throw new import_types.McpError(import_types.ErrorCode.InternalError, `Failed to list resources: ${getErrorMessage2(e)}`);
-    }
-  });
-  server.setRequestHandler(import_types.ReadResourceRequestSchema, async (request) => {
-    const uri = request.params.uri;
-    if (!uri.startsWith("file://")) {
-      throw new import_types.McpError(import_types.ErrorCode.InvalidRequest, "Only file:// URIs are supported");
-    }
-    const filePath = uri.slice(7);
-    const resolved = path13.resolve(filePath);
-    if (!resolved.startsWith(PROJECT_ROOT5)) {
-      throw new import_types.McpError(import_types.ErrorCode.InvalidRequest, "Path escapes project root");
-    }
-    try {
-      const content = await (0, import_promises7.readFile)(filePath, "utf-8");
-      return {
-        contents: [{ uri, mimeType: "text/plain", text: content }]
-      };
-    } catch (e) {
-      throw new import_types.McpError(import_types.ErrorCode.InternalError, `Failed to read resource: ${getErrorMessage2(e)}`);
-    }
-  });
-  server.setRequestHandler(import_types.ListPromptsRequestSchema, async () => {
-    await loadAgents();
-    const agents = getAgents();
-    return {
-      prompts: agents.map((a) => ({
-        name: a.id,
-        description: a.description || a.name,
-        arguments: [
-          { name: "task", description: "Task or goal for the agent", required: true }
-        ]
-      }))
-    };
-  });
-  server.setRequestHandler(import_types.GetPromptRequestSchema, async (request) => {
-    const { name, arguments: args } = request.params;
-    const agent = getAgentById(name);
-    if (!agent) {
-      throw new import_types.McpError(import_types.ErrorCode.InvalidRequest, `Unknown prompt: ${name}`);
-    }
-    const task = String(args?.task || "");
-    return {
-      messages: [
-        {
-          role: "user",
-          content: {
-            type: "text",
-            text: `${agent.systemPrompt}
-
-Task: ${task}`
-          }
-        }
-      ]
-    };
-  });
-  return server;
-}
-async function startMcpStdio() {
-  const server = await createMcpServer();
-  const transport = new import_stdio.StdioServerTransport();
-  await server.connect(transport);
-  console.error("MCP Server running on stdio");
-}
-var sseTransports = /* @__PURE__ */ new Map();
-function mountMcpSseRoutes(app2, basePath = "/mcp") {
-  app2.get(`${basePath}/sse`, async (_req, res) => {
-    const server = await createMcpServer();
-    const transport = new import_sse.SSEServerTransport(`${basePath}/messages`, res);
-    const sessionId = transport.sessionId;
-    sseTransports.set(sessionId, transport);
-    res.on("close", () => {
-      sseTransports.delete(sessionId);
-    });
-    await server.connect(transport);
-  });
-  app2.post(`${basePath}/messages`, async (req, res) => {
-    const sessionId = req.query.sessionId;
-    const transport = sessionId ? sseTransports.get(sessionId) : void 0;
-    if (!transport) {
-      res.status(503).json({ error: "SSE transport not initialized" });
-      return;
-    }
-    await transport.handlePostMessage(req, res);
-  });
-}
-
-// server.ts
-init_browserTools();
-
-// src/server/teamSync.js
-var import_promises8 = require("fs/promises");
-var path14 = __toESM(require("path"), 1);
-var import_child_process5 = require("child_process");
-var import_util5 = require("util");
-var import_crypto4 = require("crypto");
-init_errors();
-var execFileAsync4 = (0, import_util5.promisify)(import_child_process5.execFile);
-var _config = null;
-var _status = {
-  lastSyncAt: null,
-  status: "idle",
-  message: "Sync not configured",
-  provider: "none"
-};
-var _intervalId = null;
-var SYNC_DIR = path14.join(process.cwd(), ".cvr");
-var CONFIG_PATH = path14.join(SYNC_DIR, "sync.json");
-var SYNC_STORAGE_DIR = path14.join(process.cwd(), ".opencode-infinite");
-var SYNC_FILES = ["MEMORY.md", "USER.md", "history.json", "memory.json", "sessions.db"];
-function getSyncDir() {
-  if (_config?.provider === "git" && _config.repo) {
-    return path14.join(process.cwd(), ".sync-clone");
-  }
-  if (_config?.provider === "file" && _config.path) {
-    return _config.path;
-  }
-  return path14.join(SYNC_DIR, "sync-data");
-}
-function getKey() {
-  const keyStr = _config?.encryptionKey || process.env.SYNC_ENCRYPTION_KEY;
-  if (!keyStr) {
-    throw new Error("Sync encryption key is not configured. Set encryptionKey in .cvr/sync.json or SYNC_ENCRYPTION_KEY env var.");
-  }
-  return (0, import_crypto4.scryptSync)(keyStr, "salt", 32);
-}
-function encrypt(data) {
-  const iv = (0, import_crypto4.randomBytes)(16);
-  const salt = (0, import_crypto4.randomBytes)(16);
-  const key = (0, import_crypto4.scryptSync)(_config?.encryptionKey || process.env.SYNC_ENCRYPTION_KEY || "", salt, 32);
-  const cipher = (0, import_crypto4.createCipheriv)("aes-256-gcm", key, iv);
-  const encrypted = Buffer.concat([cipher.update(data), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  return Buffer.concat([salt, iv, tag, encrypted]);
-}
-function decrypt(data) {
-  const salt = data.subarray(0, 16);
-  const iv = data.subarray(16, 32);
-  const tag = data.subarray(32, 48);
-  const encrypted = data.subarray(48);
-  const key = (0, import_crypto4.scryptSync)(_config?.encryptionKey || process.env.SYNC_ENCRYPTION_KEY || "", salt, 32);
-  const decipher = (0, import_crypto4.createDecipheriv)("aes-256-gcm", key, iv);
-  decipher.setAuthTag(tag);
-  return Buffer.concat([decipher.update(encrypted), decipher.final()]);
-}
-function tryDecrypt(data) {
-  try {
-    return decrypt(data);
-  } catch {
-    const iv = data.subarray(0, 16);
-    const tag = data.subarray(16, 32);
-    const encrypted = data.subarray(32);
-    const key = getKey();
-    const decipher = (0, import_crypto4.createDecipheriv)("aes-256-gcm", key, iv);
-    decipher.setAuthTag(tag);
-    return Buffer.concat([decipher.update(encrypted), decipher.final()]);
-  }
-}
-async function loadSyncConfig() {
-  try {
-    await (0, import_promises8.access)(CONFIG_PATH);
-    const raw = await (0, import_promises8.readFile)(CONFIG_PATH, "utf-8");
-    _config = JSON.parse(raw);
-    _status.provider = _config.provider;
-    return _config;
-  } catch {
-    _config = null;
-    return null;
-  }
-}
-function getSyncConfig() {
-  return _config;
-}
-async function saveSyncConfig(config) {
-  await (0, import_promises8.mkdir)(SYNC_DIR, { recursive: true });
-  const safeConfig = { ...config };
-  delete safeConfig.encryptionKey;
-  await (0, import_promises8.writeFile)(CONFIG_PATH, JSON.stringify(safeConfig, null, 2), "utf-8");
-  _config = config;
-  _status.provider = config.provider;
-  restartAutoSync();
-}
-async function gitInit(syncDir) {
-  await (0, import_promises8.mkdir)(syncDir, { recursive: true });
-  try {
-    await execFileAsync4("git", ["init"], { cwd: syncDir });
-    await execFileAsync4("git", ["config", "user.email", "sync@cvr.name"], { cwd: syncDir });
-    await execFileAsync4("git", ["config", "user.name", "CVR Sync"], { cwd: syncDir });
-  } catch {
-  }
-}
-async function gitSetRemote(syncDir, repoUrl) {
-  try {
-    await execFileAsync4("git", ["remote", "remove", "origin"], { cwd: syncDir });
-  } catch {
-  }
-  await execFileAsync4("git", ["remote", "add", "origin", repoUrl], { cwd: syncDir });
-}
-async function gitPull(syncDir) {
-  try {
-    await execFileAsync4("git", ["pull", "origin", "main", "--no-rebase"], { cwd: syncDir });
-  } catch {
-    try {
-      await execFileAsync4("git", ["pull", "origin", "master", "--no-rebase"], { cwd: syncDir });
-    } catch {
-    }
-  }
-}
-async function gitCommitAndPush(syncDir) {
-  try {
-    await execFileAsync4("git", ["add", "-A"], { cwd: syncDir });
-    await execFileAsync4("git", ["commit", "-m", `sync: ${(/* @__PURE__ */ new Date()).toISOString()}`], { cwd: syncDir });
-    try {
-      await execFileAsync4("git", ["push", "origin", "HEAD:main"], { cwd: syncDir });
-    } catch {
-      await execFileAsync4("git", ["push", "origin", "HEAD:master"], { cwd: syncDir });
-    }
-  } catch {
-  }
-}
-function resolveSyncPath(fileName, syncDir) {
-  if (_config?.encrypt) {
-    return path14.join(syncDir, `${fileName}.enc`);
-  }
-  return path14.join(syncDir, fileName);
-}
-async function exportFile(fileName, syncDir) {
-  const sourcePath = path14.join(SYNC_STORAGE_DIR, fileName);
-  let data;
-  try {
-    data = await (0, import_promises8.readFile)(sourcePath);
-  } catch {
-    return;
-  }
-  const destPath = resolveSyncPath(fileName, syncDir);
-  if (_config?.encrypt) {
-    data = encrypt(data);
-  }
-  await (0, import_promises8.writeFile)(destPath, data);
-}
-async function importFile(fileName, syncDir) {
-  const sourcePath = resolveSyncPath(fileName, syncDir);
-  let data;
-  try {
-    data = await (0, import_promises8.readFile)(sourcePath);
-  } catch {
-    return;
-  }
-  if (_config?.encrypt) {
-    try {
-      data = tryDecrypt(data);
-    } catch {
-      throw new Error(`Failed to decrypt ${fileName}. Check encryption key.`);
-    }
-  }
-  const destPath = path14.join(SYNC_STORAGE_DIR, fileName);
-  await (0, import_promises8.writeFile)(destPath, data);
-}
-async function exportAll(syncDir) {
-  await (0, import_promises8.mkdir)(syncDir, { recursive: true });
-  for (const file of SYNC_FILES) {
-    await exportFile(file, syncDir);
-  }
-}
-async function resolveConflict(sourcePath, destPath) {
-  if (_config?.conflictResolution === "manual") {
-    return false;
-  }
-  try {
-    const [srcStat, destStat] = await Promise.all([
-      (0, import_promises8.stat)(sourcePath).catch(() => null),
-      (0, import_promises8.stat)(destPath).catch(() => null)
-    ]);
-    if (!destStat)
-      return true;
-    if (!srcStat)
-      return false;
-    return srcStat.mtimeMs > destStat.mtimeMs;
-  } catch {
-    return true;
-  }
-}
-async function importWithConflictCheck(syncDir) {
-  const conflicts = [];
-  for (const file of SYNC_FILES) {
-    const sourcePath = resolveSyncPath(file, syncDir);
-    const destPath = path14.join(SYNC_STORAGE_DIR, file);
-    const shouldOverwrite = await resolveConflict(sourcePath, destPath);
-    if (!shouldOverwrite) {
-      conflicts.push(file);
-      continue;
-    }
-    try {
-      await importFile(file, syncDir);
-    } catch (e) {
-      conflicts.push(file);
-    }
-  }
-  return conflicts;
-}
-async function exportSync() {
-  if (!_config?.enabled) {
-    return { success: false, message: "Sync is not enabled" };
-  }
-  _status = { ..._status, status: "syncing", message: "Exporting..." };
-  try {
-    const syncDir = getSyncDir();
-    if (_config.provider === "git") {
-      if (!_config.repo)
-        throw new Error("Git repo URL not configured");
-      await gitInit(syncDir);
-      await gitSetRemote(syncDir, _config.repo);
-      await gitPull(syncDir);
-    }
-    await exportAll(syncDir);
-    if (_config.provider === "git") {
-      await gitCommitAndPush(syncDir);
-    }
-    _status = {
-      lastSyncAt: Date.now(),
-      status: "idle",
-      message: "Export successful",
-      provider: _config.provider
-    };
-    return { success: true, message: "Export successful" };
-  } catch (e) {
-    _status = { ..._status, status: "error", message: getErrorMessage(e) };
-    return { success: false, message: getErrorMessage(e) };
-  }
-}
-async function importSync() {
-  if (!_config?.enabled) {
-    return { success: false, message: "Sync is not enabled" };
-  }
-  _status = { ..._status, status: "syncing", message: "Importing..." };
-  try {
-    const syncDir = getSyncDir();
-    if (_config.provider === "git") {
-      if (!_config.repo)
-        throw new Error("Git repo URL not configured");
-      await gitInit(syncDir);
-      await gitSetRemote(syncDir, _config.repo);
-      await gitPull(syncDir);
-    }
-    const conflicts = await importWithConflictCheck(syncDir);
-    if (conflicts.length > 0) {
-      _status = {
-        lastSyncAt: Date.now(),
-        status: "conflict",
-        message: `Conflicts: ${conflicts.join(", ")}`,
-        provider: _config.provider
-      };
-      return { success: true, message: `Imported with conflicts: ${conflicts.join(", ")}`, conflicts };
-    }
-    _status = {
-      lastSyncAt: Date.now(),
-      status: "idle",
-      message: "Import successful",
-      provider: _config.provider
-    };
-    return { success: true, message: "Import successful" };
-  } catch (e) {
-    _status = { ..._status, status: "error", message: getErrorMessage(e) };
-    return { success: false, message: getErrorMessage(e) };
-  }
-}
-function getSyncStatus() {
-  return { ..._status };
-}
-function restartAutoSync() {
-  if (_intervalId) {
-    clearInterval(_intervalId);
-    _intervalId = null;
-  }
-  if (!_config?.enabled || !_config.interval)
-    return;
-  const intervalMs = _config.interval * 1e3;
-  _intervalId = setInterval(() => {
-    exportSync().catch((err) => {
-      console.error("Auto-sync export failed:", getErrorMessage(err));
-    });
-  }, intervalMs);
-}
-async function initSync() {
-  await loadSyncConfig();
-  if (_config?.enabled) {
-    restartAutoSync();
-  }
-}
-async function resolveConflictsManually(resolutions) {
-  if (!_config)
-    throw new Error("Sync not configured");
-  const syncDir = getSyncDir();
-  for (const [file, choice] of Object.entries(resolutions)) {
-    if (choice === "remote") {
-      await importFile(file, syncDir);
-    }
-  }
-}
-
-// src/server/standalone/middleware.js
-var import_helmet = __toESM(require("helmet"), 1);
-var import_express_rate_limit = __toESM(require("express-rate-limit"), 1);
-function setupSecurityMiddleware(app2) {
-  app2.use((0, import_helmet.default)({
-    contentSecurityPolicy: {
-      directives: {
-        defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
-        imgSrc: ["'self'", "data:", "blob:"],
-        connectSrc: ["'self'", "ws:", "wss:"]
-      }
-    }
-  }));
-  const limiter = (0, import_express_rate_limit.default)({
-    windowMs: 1 * 60 * 1e3,
-    max: process.env.NODE_ENV === "production" ? 120 : 1e4,
-    message: { error: "Too many requests, please try again later." },
-    standardHeaders: true,
-    legacyHeaders: false
-  });
-  app2.use(limiter);
-}
-function createApiKeyMiddleware() {
-  const API_KEY = process.env.CVR_API_KEY || (process.env.NODE_ENV === "production" ? null : "dev");
-  return (req, res, next) => {
-    if (!API_KEY || API_KEY === "dev") {
-      return next();
-    }
-    const headerKey = req.headers["x-api-key"];
-    if (headerKey !== API_KEY) {
-      return res.status(401).json({ error: "Unauthorized: invalid or missing x-api-key header" });
-    }
-    next();
-  };
-}
-
-// src/server/standalone/health.js
-var _requestCount = 0;
-var _cacheHits = 0;
-var _cacheMisses = 0;
-var _toolCalls = 0;
-var _errors = 0;
-var _activeLoops = 0;
-function incrementRequestCount() {
-  _requestCount++;
-}
-function incrementToolCall() {
-  _toolCalls++;
-}
-function incrementError() {
-  _errors++;
-}
-function setActiveLoops(count) {
-  _activeLoops = count;
-}
-function setupHealthRoute(app2) {
-  app2.get("/api/health", (_req, res) => {
-    const mem = process.memoryUsage();
-    res.json({
-      status: "ok",
-      uptime: process.uptime(),
-      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-      version: process.env.npm_package_version || "1.0.0",
-      stats: {
-        uptime: Math.round(process.uptime()),
-        requests: _requestCount,
-        cacheHits: _cacheHits,
-        cacheMisses: _cacheMisses,
-        activeLoops: _activeLoops,
-        toolCalls: _toolCalls,
-        errors: _errors,
-        memorySize: mem.heapUsed
-      },
-      system: {
-        nodeVersion: process.version,
-        platform: process.platform,
-        pid: process.pid,
-        memory: {
-          heapUsed: mem.heapUsed,
-          heapTotal: mem.heapTotal,
-          rss: mem.rss
-        },
-        startTime: new Date(Date.now() - process.uptime() * 1e3).toISOString()
-      }
-    });
-  });
-}
-
-// src/server/providers.js
-var import_genai = require("@google/genai");
-
-// src/utils/constants.js
-var TIMEOUT_PERMISSION = 5 * 60 * 1e3;
-var RATE_LIMIT_WINDOW_MS = 1 * 60 * 1e3;
-var PROVIDER_DEFAULT_MODELS = {
-  gemini: "gemini-2.5-flash",
-  openai: "gpt-4.1",
-  anthropic: "claude-sonnet-4-20250514",
-  deepseek: "deepseek-chat",
-  grok: "grok-3",
-  groq: "meta-llama/llama-4-maverick-17b-128e-instruct",
-  baseten: "meta-llama-4-maverick",
-  openrouter: "google/gemini-2.5-flash",
-  together: "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
-  mistral: "mistral-large-latest",
-  local: "local-model",
-  custom: "custom-model"
-};
-var PROVIDER_BASE_URLS = {
-  openai: "https://api.openai.com/v1",
-  deepseek: "https://api.deepseek.com",
-  grok: "https://api.x.ai/v1",
-  groq: "https://api.groq.com/openai/v1",
-  baseten: "https://api.baseten.co/v1",
-  openrouter: "https://openrouter.ai/api/v1",
-  together: "https://api.together.xyz/v1",
-  mistral: "https://api.mistral.ai/v1"
-};
-
-// src/server/costTracker.js
-var path15 = __toESM(require("path"), 1);
-var import_promises9 = require("fs/promises");
-var RATE_CARDS = {
-  gemini: { input: 0.075, output: 0.3 },
-  openai: { input: 2.5, output: 10 },
-  anthropic: { input: 3, output: 15 },
-  deepseek: { input: 0.14, output: 0.28 }
-};
-var GENERIC_RATE = { input: 1, output: 1 };
-var STORAGE_DIR = path15.join(process.cwd(), ".opencode-infinite");
-var COSTS_FILE = path15.join(STORAGE_DIR, "costs.json");
-function getRateCard(provider) {
-  const key = provider.toLowerCase();
-  return RATE_CARDS[key] || GENERIC_RATE;
-}
-function calculateCost(provider, inputTokens, outputTokens) {
-  const rates = getRateCard(provider);
-  const inputCost = inputTokens / 1e6 * rates.input;
-  const outputCost = outputTokens / 1e6 * rates.output;
-  return Number((inputCost + outputCost).toFixed(6));
-}
-async function loadCosts() {
-  try {
-    await (0, import_promises9.access)(COSTS_FILE);
-    const data = await (0, import_promises9.readFile)(COSTS_FILE, "utf-8");
-    const parsed = JSON.parse(data);
-    if (Array.isArray(parsed))
-      return parsed;
-    return [];
-  } catch {
-    return [];
-  }
-}
-async function saveCosts(entries) {
-  await (0, import_promises9.writeFile)(COSTS_FILE, JSON.stringify(entries, null, 2));
-}
-async function trackCost(provider, model, inputTokens, outputTokens) {
-  const entry = {
-    provider: provider.toLowerCase(),
-    model: model || "unknown",
-    inputTokens,
-    outputTokens,
-    cost: calculateCost(provider, inputTokens, outputTokens),
-    timestamp: (/* @__PURE__ */ new Date()).toISOString()
-  };
-  const entries = await loadCosts();
-  entries.push(entry);
-  await saveCosts(entries);
-  return entry;
-}
-async function getCosts() {
-  const entries = await loadCosts();
-  const summary = {
-    totalCost: 0,
-    totalInputTokens: 0,
-    totalOutputTokens: 0,
-    byProvider: {},
-    entries
-  };
-  for (const entry of entries) {
-    summary.totalCost += entry.cost;
-    summary.totalInputTokens += entry.inputTokens;
-    summary.totalOutputTokens += entry.outputTokens;
-    const existing = summary.byProvider[entry.provider];
-    if (existing) {
-      existing.cost += entry.cost;
-      existing.inputTokens += entry.inputTokens;
-      existing.outputTokens += entry.outputTokens;
-      existing.calls += 1;
-    } else {
-      summary.byProvider[entry.provider] = {
-        cost: entry.cost,
-        inputTokens: entry.inputTokens,
-        outputTokens: entry.outputTokens,
-        calls: 1
-      };
-    }
-  }
-  summary.totalCost = Number(summary.totalCost.toFixed(6));
-  return summary;
-}
-async function resetCosts() {
-  await saveCosts([]);
-}
-function estimateTokens(text) {
-  if (!text)
-    return 0;
-  return Math.ceil(text.length / 4);
-}
-
-// src/server/providers.js
-var AIProvider = class {
-  resolveApiKey(envVar, override) {
-    return override || process.env[envVar] || "";
-  }
-};
-var GeminiProvider = class extends AIProvider {
-  cachedClient = null;
-  cachedKey = void 0;
-  getClient(apiKey) {
-    const key = this.resolveApiKey("GEMINI_API_KEY", apiKey);
-    if (!apiKey && this.cachedClient && this.cachedKey === key)
-      return this.cachedClient;
-    const client = new import_genai.GoogleGenAI({ apiKey: key });
-    if (!apiKey) {
-      this.cachedClient = client;
-      this.cachedKey = key;
-    }
-    return client;
-  }
-  async generate(options) {
-    const { prompt, contents, modelName, apiKey } = options;
-    const client = this.getClient(apiKey);
-    const model = modelName || PROVIDER_DEFAULT_MODELS.gemini;
-    const result = await client.models.generateContent({
-      model,
-      contents: [
-        { role: "user", parts: [{ text: prompt }] },
-        ...contents
-      ]
-    });
-    const text = result.text || "";
-    return {
-      text,
-      inputTokens: estimateTokens(prompt),
-      outputTokens: estimateTokens(text)
-    };
-  }
-  async embed(texts) {
-    const client = this.getClient();
-    const result = await client.models.embedContent({
-      model: "text-embedding-004",
-      contents: texts.map((t) => ({ role: "user", parts: [{ text: t }] }))
-    });
-    if (Array.isArray(result.embeddings)) {
-      return result.embeddings.map((e) => e.values);
-    }
-    if (result.embeddings && Array.isArray(result.embeddings.values)) {
-      return [result.embeddings.values];
-    }
-    throw new Error("Unexpected embedding response format");
-  }
-};
-function buildOpenAICompatibleBody(options, providerName) {
-  const { prompt, contents, modelName, temperature, maxTokens } = options;
-  const defaultModel = PROVIDER_DEFAULT_MODELS[providerName] ?? "local-model";
-  const body = {
-    model: modelName || defaultModel,
-    messages: [
-      { role: "system", content: prompt },
-      ...contents.map((c) => {
-        const hasImages = c.parts.some((p) => p.inlineData);
-        if (hasImages) {
-          return {
-            role: c.role === "model" ? "assistant" : c.role,
-            content: c.parts.map((p) => {
-              if (p.text)
-                return { type: "text", text: p.text };
-              if (p.inlineData)
-                return { type: "image_url", image_url: { url: `data:${p.inlineData.mimeType};base64,${p.inlineData.data}` } };
-              return null;
-            }).filter((x) => x !== null)
-          };
-        }
-        return {
-          role: c.role === "model" ? "assistant" : c.role,
-          content: c.parts[0]?.text ?? ""
-        };
-      })
-    ]
-  };
-  if (temperature !== void 0)
-    body.temperature = temperature;
-  if (maxTokens !== void 0)
-    body.max_tokens = maxTokens;
-  return body;
-}
-function getEnvVarForProvider(provider) {
-  const map = {
-    openai: "OPENAI_API_KEY",
-    deepseek: "DEEPSEEK_API_KEY",
-    grok: "XAI_API_KEY",
-    groq: "GROQ_API_KEY",
-    baseten: "BASETEN_API_KEY",
-    openrouter: "OPENROUTER_API_KEY",
-    together: "TOGETHER_API_KEY",
-    mistral: "MISTRAL_API_KEY",
-    custom: "CUSTOM_API_KEY"
-  };
-  return map[provider] || "";
-}
-var OpenAICompatibleProvider = class extends AIProvider {
-  provider;
-  constructor(provider) {
-    super();
-    this.provider = provider;
-  }
-  async generate(options) {
-    const { prompt, contents, localUrl, apiKey, modelName, temperature, maxTokens } = options;
-    const baseUrl = localUrl || PROVIDER_BASE_URLS[this.provider] || "";
-    const key = this.resolveApiKey(getEnvVarForProvider(this.provider), apiKey);
-    const body = buildOpenAICompatibleBody({ prompt, contents, modelName, temperature, maxTokens }, this.provider);
-    const response = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${key}`
-      },
-      body: JSON.stringify(body)
-    });
-    const data = await response.json();
-    if (data.error)
-      throw new Error(data.error.message || `${this.provider} API error`);
-    const text = data.choices?.[0]?.message?.content ?? "";
-    const inputTokens = data.usage?.prompt_tokens || estimateTokens(prompt + contents.map((c) => c.parts?.[0]?.text || "").join(" "));
-    const outputTokens = data.usage?.completion_tokens || estimateTokens(text);
-    return { text, inputTokens, outputTokens };
-  }
-};
-var AnthropicProvider = class extends AIProvider {
-  async generate(options) {
-    const { prompt, contents, apiKey, modelName, maxTokens } = options;
-    const key = this.resolveApiKey("ANTHROPIC_API_KEY", apiKey);
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": key,
-        "anthropic-version": "2023-06-01"
-      },
-      body: JSON.stringify({
-        model: modelName || "claude-sonnet-4-20250514",
-        max_tokens: maxTokens || 4096,
-        system: prompt,
-        messages: contents.map((c) => {
-          const hasImages = c.parts.some((p) => p.inlineData);
-          if (hasImages) {
-            return {
-              role: c.role === "model" ? "assistant" : c.role,
-              content: c.parts.map((p) => {
-                if (p.text)
-                  return { type: "text", text: p.text };
-                if (p.inlineData)
-                  return { type: "image", source: { type: "base64", media_type: p.inlineData.mimeType, data: p.inlineData.data } };
-                return null;
-              }).filter((x) => x !== null)
-            };
-          }
-          return {
-            role: c.role === "model" ? "assistant" : c.role,
-            content: c.parts[0]?.text ?? ""
-          };
-        })
-      })
-    });
-    const data = await response.json();
-    if (data.error)
-      throw new Error(data.error.message || "Anthropic error");
-    const text = data.content?.[0]?.text ?? "";
-    const inputTokens = data.usage?.input_tokens || estimateTokens(prompt);
-    const outputTokens = data.usage?.output_tokens || estimateTokens(text);
-    return { text, inputTokens, outputTokens };
-  }
-};
-var providers = {
-  gemini: new GeminiProvider(),
-  openai: new OpenAICompatibleProvider("openai"),
-  deepseek: new OpenAICompatibleProvider("deepseek"),
-  grok: new OpenAICompatibleProvider("grok"),
-  groq: new OpenAICompatibleProvider("groq"),
-  baseten: new OpenAICompatibleProvider("baseten"),
-  openrouter: new OpenAICompatibleProvider("openrouter"),
-  together: new OpenAICompatibleProvider("together"),
-  mistral: new OpenAICompatibleProvider("mistral"),
-  local: new OpenAICompatibleProvider("local"),
-  custom: new OpenAICompatibleProvider("custom"),
-  anthropic: new AnthropicProvider()
-};
-async function generateAIContent(prompt, contents = [], provider = "gemini", localUrl, modelName, apiKey, temperature, maxTokens, useCache) {
-  if (useCache) {
-    const cached = aiCache.get(prompt, contents, provider, modelName);
-    if (cached)
-      return cached;
-  }
-  const p = providers[provider];
-  if (!p) {
-    throw new Error(`Unknown provider: ${provider}`);
-  }
-  const result = await p.generate({ prompt, contents, localUrl, modelName, apiKey, temperature, maxTokens });
-  if (useCache) {
-    aiCache.set(prompt, contents, provider, result.text, modelName);
-  }
-  return result.text;
-}
-async function generateWithDualModel(prompt, contents = [], config, purpose = "auto") {
-  const useThinking = purpose === "think" || purpose === "auto" && config.thinkingProvider && config.thinkingModel;
-  if (useThinking && config.thinkingProvider && config.thinkingModel) {
-    return generateAIContent(prompt, contents, config.thinkingProvider, config.thinkingLocalUrl || config.primaryLocalUrl, config.thinkingModel, config.apiKey, config.temperature, config.maxTokens);
-  }
-  return generateAIContent(prompt, contents, config.primaryProvider, config.primaryLocalUrl, config.primaryModel, config.apiKey, config.temperature, config.maxTokens);
-}
-async function generateEmbeddings(texts) {
-  const gemini = providers.gemini;
-  return gemini.embed(texts);
-}
-
-// src/server/agentMarketplace.js
-var import_promises10 = require("fs/promises");
-var path16 = __toESM(require("path"), 1);
-var import_crypto5 = require("crypto");
-var MARKET_DIR = path16.join(process.cwd(), ".cvr", "marketplace");
-var INDEX_FILE = path16.join(MARKET_DIR, "index.json");
-var REVIEWS_FILE = path16.join(MARKET_DIR, "reviews.json");
-var items = [];
-var reviews = [];
-async function ensureMarketDir() {
-  await (0, import_promises10.mkdir)(MARKET_DIR, { recursive: true });
-  await (0, import_promises10.mkdir)(path16.join(MARKET_DIR, "packages"), { recursive: true });
-}
-async function loadIndex() {
-  try {
-    const raw = await (0, import_promises10.readFile)(INDEX_FILE, "utf-8");
-    items = JSON.parse(raw);
-  } catch {
-    items = [];
-  }
-}
-async function saveIndex() {
-  await ensureMarketDir();
-  await (0, import_promises10.writeFile)(INDEX_FILE, JSON.stringify(items, null, 2), "utf-8");
-}
-async function loadReviews() {
-  try {
-    const raw = await (0, import_promises10.readFile)(REVIEWS_FILE, "utf-8");
-    reviews = JSON.parse(raw);
-  } catch {
-    reviews = [];
-  }
-}
-async function saveReviews() {
-  await ensureMarketDir();
-  await (0, import_promises10.writeFile)(REVIEWS_FILE, JSON.stringify(reviews, null, 2), "utf-8");
-}
-async function initMarketplace() {
-  await loadIndex();
-  await loadReviews();
-}
-function getMarketItems(type, tag, search) {
-  let result = [...items];
-  if (type)
-    result = result.filter((i) => i.type === type);
-  if (tag)
-    result = result.filter((i) => i.tags.includes(tag));
-  if (search) {
-    const q = search.toLowerCase();
-    result = result.filter((i) => i.name.toLowerCase().includes(q) || i.description.toLowerCase().includes(q) || i.tags.some((t) => t.toLowerCase().includes(q)));
-  }
-  return result.sort((a, b) => b.downloads - a.downloads);
-}
-async function publishItem(type, name, description, content, author = "unknown", version = "1.0.0", tags = []) {
-  await ensureMarketDir();
-  const id = `${type}-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${(0, import_crypto5.randomBytes)(4).toString("hex")}`;
-  const pkgPath = path16.join(MARKET_DIR, "packages", `${id}.json`);
-  const pkg = { type, name, description, content, author, version, tags };
-  await (0, import_promises10.writeFile)(pkgPath, JSON.stringify(pkg, null, 2), "utf-8");
-  const existing = items.find((i) => i.name === name && i.type === type);
-  if (existing) {
-    existing.version = version;
-    existing.description = description;
-    existing.tags = tags;
-    existing.updatedAt = Date.now();
-    existing.packagePath = pkgPath;
-    existing.content = content;
-  } else {
-    const item = {
-      id,
-      type,
-      name,
-      description,
-      author,
-      version,
-      tags,
-      downloads: 0,
-      rating: 0,
-      publishedAt: Date.now(),
-      updatedAt: Date.now(),
-      packagePath: pkgPath,
-      content
-    };
-    items.push(item);
-  }
-  await saveIndex();
-  return existing ?? items[items.length - 1];
-}
-async function downloadItem(id) {
-  const item = items.find((i) => i.id === id);
-  if (!item)
-    return null;
-  item.downloads++;
-  await saveIndex();
-  return item;
-}
-async function removeItem(id) {
-  const idx = items.findIndex((i) => i.id === id);
-  if (idx === -1)
-    return false;
-  const item = items[idx];
-  if (item) {
-    try {
-      await import("fs/promises").then((m) => m.unlink(item.packagePath));
-    } catch {
-    }
-  }
-  items.splice(idx, 1);
-  reviews = reviews.filter((r) => r.itemId !== id);
-  await saveIndex();
-  await saveReviews();
-  return true;
-}
-async function addReview(itemId, rating, text, author = "anonymous") {
-  const review = {
-    itemId,
-    author,
-    rating: Math.min(5, Math.max(1, rating)),
-    text,
-    timestamp: Date.now()
-  };
-  reviews.push(review);
-  const itemReviews = reviews.filter((r) => r.itemId === itemId);
-  const avg = itemReviews.reduce((s, r) => s + r.rating, 0) / itemReviews.length;
-  const item = items.find((i) => i.id === itemId);
-  if (item) {
-    item.rating = Math.round(avg * 10) / 10;
-    await saveIndex();
-  }
-  await saveReviews();
-  return review;
-}
-function getReviews(itemId) {
-  return reviews.filter((r) => r.itemId === itemId);
-}
-function getTags(type) {
-  const tagSet = /* @__PURE__ */ new Set();
-  const pool = type ? items.filter((i) => i.type === type) : items;
-  for (const item of pool) {
-    for (const tag of item.tags)
-      tagSet.add(tag);
-  }
-  return Array.from(tagSet).sort();
-}
-function getStats() {
-  const byType = {};
-  let totalDownloads = 0;
-  for (const item of items) {
-    byType[item.type] = (byType[item.type] || 0) + 1;
-    totalDownloads += item.downloads;
-  }
-  return { total: items.length, byType, totalDownloads };
-}
-
-// server.ts
-init_p2pSync();
 
 // src/server/tools.ts
 init_errors();
@@ -5490,10 +4499,10 @@ var HookRegistry2 = class {
 var hookRegistry2 = new HookRegistry2();
 
 // src/server/skillCreator.ts
-var import_promises12 = require("fs/promises");
-var path18 = __toESM(require("path"), 1);
+var import_promises7 = require("fs/promises");
+var path13 = __toESM(require("path"), 1);
 init_errors();
-var _skillsDir3 = path18.resolve(process.cwd(), ".cvr", "skills");
+var _skillsDir3 = path13.resolve(process.cwd(), ".cvr", "skills");
 async function maybeCreateSkill(input) {
   const MIN_STEPS = 3;
   const MIN_UNIQUE_TOOLS = 2;
@@ -5520,10 +4529,10 @@ triggers: ${JSON.stringify(triggers)}
 ---
 
 ${content}`;
-  const filePath = path18.join(_skillsDir3, `${id}.md`);
+  const filePath = path13.join(_skillsDir3, `${id}.md`);
   try {
-    await (0, import_promises12.mkdir)(_skillsDir3, { recursive: true });
-    await (0, import_promises12.writeFile)(filePath, frontmatter, "utf-8");
+    await (0, import_promises7.mkdir)(_skillsDir3, { recursive: true });
+    await (0, import_promises7.writeFile)(filePath, frontmatter, "utf-8");
     return { created: true, path: filePath, reason: "Skill created successfully." };
   } catch (e) {
     return { created: false, reason: `Write failed: ${getErrorMessage(e)}` };
@@ -5792,6 +4801,1210 @@ var subagentManager = new SubagentManager();
 function setPermissionEngine(pe) {
   permissionEngine = pe;
 }
+
+// src/server/mcpServer.js
+var PROJECT_ROOT5 = process.cwd();
+async function loadMcpConfig() {
+  try {
+    const configPath = path14.join(PROJECT_ROOT5, ".cvr", "mcp.json");
+    const data = await (0, import_promises8.readFile)(configPath, "utf-8");
+    return JSON.parse(data);
+  } catch {
+    return { enabled: false, transport: "stdio" };
+  }
+}
+function customParamsToSchema(params) {
+  if (!params || params.length === 0) {
+    return { type: "object", properties: {}, required: [] };
+  }
+  const properties = {};
+  const required = [];
+  for (const p of params) {
+    properties[p.name] = { type: p.type, description: p.description };
+    if (p.default !== void 0) {
+      const prop = properties[p.name];
+      if (prop)
+        prop.default = p.default;
+    }
+    if (p.required) {
+      required.push(p.name);
+    }
+  }
+  return { type: "object", properties, required };
+}
+async function createMcpServer() {
+  const server = new import_server.Server({ name: "cvr-name-coder", version: "1.3.0" }, {
+    capabilities: {
+      tools: {},
+      resources: {},
+      prompts: {}
+    }
+  });
+  server.setRequestHandler(import_types.ListToolsRequestSchema, async () => {
+    const tools = TOOL_DEFINITIONS2.map((t) => ({
+      name: t.name,
+      description: t.description,
+      inputSchema: t.parameters
+    }));
+    try {
+      const customTools = await loadCustomTools();
+      for (const ct of customTools) {
+        tools.push({
+          name: ct.id,
+          description: ct.description || ct.name,
+          inputSchema: customParamsToSchema(ct.parameters)
+        });
+      }
+    } catch (e) {
+      console.error("Failed to load custom tools for MCP:", e);
+    }
+    return { tools };
+  });
+  server.setRequestHandler(import_types.CallToolRequestSchema, async (request) => {
+    const { name, arguments: args } = request.params;
+    try {
+      const result = await executeTool({ name, params: args || {} }, "build", permissionEngine, "mcp-session");
+      return {
+        content: [
+          {
+            type: "text",
+            text: result.success ? result.output : result.error || "Unknown error"
+          }
+        ],
+        isError: !result.success
+      };
+    } catch (err) {
+      throw new import_types.McpError(import_types.ErrorCode.InternalError, `Tool execution failed: ${getErrorMessage2(err)}`);
+    }
+  });
+  server.setRequestHandler(import_types.ListResourcesRequestSchema, async () => {
+    try {
+      const entries = await (0, import_promises8.readdir)(PROJECT_ROOT5, { withFileTypes: true });
+      const resources = entries.filter((e) => !e.name.startsWith(".") && !e.name.startsWith("node_modules") && e.isFile()).map((e) => ({
+        uri: `file://${path14.join(PROJECT_ROOT5, e.name)}`,
+        name: e.name,
+        mimeType: "text/plain"
+      }));
+      return { resources };
+    } catch (e) {
+      throw new import_types.McpError(import_types.ErrorCode.InternalError, `Failed to list resources: ${getErrorMessage2(e)}`);
+    }
+  });
+  server.setRequestHandler(import_types.ReadResourceRequestSchema, async (request) => {
+    const uri = request.params.uri;
+    if (!uri.startsWith("file://")) {
+      throw new import_types.McpError(import_types.ErrorCode.InvalidRequest, "Only file:// URIs are supported");
+    }
+    const filePath = uri.slice(7);
+    const resolved = path14.resolve(filePath);
+    if (!resolved.startsWith(PROJECT_ROOT5)) {
+      throw new import_types.McpError(import_types.ErrorCode.InvalidRequest, "Path escapes project root");
+    }
+    try {
+      const content = await (0, import_promises8.readFile)(filePath, "utf-8");
+      return {
+        contents: [{ uri, mimeType: "text/plain", text: content }]
+      };
+    } catch (e) {
+      throw new import_types.McpError(import_types.ErrorCode.InternalError, `Failed to read resource: ${getErrorMessage2(e)}`);
+    }
+  });
+  server.setRequestHandler(import_types.ListPromptsRequestSchema, async () => {
+    await loadAgents();
+    const agents = getAgents();
+    return {
+      prompts: agents.map((a) => ({
+        name: a.id,
+        description: a.description || a.name,
+        arguments: [
+          { name: "task", description: "Task or goal for the agent", required: true }
+        ]
+      }))
+    };
+  });
+  server.setRequestHandler(import_types.GetPromptRequestSchema, async (request) => {
+    const { name, arguments: args } = request.params;
+    const agent = getAgentById(name);
+    if (!agent) {
+      throw new import_types.McpError(import_types.ErrorCode.InvalidRequest, `Unknown prompt: ${name}`);
+    }
+    const task = String(args?.task || "");
+    return {
+      messages: [
+        {
+          role: "user",
+          content: {
+            type: "text",
+            text: `${agent.systemPrompt}
+
+Task: ${task}`
+          }
+        }
+      ]
+    };
+  });
+  return server;
+}
+async function startMcpStdio() {
+  const server = await createMcpServer();
+  const transport = new import_stdio.StdioServerTransport();
+  await server.connect(transport);
+  console.error("MCP Server running on stdio");
+}
+var sseTransports = /* @__PURE__ */ new Map();
+function mountMcpSseRoutes(app2, basePath = "/mcp") {
+  app2.get(`${basePath}/sse`, async (_req, res) => {
+    const server = await createMcpServer();
+    const transport = new import_sse.SSEServerTransport(`${basePath}/messages`, res);
+    const sessionId = transport.sessionId;
+    sseTransports.set(sessionId, transport);
+    res.on("close", () => {
+      sseTransports.delete(sessionId);
+    });
+    await server.connect(transport);
+  });
+  app2.post(`${basePath}/messages`, async (req, res) => {
+    const sessionId = req.query.sessionId;
+    const transport = sessionId ? sseTransports.get(sessionId) : void 0;
+    if (!transport) {
+      res.status(503).json({ error: "SSE transport not initialized" });
+      return;
+    }
+    await transport.handlePostMessage(req, res);
+  });
+}
+
+// server.ts
+init_browserTools();
+
+// src/server/teamSync.js
+var import_promises9 = require("fs/promises");
+var path15 = __toESM(require("path"), 1);
+var import_child_process5 = require("child_process");
+var import_util4 = require("util");
+var import_crypto4 = require("crypto");
+init_errors();
+var execFileAsync4 = (0, import_util4.promisify)(import_child_process5.execFile);
+var _config = null;
+var _status = {
+  lastSyncAt: null,
+  status: "idle",
+  message: "Sync not configured",
+  provider: "none"
+};
+var _intervalId = null;
+var SYNC_DIR = path15.join(process.cwd(), ".cvr");
+var CONFIG_PATH = path15.join(SYNC_DIR, "sync.json");
+var SYNC_STORAGE_DIR = path15.join(process.cwd(), ".opencode-infinite");
+var SYNC_FILES = ["MEMORY.md", "USER.md", "history.json", "memory.json", "sessions.db"];
+function getSyncDir() {
+  if (_config?.provider === "git" && _config.repo) {
+    return path15.join(process.cwd(), ".sync-clone");
+  }
+  if (_config?.provider === "file" && _config.path) {
+    return _config.path;
+  }
+  return path15.join(SYNC_DIR, "sync-data");
+}
+function getKey() {
+  const keyStr = _config?.encryptionKey || process.env.SYNC_ENCRYPTION_KEY;
+  if (!keyStr) {
+    throw new Error("Sync encryption key is not configured. Set encryptionKey in .cvr/sync.json or SYNC_ENCRYPTION_KEY env var.");
+  }
+  return (0, import_crypto4.scryptSync)(keyStr, "salt", 32);
+}
+function encrypt(data) {
+  const iv = (0, import_crypto4.randomBytes)(16);
+  const salt = (0, import_crypto4.randomBytes)(16);
+  const key = (0, import_crypto4.scryptSync)(_config?.encryptionKey || process.env.SYNC_ENCRYPTION_KEY || "", salt, 32);
+  const cipher = (0, import_crypto4.createCipheriv)("aes-256-gcm", key, iv);
+  const encrypted = Buffer.concat([cipher.update(data), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return Buffer.concat([salt, iv, tag, encrypted]);
+}
+function decrypt(data) {
+  const salt = data.subarray(0, 16);
+  const iv = data.subarray(16, 32);
+  const tag = data.subarray(32, 48);
+  const encrypted = data.subarray(48);
+  const key = (0, import_crypto4.scryptSync)(_config?.encryptionKey || process.env.SYNC_ENCRYPTION_KEY || "", salt, 32);
+  const decipher = (0, import_crypto4.createDecipheriv)("aes-256-gcm", key, iv);
+  decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(encrypted), decipher.final()]);
+}
+function tryDecrypt(data) {
+  try {
+    return decrypt(data);
+  } catch {
+    const iv = data.subarray(0, 16);
+    const tag = data.subarray(16, 32);
+    const encrypted = data.subarray(32);
+    const key = getKey();
+    const decipher = (0, import_crypto4.createDecipheriv)("aes-256-gcm", key, iv);
+    decipher.setAuthTag(tag);
+    return Buffer.concat([decipher.update(encrypted), decipher.final()]);
+  }
+}
+async function loadSyncConfig() {
+  try {
+    await (0, import_promises9.access)(CONFIG_PATH);
+    const raw = await (0, import_promises9.readFile)(CONFIG_PATH, "utf-8");
+    _config = JSON.parse(raw);
+    _status.provider = _config.provider;
+    return _config;
+  } catch {
+    _config = null;
+    return null;
+  }
+}
+function getSyncConfig() {
+  return _config;
+}
+async function saveSyncConfig(config) {
+  await (0, import_promises9.mkdir)(SYNC_DIR, { recursive: true });
+  const safeConfig = { ...config };
+  delete safeConfig.encryptionKey;
+  await (0, import_promises9.writeFile)(CONFIG_PATH, JSON.stringify(safeConfig, null, 2), "utf-8");
+  _config = config;
+  _status.provider = config.provider;
+  restartAutoSync();
+}
+async function gitInit(syncDir) {
+  await (0, import_promises9.mkdir)(syncDir, { recursive: true });
+  try {
+    await execFileAsync4("git", ["init"], { cwd: syncDir });
+    await execFileAsync4("git", ["config", "user.email", "sync@cvr.name"], { cwd: syncDir });
+    await execFileAsync4("git", ["config", "user.name", "CVR Sync"], { cwd: syncDir });
+  } catch {
+  }
+}
+async function gitSetRemote(syncDir, repoUrl) {
+  try {
+    await execFileAsync4("git", ["remote", "remove", "origin"], { cwd: syncDir });
+  } catch {
+  }
+  await execFileAsync4("git", ["remote", "add", "origin", repoUrl], { cwd: syncDir });
+}
+async function gitPull(syncDir) {
+  try {
+    await execFileAsync4("git", ["pull", "origin", "main", "--no-rebase"], { cwd: syncDir });
+  } catch {
+    try {
+      await execFileAsync4("git", ["pull", "origin", "master", "--no-rebase"], { cwd: syncDir });
+    } catch {
+    }
+  }
+}
+async function gitCommitAndPush(syncDir) {
+  try {
+    await execFileAsync4("git", ["add", "-A"], { cwd: syncDir });
+    await execFileAsync4("git", ["commit", "-m", `sync: ${(/* @__PURE__ */ new Date()).toISOString()}`], { cwd: syncDir });
+    try {
+      await execFileAsync4("git", ["push", "origin", "HEAD:main"], { cwd: syncDir });
+    } catch {
+      await execFileAsync4("git", ["push", "origin", "HEAD:master"], { cwd: syncDir });
+    }
+  } catch {
+  }
+}
+function resolveSyncPath(fileName, syncDir) {
+  if (_config?.encrypt) {
+    return path15.join(syncDir, `${fileName}.enc`);
+  }
+  return path15.join(syncDir, fileName);
+}
+async function exportFile(fileName, syncDir) {
+  const sourcePath = path15.join(SYNC_STORAGE_DIR, fileName);
+  let data;
+  try {
+    data = await (0, import_promises9.readFile)(sourcePath);
+  } catch {
+    return;
+  }
+  const destPath = resolveSyncPath(fileName, syncDir);
+  if (_config?.encrypt) {
+    data = encrypt(data);
+  }
+  await (0, import_promises9.writeFile)(destPath, data);
+}
+async function importFile(fileName, syncDir) {
+  const sourcePath = resolveSyncPath(fileName, syncDir);
+  let data;
+  try {
+    data = await (0, import_promises9.readFile)(sourcePath);
+  } catch {
+    return;
+  }
+  if (_config?.encrypt) {
+    try {
+      data = tryDecrypt(data);
+    } catch {
+      throw new Error(`Failed to decrypt ${fileName}. Check encryption key.`);
+    }
+  }
+  const destPath = path15.join(SYNC_STORAGE_DIR, fileName);
+  await (0, import_promises9.writeFile)(destPath, data);
+}
+async function exportAll(syncDir) {
+  await (0, import_promises9.mkdir)(syncDir, { recursive: true });
+  for (const file of SYNC_FILES) {
+    await exportFile(file, syncDir);
+  }
+}
+async function resolveConflict(sourcePath, destPath) {
+  if (_config?.conflictResolution === "manual") {
+    return false;
+  }
+  try {
+    const [srcStat, destStat] = await Promise.all([
+      (0, import_promises9.stat)(sourcePath).catch(() => null),
+      (0, import_promises9.stat)(destPath).catch(() => null)
+    ]);
+    if (!destStat)
+      return true;
+    if (!srcStat)
+      return false;
+    return srcStat.mtimeMs > destStat.mtimeMs;
+  } catch {
+    return true;
+  }
+}
+async function importWithConflictCheck(syncDir) {
+  const conflicts = [];
+  for (const file of SYNC_FILES) {
+    const sourcePath = resolveSyncPath(file, syncDir);
+    const destPath = path15.join(SYNC_STORAGE_DIR, file);
+    const shouldOverwrite = await resolveConflict(sourcePath, destPath);
+    if (!shouldOverwrite) {
+      conflicts.push(file);
+      continue;
+    }
+    try {
+      await importFile(file, syncDir);
+    } catch (e) {
+      conflicts.push(file);
+    }
+  }
+  return conflicts;
+}
+async function exportSync() {
+  if (!_config?.enabled) {
+    return { success: false, message: "Sync is not enabled" };
+  }
+  _status = { ..._status, status: "syncing", message: "Exporting..." };
+  try {
+    const syncDir = getSyncDir();
+    if (_config.provider === "git") {
+      if (!_config.repo)
+        throw new Error("Git repo URL not configured");
+      await gitInit(syncDir);
+      await gitSetRemote(syncDir, _config.repo);
+      await gitPull(syncDir);
+    }
+    await exportAll(syncDir);
+    if (_config.provider === "git") {
+      await gitCommitAndPush(syncDir);
+    }
+    _status = {
+      lastSyncAt: Date.now(),
+      status: "idle",
+      message: "Export successful",
+      provider: _config.provider
+    };
+    return { success: true, message: "Export successful" };
+  } catch (e) {
+    _status = { ..._status, status: "error", message: getErrorMessage(e) };
+    return { success: false, message: getErrorMessage(e) };
+  }
+}
+async function importSync() {
+  if (!_config?.enabled) {
+    return { success: false, message: "Sync is not enabled" };
+  }
+  _status = { ..._status, status: "syncing", message: "Importing..." };
+  try {
+    const syncDir = getSyncDir();
+    if (_config.provider === "git") {
+      if (!_config.repo)
+        throw new Error("Git repo URL not configured");
+      await gitInit(syncDir);
+      await gitSetRemote(syncDir, _config.repo);
+      await gitPull(syncDir);
+    }
+    const conflicts = await importWithConflictCheck(syncDir);
+    if (conflicts.length > 0) {
+      _status = {
+        lastSyncAt: Date.now(),
+        status: "conflict",
+        message: `Conflicts: ${conflicts.join(", ")}`,
+        provider: _config.provider
+      };
+      return { success: true, message: `Imported with conflicts: ${conflicts.join(", ")}`, conflicts };
+    }
+    _status = {
+      lastSyncAt: Date.now(),
+      status: "idle",
+      message: "Import successful",
+      provider: _config.provider
+    };
+    return { success: true, message: "Import successful" };
+  } catch (e) {
+    _status = { ..._status, status: "error", message: getErrorMessage(e) };
+    return { success: false, message: getErrorMessage(e) };
+  }
+}
+function getSyncStatus() {
+  return { ..._status };
+}
+function restartAutoSync() {
+  if (_intervalId) {
+    clearInterval(_intervalId);
+    _intervalId = null;
+  }
+  if (!_config?.enabled || !_config.interval)
+    return;
+  const intervalMs = _config.interval * 1e3;
+  _intervalId = setInterval(() => {
+    exportSync().catch((err) => {
+      console.error("Auto-sync export failed:", getErrorMessage(err));
+    });
+  }, intervalMs);
+}
+async function initSync() {
+  await loadSyncConfig();
+  if (_config?.enabled) {
+    restartAutoSync();
+  }
+}
+async function resolveConflictsManually(resolutions) {
+  if (!_config)
+    throw new Error("Sync not configured");
+  const syncDir = getSyncDir();
+  for (const [file, choice] of Object.entries(resolutions)) {
+    if (choice === "remote") {
+      await importFile(file, syncDir);
+    }
+  }
+}
+
+// src/server/standalone/middleware.js
+var import_helmet = __toESM(require("helmet"), 1);
+var import_express_rate_limit = __toESM(require("express-rate-limit"), 1);
+function setupSecurityMiddleware(app2) {
+  app2.use((0, import_helmet.default)({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", "data:", "blob:"],
+        connectSrc: ["'self'", "ws:", "wss:"]
+      }
+    }
+  }));
+  const limiter = (0, import_express_rate_limit.default)({
+    windowMs: 1 * 60 * 1e3,
+    max: process.env.NODE_ENV === "production" ? 120 : 1e4,
+    message: { error: "Too many requests, please try again later." },
+    standardHeaders: true,
+    legacyHeaders: false
+  });
+  app2.use(limiter);
+}
+function createApiKeyMiddleware() {
+  const API_KEY = process.env.CVR_API_KEY;
+  return (req, res, next) => {
+    if (!API_KEY) {
+      if (process.env.NODE_ENV !== "production") {
+        return next();
+      }
+      return res.status(500).json({ error: "CVR_API_KEY not configured" });
+    }
+    const headerKey = req.headers["x-api-key"];
+    if (headerKey !== API_KEY) {
+      return res.status(401).json({ error: "Unauthorized: invalid or missing x-api-key header" });
+    }
+    next();
+  };
+}
+
+// src/server/standalone/health.js
+var _requestCount = 0;
+var _cacheHits = 0;
+var _cacheMisses = 0;
+var _toolCalls = 0;
+var _errors = 0;
+var _activeLoops = 0;
+function incrementRequestCount() {
+  _requestCount++;
+}
+function incrementToolCall() {
+  _toolCalls++;
+}
+function incrementError() {
+  _errors++;
+}
+function setActiveLoops(count) {
+  _activeLoops = count;
+}
+function setupHealthRoute(app2) {
+  app2.get("/api/health", (_req, res) => {
+    const mem = process.memoryUsage();
+    res.json({
+      status: "ok",
+      uptime: process.uptime(),
+      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+      version: process.env.npm_package_version || "1.0.0",
+      stats: {
+        uptime: Math.round(process.uptime()),
+        requests: _requestCount,
+        cacheHits: _cacheHits,
+        cacheMisses: _cacheMisses,
+        activeLoops: _activeLoops,
+        toolCalls: _toolCalls,
+        errors: _errors,
+        memorySize: mem.heapUsed
+      },
+      system: {
+        nodeVersion: process.version,
+        platform: process.platform,
+        pid: process.pid,
+        memory: {
+          heapUsed: mem.heapUsed,
+          heapTotal: mem.heapTotal,
+          rss: mem.rss
+        },
+        startTime: new Date(Date.now() - process.uptime() * 1e3).toISOString()
+      }
+    });
+  });
+}
+
+// src/server/providers.js
+var import_genai = require("@google/genai");
+
+// src/utils/constants.js
+var TIMEOUT_PERMISSION = 5 * 60 * 1e3;
+var RATE_LIMIT_WINDOW_MS = 1 * 60 * 1e3;
+var PROVIDER_DEFAULT_MODELS = {
+  gemini: "gemini-2.5-flash",
+  openai: "gpt-4.1",
+  anthropic: "claude-sonnet-4-20250514",
+  deepseek: "deepseek-chat",
+  grok: "grok-3",
+  groq: "meta-llama/llama-4-maverick-17b-128e-instruct",
+  baseten: "meta-llama-4-maverick",
+  openrouter: "google/gemini-2.5-flash",
+  together: "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
+  mistral: "mistral-large-latest",
+  local: "local-model",
+  custom: "custom-model"
+};
+var PROVIDER_BASE_URLS = {
+  openai: "https://api.openai.com/v1",
+  deepseek: "https://api.deepseek.com/v1",
+  grok: "https://api.x.ai/v1",
+  groq: "https://api.groq.com/openai/v1",
+  baseten: "https://api.baseten.co/v1",
+  openrouter: "https://openrouter.ai/api/v1",
+  together: "https://api.together.xyz/v1",
+  mistral: "https://api.mistral.ai/v1"
+};
+
+// src/server/costTracker.js
+var path16 = __toESM(require("path"), 1);
+var import_promises10 = require("fs/promises");
+var RATE_CARDS = {
+  gemini: { input: 0.075, output: 0.3 },
+  openai: { input: 2.5, output: 10 },
+  anthropic: { input: 3, output: 15 },
+  deepseek: { input: 0.14, output: 0.28 }
+};
+var GENERIC_RATE = { input: 1, output: 1 };
+var STORAGE_DIR = path16.join(process.cwd(), ".opencode-infinite");
+var COSTS_FILE = path16.join(STORAGE_DIR, "costs.json");
+function getRateCard(provider) {
+  const key = provider.toLowerCase();
+  return RATE_CARDS[key] || GENERIC_RATE;
+}
+function calculateCost(provider, inputTokens, outputTokens) {
+  const rates = getRateCard(provider);
+  const inputCost = inputTokens / 1e6 * rates.input;
+  const outputCost = outputTokens / 1e6 * rates.output;
+  return Number((inputCost + outputCost).toFixed(6));
+}
+async function loadCosts() {
+  try {
+    await (0, import_promises10.access)(COSTS_FILE);
+    const data = await (0, import_promises10.readFile)(COSTS_FILE, "utf-8");
+    const parsed = JSON.parse(data);
+    if (Array.isArray(parsed))
+      return parsed;
+    return [];
+  } catch {
+    return [];
+  }
+}
+async function saveCosts(entries) {
+  await (0, import_promises10.writeFile)(COSTS_FILE, JSON.stringify(entries, null, 2));
+}
+async function trackCost(provider, model, inputTokens, outputTokens) {
+  const entry = {
+    provider: provider.toLowerCase(),
+    model: model || "unknown",
+    inputTokens,
+    outputTokens,
+    cost: calculateCost(provider, inputTokens, outputTokens),
+    timestamp: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  const entries = await loadCosts();
+  entries.push(entry);
+  await saveCosts(entries);
+  return entry;
+}
+async function getCosts() {
+  const entries = await loadCosts();
+  const summary = {
+    totalCost: 0,
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    byProvider: {},
+    entries
+  };
+  for (const entry of entries) {
+    summary.totalCost += entry.cost;
+    summary.totalInputTokens += entry.inputTokens;
+    summary.totalOutputTokens += entry.outputTokens;
+    const existing = summary.byProvider[entry.provider];
+    if (existing) {
+      existing.cost += entry.cost;
+      existing.inputTokens += entry.inputTokens;
+      existing.outputTokens += entry.outputTokens;
+      existing.calls += 1;
+    } else {
+      summary.byProvider[entry.provider] = {
+        cost: entry.cost,
+        inputTokens: entry.inputTokens,
+        outputTokens: entry.outputTokens,
+        calls: 1
+      };
+    }
+  }
+  summary.totalCost = Number(summary.totalCost.toFixed(6));
+  return summary;
+}
+async function resetCosts() {
+  await saveCosts([]);
+}
+function estimateTokens(text) {
+  if (!text)
+    return 0;
+  return Math.ceil(text.length / 4);
+}
+
+// src/server/providers.js
+var AIProvider = class {
+  resolveApiKey(envVar, override) {
+    return override || process.env[envVar] || "";
+  }
+};
+var GeminiProvider = class extends AIProvider {
+  cachedClient = null;
+  cachedKey = void 0;
+  getClient(apiKey) {
+    const key = this.resolveApiKey("GEMINI_API_KEY", apiKey);
+    if (!apiKey && this.cachedClient && this.cachedKey === key)
+      return this.cachedClient;
+    const client = new import_genai.GoogleGenAI({ apiKey: key });
+    if (!apiKey) {
+      this.cachedClient = client;
+      this.cachedKey = key;
+    }
+    return client;
+  }
+  async generate(options) {
+    const { prompt, contents, modelName, apiKey } = options;
+    const client = this.getClient(apiKey);
+    const model = modelName || PROVIDER_DEFAULT_MODELS.gemini;
+    const result = await client.models.generateContent({
+      model,
+      contents: [
+        { role: "user", parts: [{ text: prompt }] },
+        ...contents
+      ]
+    });
+    const text = result.text || "";
+    return {
+      text,
+      inputTokens: estimateTokens(prompt),
+      outputTokens: estimateTokens(text)
+    };
+  }
+  async embed(texts) {
+    const client = this.getClient();
+    const result = await client.models.embedContent({
+      model: "text-embedding-004",
+      contents: texts.map((t) => ({ role: "user", parts: [{ text: t }] }))
+    });
+    if (Array.isArray(result.embeddings)) {
+      return result.embeddings.map((e) => e.values);
+    }
+    if (result.embeddings && Array.isArray(result.embeddings.values)) {
+      return [result.embeddings.values];
+    }
+    throw new Error("Unexpected embedding response format");
+  }
+};
+function buildOpenAICompatibleBody(options, providerName) {
+  const { prompt, contents, modelName, temperature, maxTokens } = options;
+  const defaultModel = PROVIDER_DEFAULT_MODELS[providerName] ?? "local-model";
+  const body = {
+    model: modelName || defaultModel,
+    messages: [
+      { role: "system", content: prompt },
+      ...contents.map((c) => {
+        const hasImages = c.parts.some((p) => p.inlineData);
+        if (hasImages) {
+          return {
+            role: c.role === "model" ? "assistant" : c.role,
+            content: c.parts.map((p) => {
+              if (p.text)
+                return { type: "text", text: p.text };
+              if (p.inlineData)
+                return { type: "image_url", image_url: { url: `data:${p.inlineData.mimeType};base64,${p.inlineData.data}` } };
+              return null;
+            }).filter((x) => x !== null)
+          };
+        }
+        return {
+          role: c.role === "model" ? "assistant" : c.role,
+          content: c.parts[0]?.text ?? ""
+        };
+      })
+    ]
+  };
+  if (temperature !== void 0)
+    body.temperature = temperature;
+  if (maxTokens !== void 0)
+    body.max_tokens = maxTokens;
+  return body;
+}
+function getEnvVarForProvider(provider) {
+  const map = {
+    openai: "OPENAI_API_KEY",
+    deepseek: "DEEPSEEK_API_KEY",
+    grok: "XAI_API_KEY",
+    groq: "GROQ_API_KEY",
+    baseten: "BASETEN_API_KEY",
+    openrouter: "OPENROUTER_API_KEY",
+    together: "TOGETHER_API_KEY",
+    mistral: "MISTRAL_API_KEY",
+    custom: "CUSTOM_API_KEY"
+  };
+  return map[provider] || "";
+}
+var ALLOWED_LOCAL_URLS = [
+  "http://localhost",
+  "http://127.0.0.1",
+  "https://localhost",
+  "https://127.0.0.1",
+  "http://0.0.0.0"
+];
+function validateLocalUrl(localUrl, provider) {
+  if (!localUrl)
+    return null;
+  try {
+    const parsed = new URL(localUrl);
+    const origin = parsed.origin.toLowerCase();
+    if (provider === "local" || provider === "custom") {
+      return null;
+    }
+    if (ALLOWED_LOCAL_URLS.some((u) => origin.startsWith(u))) {
+      return null;
+    }
+    return "localUrl is only allowed for 'local' or 'custom' providers";
+  } catch {
+    return "Invalid localUrl";
+  }
+}
+var OpenAICompatibleProvider = class extends AIProvider {
+  provider;
+  constructor(provider) {
+    super();
+    this.provider = provider;
+  }
+  async generate(options) {
+    const { prompt, contents, localUrl, apiKey, modelName, temperature, maxTokens } = options;
+    const urlError = validateLocalUrl(localUrl, this.provider);
+    if (urlError)
+      throw new Error(urlError);
+    const baseUrl = localUrl || PROVIDER_BASE_URLS[this.provider] || "";
+    const key = this.resolveApiKey(getEnvVarForProvider(this.provider), apiKey);
+    const body = buildOpenAICompatibleBody({ prompt, contents, modelName, temperature, maxTokens }, this.provider);
+    const authHeader = this.provider === "baseten" ? `Api-Key ${key}` : `Bearer ${key}`;
+    const response = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: authHeader
+      },
+      body: JSON.stringify(body)
+    });
+    const data = await response.json();
+    if (data.error)
+      throw new Error(data.error.message || `${this.provider} API error`);
+    const text = data.choices?.[0]?.message?.content ?? "";
+    const inputTokens = data.usage?.prompt_tokens || estimateTokens(prompt + contents.map((c) => c.parts?.[0]?.text || "").join(" "));
+    const outputTokens = data.usage?.completion_tokens || estimateTokens(text);
+    return { text, inputTokens, outputTokens };
+  }
+};
+var AnthropicProvider = class extends AIProvider {
+  async generate(options) {
+    const { prompt, contents, apiKey, modelName, maxTokens } = options;
+    const key = this.resolveApiKey("ANTHROPIC_API_KEY", apiKey);
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": key,
+        "anthropic-version": "2023-06-01"
+      },
+      body: JSON.stringify({
+        model: modelName || "claude-sonnet-4-20250514",
+        max_tokens: maxTokens || 4096,
+        system: prompt,
+        messages: contents.map((c) => {
+          const hasImages = c.parts.some((p) => p.inlineData);
+          if (hasImages) {
+            return {
+              role: c.role === "model" ? "assistant" : c.role,
+              content: c.parts.map((p) => {
+                if (p.text)
+                  return { type: "text", text: p.text };
+                if (p.inlineData)
+                  return { type: "image", source: { type: "base64", media_type: p.inlineData.mimeType, data: p.inlineData.data } };
+                return null;
+              }).filter((x) => x !== null)
+            };
+          }
+          return {
+            role: c.role === "model" ? "assistant" : c.role,
+            content: c.parts[0]?.text ?? ""
+          };
+        })
+      })
+    });
+    const data = await response.json();
+    if (data.error)
+      throw new Error(data.error.message || "Anthropic error");
+    const text = data.content?.[0]?.text ?? "";
+    const inputTokens = data.usage?.input_tokens || estimateTokens(prompt);
+    const outputTokens = data.usage?.output_tokens || estimateTokens(text);
+    return { text, inputTokens, outputTokens };
+  }
+};
+var providers = {
+  gemini: new GeminiProvider(),
+  openai: new OpenAICompatibleProvider("openai"),
+  deepseek: new OpenAICompatibleProvider("deepseek"),
+  grok: new OpenAICompatibleProvider("grok"),
+  groq: new OpenAICompatibleProvider("groq"),
+  baseten: new OpenAICompatibleProvider("baseten"),
+  openrouter: new OpenAICompatibleProvider("openrouter"),
+  together: new OpenAICompatibleProvider("together"),
+  mistral: new OpenAICompatibleProvider("mistral"),
+  local: new OpenAICompatibleProvider("local"),
+  custom: new OpenAICompatibleProvider("custom"),
+  anthropic: new AnthropicProvider()
+};
+async function generateAIContent(prompt, contents = [], provider = "gemini", localUrl, modelName, apiKey, temperature, maxTokens, useCache) {
+  if (useCache) {
+    const cached = aiCache.get(prompt, contents, provider, modelName);
+    if (cached)
+      return cached;
+  }
+  const p = providers[provider];
+  if (!p) {
+    throw new Error(`Unknown provider: ${provider}`);
+  }
+  const result = await p.generate({ prompt, contents, localUrl, modelName, apiKey, temperature, maxTokens });
+  if (useCache) {
+    aiCache.set(prompt, contents, provider, result.text, modelName);
+  }
+  return result.text;
+}
+async function generateWithDualModel(prompt, contents = [], config, purpose = "auto") {
+  const useThinking = purpose === "think" || purpose === "auto" && config.thinkingProvider && config.thinkingModel;
+  if (useThinking && config.thinkingProvider && config.thinkingModel) {
+    return generateAIContent(prompt, contents, config.thinkingProvider, config.thinkingLocalUrl || config.primaryLocalUrl, config.thinkingModel, config.apiKey, config.temperature, config.maxTokens);
+  }
+  return generateAIContent(prompt, contents, config.primaryProvider, config.primaryLocalUrl, config.primaryModel, config.apiKey, config.temperature, config.maxTokens);
+}
+async function generateEmbeddings(texts) {
+  const gemini = providers.gemini;
+  return gemini.embed(texts);
+}
+
+// src/server/agentMarketplace.js
+var import_promises11 = require("fs/promises");
+var path17 = __toESM(require("path"), 1);
+var import_crypto5 = require("crypto");
+var MARKET_DIR = path17.join(process.cwd(), ".cvr", "marketplace");
+var INDEX_FILE = path17.join(MARKET_DIR, "index.json");
+var REVIEWS_FILE = path17.join(MARKET_DIR, "reviews.json");
+var items = [];
+var reviews = [];
+async function ensureMarketDir() {
+  await (0, import_promises11.mkdir)(MARKET_DIR, { recursive: true });
+  await (0, import_promises11.mkdir)(path17.join(MARKET_DIR, "packages"), { recursive: true });
+}
+async function loadIndex() {
+  try {
+    const raw = await (0, import_promises11.readFile)(INDEX_FILE, "utf-8");
+    items = JSON.parse(raw);
+  } catch {
+    items = [];
+  }
+}
+async function saveIndex() {
+  await ensureMarketDir();
+  await (0, import_promises11.writeFile)(INDEX_FILE, JSON.stringify(items, null, 2), "utf-8");
+}
+async function loadReviews() {
+  try {
+    const raw = await (0, import_promises11.readFile)(REVIEWS_FILE, "utf-8");
+    reviews = JSON.parse(raw);
+  } catch {
+    reviews = [];
+  }
+}
+async function saveReviews() {
+  await ensureMarketDir();
+  await (0, import_promises11.writeFile)(REVIEWS_FILE, JSON.stringify(reviews, null, 2), "utf-8");
+}
+async function initMarketplace() {
+  await loadIndex();
+  await loadReviews();
+}
+function getMarketItems(type, tag, search) {
+  let result = [...items];
+  if (type)
+    result = result.filter((i) => i.type === type);
+  if (tag)
+    result = result.filter((i) => i.tags.includes(tag));
+  if (search) {
+    const q = search.toLowerCase();
+    result = result.filter((i) => i.name.toLowerCase().includes(q) || i.description.toLowerCase().includes(q) || i.tags.some((t) => t.toLowerCase().includes(q)));
+  }
+  return result.sort((a, b) => b.downloads - a.downloads);
+}
+async function publishItem(type, name, description, content, author = "unknown", version = "1.0.0", tags = []) {
+  await ensureMarketDir();
+  const id = `${type}-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${(0, import_crypto5.randomBytes)(4).toString("hex")}`;
+  const pkgPath = path17.join(MARKET_DIR, "packages", `${id}.json`);
+  const pkg = { type, name, description, content, author, version, tags };
+  await (0, import_promises11.writeFile)(pkgPath, JSON.stringify(pkg, null, 2), "utf-8");
+  const existing = items.find((i) => i.name === name && i.type === type);
+  if (existing) {
+    existing.version = version;
+    existing.description = description;
+    existing.tags = tags;
+    existing.updatedAt = Date.now();
+    existing.packagePath = pkgPath;
+    existing.content = content;
+  } else {
+    const item = {
+      id,
+      type,
+      name,
+      description,
+      author,
+      version,
+      tags,
+      downloads: 0,
+      rating: 0,
+      publishedAt: Date.now(),
+      updatedAt: Date.now(),
+      packagePath: pkgPath,
+      content
+    };
+    items.push(item);
+  }
+  await saveIndex();
+  return existing ?? items[items.length - 1];
+}
+async function downloadItem(id) {
+  const item = items.find((i) => i.id === id);
+  if (!item)
+    return null;
+  item.downloads++;
+  await saveIndex();
+  return item;
+}
+async function removeItem(id) {
+  const idx = items.findIndex((i) => i.id === id);
+  if (idx === -1)
+    return false;
+  const item = items[idx];
+  if (item) {
+    try {
+      await import("fs/promises").then((m) => m.unlink(item.packagePath));
+    } catch {
+    }
+  }
+  items.splice(idx, 1);
+  reviews = reviews.filter((r) => r.itemId !== id);
+  await saveIndex();
+  await saveReviews();
+  return true;
+}
+async function addReview(itemId, rating, text, author = "anonymous") {
+  const review = {
+    itemId,
+    author,
+    rating: Math.min(5, Math.max(1, rating)),
+    text,
+    timestamp: Date.now()
+  };
+  reviews.push(review);
+  const itemReviews = reviews.filter((r) => r.itemId === itemId);
+  const avg = itemReviews.reduce((s, r) => s + r.rating, 0) / itemReviews.length;
+  const item = items.find((i) => i.id === itemId);
+  if (item) {
+    item.rating = Math.round(avg * 10) / 10;
+    await saveIndex();
+  }
+  await saveReviews();
+  return review;
+}
+function getReviews(itemId) {
+  return reviews.filter((r) => r.itemId === itemId);
+}
+function getTags(type) {
+  const tagSet = /* @__PURE__ */ new Set();
+  const pool = type ? items.filter((i) => i.type === type) : items;
+  for (const item of pool) {
+    for (const tag of item.tags)
+      tagSet.add(tag);
+  }
+  return Array.from(tagSet).sort();
+}
+function getStats() {
+  const byType = {};
+  let totalDownloads = 0;
+  for (const item of items) {
+    byType[item.type] = (byType[item.type] || 0) + 1;
+    totalDownloads += item.downloads;
+  }
+  return { total: items.length, byType, totalDownloads };
+}
+
+// server.ts
+init_p2pSync();
+
+// src/server/validation.js
+var import_zod = require("zod");
+function validateBody(schema) {
+  return (req, res, next) => {
+    const result = schema.safeParse(req.body);
+    if (!result.success) {
+      res.status(400).json({
+        error: "Validation failed",
+        details: result.error.format()
+      });
+      return;
+    }
+    next();
+  };
+}
+var ChatRequestSchema = import_zod.z.object({
+  message: import_zod.z.string().min(1).max(1e5),
+  images: import_zod.z.array(import_zod.z.string()).optional(),
+  config: import_zod.z.object({
+    aiProvider: import_zod.z.string(),
+    aiModel: import_zod.z.string().optional(),
+    localUrl: import_zod.z.string().optional(),
+    localModelName: import_zod.z.string().optional(),
+    customUrl: import_zod.z.string().optional(),
+    temperature: import_zod.z.number().optional(),
+    maxTokens: import_zod.z.number().optional(),
+    systemPrompt: import_zod.z.string().optional(),
+    agent: import_zod.z.string().optional(),
+    mode: import_zod.z.union([import_zod.z.literal("plan"), import_zod.z.literal("build"), import_zod.z.literal("review")]).optional(),
+    visionEnabled: import_zod.z.boolean().optional(),
+    maxImageSize: import_zod.z.number().optional(),
+    apiKey: import_zod.z.string().optional()
+  }).optional(),
+  kernelConfig: import_zod.z.record(import_zod.z.string(), import_zod.z.any()).optional(),
+  agent: import_zod.z.string().optional()
+});
+var ToolExecuteSchema = import_zod.z.object({
+  toolCall: import_zod.z.object({
+    name: import_zod.z.string(),
+    params: import_zod.z.record(import_zod.z.string(), import_zod.z.any())
+  }),
+  mode: import_zod.z.union([import_zod.z.literal("plan"), import_zod.z.literal("build"), import_zod.z.literal("review")]).optional(),
+  sessionId: import_zod.z.string().optional()
+});
+var ReviewRequestSchema = import_zod.z.object({
+  diff: import_zod.z.string().optional(),
+  config: import_zod.z.record(import_zod.z.string(), import_zod.z.any()).optional()
+});
+var AgentLoopSchema = import_zod.z.object({
+  goal: import_zod.z.string().min(1),
+  provider: import_zod.z.string().optional(),
+  model: import_zod.z.string().optional()
+});
+var CronTaskSchema = import_zod.z.object({
+  name: import_zod.z.string().min(1),
+  schedule: import_zod.z.string().min(1),
+  command: import_zod.z.string().min(1),
+  enabled: import_zod.z.boolean().optional()
+});
+var GitCommitSchema = import_zod.z.object({
+  message: import_zod.z.string().min(1)
+});
+var BrowserNavigateSchema = import_zod.z.object({
+  url: import_zod.z.string().url(),
+  headless: import_zod.z.boolean().optional(),
+  sessionId: import_zod.z.string().optional()
+});
+var BrowserActionSchema = import_zod.z.object({
+  selector: import_zod.z.string().min(1),
+  text: import_zod.z.string().optional(),
+  headless: import_zod.z.boolean().optional(),
+  sessionId: import_zod.z.string().optional()
+});
+var SettingsSchema = import_zod.z.object({
+  aiProvider: import_zod.z.string().optional(),
+  aiModel: import_zod.z.string().optional(),
+  localUrl: import_zod.z.string().optional(),
+  customUrl: import_zod.z.string().optional(),
+  temperature: import_zod.z.number().optional(),
+  maxTokens: import_zod.z.number().optional(),
+  systemPrompt: import_zod.z.string().optional(),
+  agent: import_zod.z.string().optional(),
+  mode: import_zod.z.union([import_zod.z.literal("plan"), import_zod.z.literal("build"), import_zod.z.literal("review")]).optional(),
+  visionEnabled: import_zod.z.boolean().optional(),
+  maxImageSize: import_zod.z.number().optional(),
+  apiKey: import_zod.z.string().optional(),
+  geminiApiKey: import_zod.z.string().optional(),
+  openaiApiKey: import_zod.z.string().optional(),
+  anthropicApiKey: import_zod.z.string().optional(),
+  deepseekApiKey: import_zod.z.string().optional(),
+  groqApiKey: import_zod.z.string().optional(),
+  xaiApiKey: import_zod.z.string().optional(),
+  basetenApiKey: import_zod.z.string().optional(),
+  openrouterApiKey: import_zod.z.string().optional(),
+  togetherApiKey: import_zod.z.string().optional(),
+  mistralApiKey: import_zod.z.string().optional(),
+  customApiKey: import_zod.z.string().optional(),
+  localModelName: import_zod.z.string().optional(),
+  thinkingProvider: import_zod.z.string().optional(),
+  thinkingModel: import_zod.z.string().optional(),
+  thinkingLocalUrl: import_zod.z.string().optional()
+}).passthrough();
 
 // src/server/routes/chat.js
 var path19 = __toESM(require("path"), 1);
@@ -6856,82 +7069,6 @@ ${r.output.slice(0, 2e3)}`).join("\n\n---\n\n");
 
 // src/server/routes/ecosystem.js
 init_p2pSync();
-
-// src/server/validation.js
-var import_zod = require("zod");
-function validateBody(schema) {
-  return (req, res, next) => {
-    const result = schema.safeParse(req.body);
-    if (!result.success) {
-      res.status(400).json({
-        error: "Validation failed",
-        details: result.error.format()
-      });
-      return;
-    }
-    next();
-  };
-}
-var ChatRequestSchema = import_zod.z.object({
-  message: import_zod.z.string().min(1).max(1e5),
-  images: import_zod.z.array(import_zod.z.string()).optional(),
-  config: import_zod.z.object({
-    aiProvider: import_zod.z.string(),
-    aiModel: import_zod.z.string().optional(),
-    localUrl: import_zod.z.string().optional(),
-    localModelName: import_zod.z.string().optional(),
-    customUrl: import_zod.z.string().optional(),
-    temperature: import_zod.z.number().optional(),
-    maxTokens: import_zod.z.number().optional(),
-    systemPrompt: import_zod.z.string().optional(),
-    agent: import_zod.z.string().optional(),
-    mode: import_zod.z.union([import_zod.z.literal("plan"), import_zod.z.literal("build"), import_zod.z.literal("review")]).optional(),
-    visionEnabled: import_zod.z.boolean().optional(),
-    maxImageSize: import_zod.z.number().optional(),
-    apiKey: import_zod.z.string().optional()
-  }).optional(),
-  kernelConfig: import_zod.z.record(import_zod.z.string(), import_zod.z.any()).optional(),
-  agent: import_zod.z.string().optional()
-});
-var ToolExecuteSchema = import_zod.z.object({
-  toolCall: import_zod.z.object({
-    name: import_zod.z.string(),
-    params: import_zod.z.record(import_zod.z.string(), import_zod.z.any())
-  }),
-  mode: import_zod.z.union([import_zod.z.literal("plan"), import_zod.z.literal("build"), import_zod.z.literal("review")]).optional(),
-  sessionId: import_zod.z.string().optional()
-});
-var ReviewRequestSchema = import_zod.z.object({
-  diff: import_zod.z.string().optional(),
-  config: import_zod.z.record(import_zod.z.string(), import_zod.z.any()).optional()
-});
-var AgentLoopSchema = import_zod.z.object({
-  goal: import_zod.z.string().min(1),
-  provider: import_zod.z.string().optional(),
-  model: import_zod.z.string().optional()
-});
-var CronTaskSchema = import_zod.z.object({
-  name: import_zod.z.string().min(1),
-  schedule: import_zod.z.string().min(1),
-  command: import_zod.z.string().min(1),
-  enabled: import_zod.z.boolean().optional()
-});
-var GitCommitSchema = import_zod.z.object({
-  message: import_zod.z.string().min(1)
-});
-var BrowserNavigateSchema = import_zod.z.object({
-  url: import_zod.z.string().url(),
-  headless: import_zod.z.boolean().optional(),
-  sessionId: import_zod.z.string().optional()
-});
-var BrowserActionSchema = import_zod.z.object({
-  selector: import_zod.z.string().min(1),
-  text: import_zod.z.string().optional(),
-  headless: import_zod.z.boolean().optional(),
-  sessionId: import_zod.z.string().optional()
-});
-
-// src/server/routes/ecosystem.js
 function registerRoutes5(app2) {
   app2.get("/api/plugins", async (_req, res) => {
     try {
@@ -8304,30 +8441,6 @@ var PORT = 3e3;
 app.use(import_express.default.json());
 setupHealthRoute(app);
 setupSecurityMiddleware(app);
-app.get("/api/settings", (_req, res) => {
-  try {
-    const settingsPath = path23.join(process.cwd(), ".opencode-infinite", "settings.json");
-    if ((0, import_fs.existsSync)(settingsPath)) {
-      const data = JSON.parse((0, import_fs.readFileSync)(settingsPath, "utf-8"));
-      res.json(data);
-    } else {
-      res.json({});
-    }
-  } catch {
-    res.json({});
-  }
-});
-app.post("/api/settings", (req, res) => {
-  try {
-    const settingsPath = path23.join(process.cwd(), ".opencode-infinite", "settings.json");
-    const dir = path23.dirname(settingsPath);
-    if (!(0, import_fs.existsSync)(dir)) (0, import_fs.mkdirSync)(dir, { recursive: true });
-    (0, import_fs.writeFileSync)(settingsPath, JSON.stringify(req.body, null, 2));
-    res.json({ saved: true });
-  } catch (e) {
-    res.status(500).json({ error: "Failed to save settings" });
-  }
-});
 var PROVIDER_VALIDATION_URLS = {
   openai: "https://api.openai.com/v1/models",
   deepseek: "https://api.deepseek.com/v1/models",
@@ -8365,11 +8478,12 @@ app.post("/api/validate-key", async (req, res) => {
     }
     const baseUrl = PROVIDER_VALIDATION_URLS[provider];
     if (baseUrl) {
+      const authPrefix = provider === "baseten" ? "Api-Key" : "Bearer";
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 1e4);
       try {
         const r = await fetch(baseUrl, {
-          headers: { Authorization: `Bearer ${apiKey}` },
+          headers: { Authorization: `${authPrefix} ${apiKey}` },
           signal: controller.signal
         });
         clearTimeout(timeout);
@@ -8390,6 +8504,35 @@ app.post("/api/validate-key", async (req, res) => {
 var requireApiKey = createApiKeyMiddleware();
 app.use("/api", requireApiKey);
 app.use("/mcp", requireApiKey);
+app.get("/api/settings", (_req, res) => {
+  try {
+    const settingsPath = path23.join(process.cwd(), ".opencode-infinite", "settings.json");
+    if ((0, import_fs.existsSync)(settingsPath)) {
+      const data = JSON.parse((0, import_fs.readFileSync)(settingsPath, "utf-8"));
+      res.json(data);
+    } else {
+      res.json({});
+    }
+  } catch {
+    res.json({});
+  }
+});
+app.post("/api/settings", (req, res) => {
+  try {
+    const parsed = SettingsSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid settings", details: parsed.error.format() });
+      return;
+    }
+    const settingsPath = path23.join(process.cwd(), ".opencode-infinite", "settings.json");
+    const dir = path23.dirname(settingsPath);
+    if (!(0, import_fs.existsSync)(dir)) (0, import_fs.mkdirSync)(dir, { recursive: true });
+    (0, import_fs.writeFileSync)(settingsPath, JSON.stringify(parsed.data, null, 2));
+    res.json({ saved: true });
+  } catch (e) {
+    res.status(500).json({ error: "Failed to save settings" });
+  }
+});
 try {
   const configData = (0, import_fs.readFileSync)(".cvr/permissions.json", "utf-8");
   const config = JSON.parse(configData);
@@ -8472,7 +8615,12 @@ async function startServer() {
   });
   if (process.env.CVR_P2P_ENABLED === "true") {
     const p2pPort = parseInt(process.env.CVR_P2P_PORT || "3001", 10);
-    const p2pSecret = process.env.CVR_P2P_SECRET || "cvr-p2p-default-secret";
+    const p2pSecret = process.env.CVR_P2P_SECRET || (() => {
+      const crypto2 = require("crypto");
+      const key = crypto2.randomBytes(32).toString("hex");
+      console.log(`P2P_SECRET not set, generated random key: ${key}`);
+      return key;
+    })();
     setupP2PSync(server, {
       enabled: true,
       port: p2pPort,

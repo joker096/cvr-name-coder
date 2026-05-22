@@ -29,7 +29,7 @@ export const AGENT_PROMPTS: Record<string, string> = {
 export function getProviderDefaults(provider: string): { baseUrl: string; defaultModel: string; envKey: string } {
   const defaults: Record<string, { baseUrl: string; defaultModel: string; envKey: string }> = {
     openai: { baseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-4.1', envKey: 'OPENAI_API_KEY' },
-    deepseek: { baseUrl: 'https://api.deepseek.com', defaultModel: 'deepseek-chat', envKey: 'DEEPSEEK_API_KEY' },
+    deepseek: { baseUrl: 'https://api.deepseek.com/v1', defaultModel: 'deepseek-chat', envKey: 'DEEPSEEK_API_KEY' },
     grok: { baseUrl: 'https://api.x.ai/v1', defaultModel: 'grok-3', envKey: 'XAI_API_KEY' },
     groq: { baseUrl: 'https://api.groq.com/openai/v1', defaultModel: 'meta-llama/llama-4-maverick-17b-128e-instruct', envKey: 'GROQ_API_KEY' },
     baseten: { baseUrl: 'https://api.baseten.co/v1', defaultModel: 'meta-llama-4-maverick', envKey: 'BASETEN_API_KEY' },

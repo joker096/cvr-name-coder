@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import { spawn, ChildProcess } from 'child_process';
+import express from 'express';
+import rateLimit from 'express-rate-limit';
 import { CompletionEngine } from './completion/completionEngine.js';
 import { CvrInlineCompletionProvider } from './providers/InlineCompletionProvider.js';
 import type { CompletionConfig } from './types/completion.js';
@@ -284,6 +286,13 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
 
   const app = express();
   app.use(express.json());
+  app.use(rateLimit({
+    windowMs: 1 * 60 * 1000,
+    max: 600,
+    message: { error: "Too many requests, please try again later." },
+    standardHeaders: true,
+    legacyHeaders: false,
+  }));
 
   let _wsContextCache: string | null = null;
   let _wsContextTime = 0;
@@ -314,6 +323,72 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
       res.json({ saved: true });
     } catch (e) {
       res.status(500).json({ error: 'Failed to save settings' });
+    }
+  });
+
+  const PROVIDER_VALIDATION_URLS: Record<string, string> = {
+    openai: 'https://api.openai.com/v1/models',
+    deepseek: 'https://api.deepseek.com/v1/models',
+    grok: 'https://api.x.ai/v1/models',
+    groq: 'https://api.groq.com/openai/v1/models',
+    baseten: 'https://api.baseten.co/v1/models',
+    openrouter: 'https://openrouter.ai/api/v1/models',
+    together: 'https://api.together.xyz/v1/models',
+    mistral: 'https://api.mistral.ai/v1/models',
+  };
+
+  app.post('/api/validate-key', async (req: any, res: any) => {
+    const { provider, apiKey } = req.body;
+    if (!provider || !apiKey) {
+      return res.status(400).json({ valid: false, error: 'provider and apiKey required' });
+    }
+
+    try {
+      if (provider === 'gemini') {
+        const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`);
+        if (r.ok) return res.json({ valid: true });
+        const d = await r.json().catch(() => ({}));
+        return res.json({ valid: false, error: d.error?.message || `HTTP ${r.status}` });
+      }
+
+      if (provider === 'anthropic') {
+        const r = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+          body: JSON.stringify({ model: 'claude-3-haiku-20240307', max_tokens: 1, messages: [{ role: 'user', content: 'hi' }] }),
+        });
+        if (r.ok) return res.json({ valid: true });
+        const d = await r.json().catch(() => ({}));
+        const err = d.error?.message || `HTTP ${r.status}`;
+        if (d.error?.type === 'authentication_error') return res.json({ valid: false, error: err });
+        if (r.status === 401 || r.status === 403) return res.json({ valid: false, error: err });
+        return res.json({ valid: true });
+      }
+
+      const baseUrl = PROVIDER_VALIDATION_URLS[provider];
+      if (baseUrl) {
+        const authPrefix = provider === 'baseten' ? 'Api-Key' : 'Bearer';
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 10000);
+        try {
+          const r = await fetch(baseUrl, {
+            headers: { Authorization: `${authPrefix} ${apiKey}` },
+            signal: controller.signal,
+          });
+          clearTimeout(timeout);
+          if (r.ok) return res.json({ valid: true });
+          if (r.status === 401 || r.status === 403) return res.json({ valid: false, error: `HTTP ${r.status} — key rejected` });
+          return res.json({ valid: true, warning: `HTTP ${r.status}` });
+        } catch (e: any) {
+          clearTimeout(timeout);
+          if (e.name === 'AbortError') return res.json({ valid: false, error: 'Connection timeout — check network' });
+          throw e;
+        }
+      }
+
+      return res.json({ valid: false, error: `Unknown provider: ${provider}` });
+    } catch (e: any) {
+      return res.json({ valid: false, error: e.message || 'Network error' });
     }
   });
 
@@ -472,7 +547,7 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
     if (provider === 'custom' || provider === 'openai' || provider === 'deepseek' || provider === 'grok' || provider === 'groq' || provider === 'baseten' || provider === 'openrouter' || provider === 'together' || provider === 'mistral') {
       let baseUrl = localUrl;
       if (provider === 'openai') baseUrl = 'https://api.openai.com/v1';
-      if (provider === 'deepseek') baseUrl = localUrl || 'https://api.deepseek.com';
+      if (provider === 'deepseek') baseUrl = localUrl || 'https://api.deepseek.com/v1';
       if (provider === 'grok') baseUrl = localUrl || 'https://api.x.ai/v1';
       if (provider === 'groq') baseUrl = localUrl || 'https://api.groq.com/openai/v1';
       if (provider === 'baseten') baseUrl = 'https://api.baseten.co/v1';

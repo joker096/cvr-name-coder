@@ -24,6 +24,7 @@ import { setupHealthRoute } from "./src/server/standalone/health.js";
 import { generateEmbeddings } from "./src/server/providers.js";
 import { initMarketplace } from "./src/server/agentMarketplace.js";
 import { setupP2PSync } from "./src/server/p2pSync.js";
+import { SettingsSchema } from "./src/server/validation.js";
 import { setPermissionEngine } from "./src/server/serverState.js";
 import { STORAGE_DIR, ensureStorage, registerRoutes as registerChatRoutes } from "./src/server/routes/chat.js";
 import { registerRoutes as registerMemoryRoutes } from "./src/server/routes/memory.js";
@@ -43,35 +44,6 @@ const PORT = 3000;
 app.use(express.json());
 setupHealthRoute(app);
 setupSecurityMiddleware(app);
-// Settings persistence (file-based, no API key needed)
-app.get('/api/settings', (_req, res) => {
-    try {
-        const settingsPath = path.join(process.cwd(), '.opencode-infinite', 'settings.json');
-        if (existsSync(settingsPath)) {
-            const data = JSON.parse(readFileSync(settingsPath, 'utf-8'));
-            res.json(data);
-        }
-        else {
-            res.json({});
-        }
-    }
-    catch {
-        res.json({});
-    }
-});
-app.post('/api/settings', (req, res) => {
-    try {
-        const settingsPath = path.join(process.cwd(), '.opencode-infinite', 'settings.json');
-        const dir = path.dirname(settingsPath);
-        if (!existsSync(dir))
-            mkdirSync(dir, { recursive: true });
-        writeFileSync(settingsPath, JSON.stringify(req.body, null, 2));
-        res.json({ saved: true });
-    }
-    catch (e) {
-        res.status(500).json({ error: 'Failed to save settings' });
-    }
-});
 const PROVIDER_VALIDATION_URLS = {
     openai: "https://api.openai.com/v1/models",
     deepseek: "https://api.deepseek.com/v1/models",
@@ -113,11 +85,12 @@ app.post("/api/validate-key", async (req, res) => {
         }
         const baseUrl = PROVIDER_VALIDATION_URLS[provider];
         if (baseUrl) {
+            const authPrefix = provider === "baseten" ? "Api-Key" : "Bearer";
             const controller = new AbortController();
             const timeout = setTimeout(() => controller.abort(), 10000);
             try {
                 const r = await fetch(baseUrl, {
-                    headers: { Authorization: `Bearer ${apiKey}` },
+                    headers: { Authorization: `${authPrefix} ${apiKey}` },
                     signal: controller.signal,
                 });
                 clearTimeout(timeout);
@@ -143,6 +116,40 @@ app.post("/api/validate-key", async (req, res) => {
 const requireApiKey = createApiKeyMiddleware();
 app.use("/api", requireApiKey);
 app.use("/mcp", requireApiKey);
+// Settings persistence (now behind API key auth)
+app.get('/api/settings', (_req, res) => {
+    try {
+        const settingsPath = path.join(process.cwd(), '.opencode-infinite', 'settings.json');
+        if (existsSync(settingsPath)) {
+            const data = JSON.parse(readFileSync(settingsPath, 'utf-8'));
+            res.json(data);
+        }
+        else {
+            res.json({});
+        }
+    }
+    catch {
+        res.json({});
+    }
+});
+app.post('/api/settings', (req, res) => {
+    try {
+        const parsed = SettingsSchema.safeParse(req.body);
+        if (!parsed.success) {
+            res.status(400).json({ error: "Invalid settings", details: parsed.error.format() });
+            return;
+        }
+        const settingsPath = path.join(process.cwd(), '.opencode-infinite', 'settings.json');
+        const dir = path.dirname(settingsPath);
+        if (!existsSync(dir))
+            mkdirSync(dir, { recursive: true });
+        writeFileSync(settingsPath, JSON.stringify(parsed.data, null, 2));
+        res.json({ saved: true });
+    }
+    catch (e) {
+        res.status(500).json({ error: 'Failed to save settings' });
+    }
+});
 // Initialize Permission Engine
 try {
     const configData = readFileSync(".cvr/permissions.json", "utf-8");
@@ -232,7 +239,12 @@ async function startServer() {
     // P2P Collaboration — auto-start if enabled
     if (process.env.CVR_P2P_ENABLED === "true") {
         const p2pPort = parseInt(process.env.CVR_P2P_PORT || "3001", 10);
-        const p2pSecret = process.env.CVR_P2P_SECRET || "cvr-p2p-default-secret";
+        const p2pSecret = process.env.CVR_P2P_SECRET || (() => {
+            const crypto = require("crypto");
+            const key = crypto.randomBytes(32).toString("hex");
+            console.log(`P2P_SECRET not set, generated random key: ${key}`);
+            return key;
+        })();
         setupP2PSync(server, {
             enabled: true,
             port: p2pPort,

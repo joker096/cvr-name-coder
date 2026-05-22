@@ -34,7 +34,7 @@ describe("PROVIDER_DEFAULT_MODELS", () => {
 describe("PROVIDER_BASE_URLS", () => {
   it("should have base URLs for all OpenAI-compatible cloud providers", () => {
     expect(PROVIDER_BASE_URLS.openai).toBe("https://api.openai.com/v1");
-    expect(PROVIDER_BASE_URLS.deepseek).toBe("https://api.deepseek.com");
+    expect(PROVIDER_BASE_URLS.deepseek).toBe("https://api.deepseek.com/v1");
     expect(PROVIDER_BASE_URLS.grok).toBe("https://api.x.ai/v1");
     expect(PROVIDER_BASE_URLS.mistral).toBe("https://api.mistral.ai/v1");
     expect(PROVIDER_BASE_URLS.openrouter).toBe("https://openrouter.ai/api/v1");

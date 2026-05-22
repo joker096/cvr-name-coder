@@ -152,6 +152,31 @@ interface AnthropicResponse {
   usage?: { input_tokens?: number; output_tokens?: number };
 }
 
+const ALLOWED_LOCAL_URLS = [
+  "http://localhost",
+  "http://127.0.0.1",
+  "https://localhost",
+  "https://127.0.0.1",
+  "http://0.0.0.0",
+];
+
+function validateLocalUrl(localUrl: string | undefined, provider: string): string | null {
+  if (!localUrl) return null;
+  try {
+    const parsed = new URL(localUrl);
+    const origin = parsed.origin.toLowerCase();
+    if (provider === "local" || provider === "custom") {
+      return null;
+    }
+    if (ALLOWED_LOCAL_URLS.some((u) => origin.startsWith(u))) {
+      return null;
+    }
+    return "localUrl is only allowed for 'local' or 'custom' providers";
+  } catch {
+    return "Invalid localUrl";
+  }
+}
+
 class OpenAICompatibleProvider extends AIProvider {
   constructor(private provider: string) {
     super();
@@ -159,16 +184,22 @@ class OpenAICompatibleProvider extends AIProvider {
 
   async generate(options: AIGenerateOptions): Promise<AIResponse> {
     const { prompt, contents, localUrl, apiKey, modelName, temperature, maxTokens } = options;
+    const urlError = validateLocalUrl(localUrl, this.provider);
+    if (urlError) throw new Error(urlError);
     const baseUrl = localUrl || PROVIDER_BASE_URLS[this.provider] || "";
     const key = this.resolveApiKey(getEnvVarForProvider(this.provider), apiKey);
 
     const body = buildOpenAICompatibleBody({ prompt, contents, modelName, temperature, maxTokens }, this.provider);
 
+    const authHeader = this.provider === "baseten"
+      ? `Api-Key ${key}`
+      : `Bearer ${key}`;
+
     const response = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${key}`,
+        Authorization: authHeader,
       },
       body: JSON.stringify(body),
     });
