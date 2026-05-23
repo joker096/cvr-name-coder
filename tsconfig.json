@@ -28,6 +28,7 @@
     "noFallthroughCasesInSwitch": true,
     "noImplicitReturns": true,
     "noUncheckedSideEffectImports": true,
+    "outDir": "dist-tsc",
     "paths": {
       "@/*": [
         "./*"

@@ -1,15 +1,12 @@
 import React from "react";
 import { motion } from "motion/react";
-import ReactMarkdown from "react-markdown";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { cn } from "../../utils/cn";
 import type { Message } from "../../types/chat";
 import { ReviewMessage } from "./ReviewMessage";
+import { MarkdownRenderer } from "./MarkdownRenderer";
 
 interface MessageItemProps {
   message: Message;
-  index: number;
   agentLabel?: string | undefined;
   providerLabel?: string | undefined;
   modelName?: string | undefined;
@@ -18,7 +15,6 @@ interface MessageItemProps {
 
 export const MessageItem: React.FC<MessageItemProps> = ({
   message,
-  index,
   agentLabel,
   providerLabel,
   modelName,
@@ -28,7 +24,6 @@ export const MessageItem: React.FC<MessageItemProps> = ({
   if (message.role === "review") {
     return (
       <motion.div
-        key={index}
         initial={{ opacity: 0, y: 5 }}
         animate={{ opacity: 1, y: 0 }}
         className="flex flex-col sm:flex-row gap-0.5 sm:gap-3"
@@ -46,7 +41,6 @@ export const MessageItem: React.FC<MessageItemProps> = ({
   if (message.role === "tool_call" && message.toolCall) {
     return (
       <motion.div
-        key={index}
         initial={{ opacity: 0, y: 5 }}
         animate={{ opacity: 1, y: 0 }}
         className="flex flex-col sm:flex-row gap-0.5 sm:gap-3"
@@ -94,7 +88,6 @@ export const MessageItem: React.FC<MessageItemProps> = ({
 
   return (
     <motion.div
-      key={index}
       initial={{ opacity: 0, y: 5 }}
       animate={{ opacity: 1, y: 0 }}
       className="flex flex-col sm:flex-row gap-0.5 sm:gap-3"
@@ -129,58 +122,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
             "p-2 bg-dash-surface/30 rounded border border-dash-border"
         )}
       >
-        <ReactMarkdown
-          components={{
-            code({ className, children, ...props }: any) {
-              const isBlock = className?.startsWith("language-");
-              const lang = className?.replace("language-", "") || "";
-              const code = String(children).replace(/\n$/, "");
-              const [copied, setCopied] = React.useState(false);
-              if (!isBlock)
-                return (
-                  <code
-                    className="px-1 py-0.5 bg-dash-bg border border-dash-border rounded text-[11px] font-mono text-dash-accent"
-                    {...props}
-                  >
-                    {children}
-                  </code>
-                );
-              return (
-                <div className="relative group my-2">
-                  <div className="flex items-center justify-between px-3 py-1 bg-dash-elevated border border-dash-border rounded-t text-[8px] font-mono text-dash-text-muted uppercase tracking-wider">
-                    <span>{lang || "code"}</span>
-                    <button
-                      onClick={() => {
-                        navigator.clipboard.writeText(code);
-                        setCopied(true);
-                        setTimeout(() => setCopied(false), 1500);
-                      }}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity px-1.5 py-0.5 rounded hover:bg-dash-accent/10 text-dash-accent"
-                    >
-                      {copied ? "copied!" : "copy"}
-                    </button>
-                  </div>
-                  <SyntaxHighlighter
-                    language={lang || "text"}
-                    style={oneDark}
-                    customStyle={{
-                      margin: 0,
-                      borderTopLeftRadius: 0,
-                      borderTopRightRadius: 0,
-                      fontSize: "11px",
-                      background: "#1A1A1E",
-                    }}
-                    showLineNumbers={code.split("\n").length > 3}
-                  >
-                    {code}
-                  </SyntaxHighlighter>
-                </div>
-              );
-            },
-          }}
-        >
-          {message.content}
-        </ReactMarkdown>
+        <MarkdownRenderer content={message.content} />
         {message.images && message.images.length > 0 && (
           <div className="flex flex-wrap gap-2 mt-2">
             {message.images.map((img, i) => (

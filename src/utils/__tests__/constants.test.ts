@@ -14,7 +14,7 @@ describe("PROVIDER_DEFAULT_MODELS", () => {
     expect(PROVIDER_DEFAULT_MODELS.deepseek).toBe("deepseek-chat");
     expect(PROVIDER_DEFAULT_MODELS.grok).toBe("grok-3");
     expect(PROVIDER_DEFAULT_MODELS.groq).toBe("meta-llama/llama-4-maverick-17b-128e-instruct");
-    expect(PROVIDER_DEFAULT_MODELS.baseten).toBe("meta-llama-4-maverick");
+    expect(PROVIDER_DEFAULT_MODELS.baseten).toBe("meta-llama/Llama-4-Maverick-17B-128E-Instruct");
     expect(PROVIDER_DEFAULT_MODELS.openrouter).toBe("google/gemini-2.5-flash");
     expect(PROVIDER_DEFAULT_MODELS.together).toBe("meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8");
     expect(PROVIDER_DEFAULT_MODELS.mistral).toBe("mistral-large-latest");

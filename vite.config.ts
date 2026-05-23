@@ -31,12 +31,20 @@ export default defineConfig(({mode}) => {
       },
     },
     build: {
+      chunkSizeWarningLimit: 2000,
       rollupOptions: {
         output: {
-          manualChunks: {
-            vendor: ['react', 'react-dom'],
-            markdown: ['react-markdown', 'react-syntax-highlighter'],
-            motion: ['motion'],
+          manualChunks(id) {
+            if (id.includes('node_modules/react/') || id.includes('node_modules/react-dom/')) return 'vendor';
+            if (id.includes('node_modules/react-syntax-highlighter')) return 'syntax';
+            if (id.includes('node_modules/react-markdown') || id.includes('node_modules/remark') || id.includes('node_modules/rehype')) return 'markdown';
+            if (id.includes('node_modules/motion')) return 'motion';
+            if (id.includes('node_modules/lucide-react')) return 'lucide';
+            if (id.includes('node_modules/zod') || id.includes('node_modules/clsx') || id.includes('node_modules/tailwind-merge')) return 'utils';
+            if (id.includes('/components/dashboard/')) return 'dashboard';
+            if (id.includes('/components/settings/')) return 'settings';
+            if (id.includes('/components/sidebar/')) return 'sidebar';
+            return undefined;
           },
         },
       },

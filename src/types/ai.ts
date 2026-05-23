@@ -42,7 +42,7 @@ export type CloudProvider = {
   id: string;
   name: string;
   requiresApiKey: boolean;
-  requiresUrl: false;
+  requiresUrl: boolean;
   models: AIModel[];
 };
 

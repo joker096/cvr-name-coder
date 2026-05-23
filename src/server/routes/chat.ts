@@ -326,8 +326,9 @@ export function registerRoutes(app: Application) {
       const key = apiKey || process.env[envKeyMap[provider] || ""] || "";
       if (!key) { res.status(400).json({ error: "API key required — set via env var or enter in settings" }); return; }
 
+      const authPrefix = provider === "baseten" ? "Api-Key" : "Bearer";
       const resp = await fetch(`${baseUrl.replace(/\/$/, "")}/models`, {
-        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+        headers: { Authorization: `${authPrefix} ${key}`, "Content-Type": "application/json" },
       });
       if (!resp.ok) {
         const err = await resp.text().catch(() => "");

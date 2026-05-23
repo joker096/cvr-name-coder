@@ -48,6 +48,8 @@ Thumbs.db
 .settings/
 
 # TypeScript
+dist-tsc/
+*.tsbuildinfo
 *.tsbuildinfo
 # Generated JS/d.ts from TS compilation
 src/**/*.d.ts

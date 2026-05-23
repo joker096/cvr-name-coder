@@ -43,11 +43,12 @@ async function validateKey(provider: string, apiKey: string) {
 
     const baseUrl = PROVIDER_VALIDATION_URLS[provider];
     if (baseUrl) {
+      const authPrefix = provider === "baseten" ? "Api-Key" : "Bearer";
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 10000);
       try {
         const r = await mockFetch(baseUrl, {
-          headers: { Authorization: `Bearer ${apiKey}` },
+          headers: { Authorization: `${authPrefix} ${apiKey}` },
           signal: controller.signal,
         });
         clearTimeout(timeout);
@@ -173,6 +174,13 @@ describe("validateKey", () => {
       await validateKey("mistral", "mistral-key-abc");
       const callArgs = mockFetch.mock.calls[0];
       expect(callArgs[1].headers.Authorization).toBe("Bearer mistral-key-abc");
+    });
+
+    it("should pass Api-Key auth header for Baseten", async () => {
+      mockFetch.mockResolvedValueOnce({ ok: true, status: 200 });
+      await validateKey("baseten", "baseten-key-123");
+      const callArgs = mockFetch.mock.calls[0];
+      expect(callArgs[1].headers.Authorization).toBe("Api-Key baseten-key-123");
     });
   });
 

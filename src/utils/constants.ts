@@ -33,7 +33,7 @@ export const PROVIDER_DEFAULT_MODELS: Record<string, string> = {
   deepseek: "deepseek-chat",
   grok: "grok-3",
   groq: "meta-llama/llama-4-maverick-17b-128e-instruct",
-  baseten: "meta-llama-4-maverick",
+  baseten: "meta-llama/Llama-4-Maverick-17B-128E-Instruct",
   openrouter: "google/gemini-2.5-flash",
   together: "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
   mistral: "mistral-large-latest",

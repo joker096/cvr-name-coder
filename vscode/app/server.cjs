@@ -44,7 +44,7 @@ var init_errors = __esm({
   }
 });
 
-// src/server/browserTools.js
+// src/server/browserTools.ts
 var browserTools_exports = {};
 __export(browserTools_exports, {
   browserClick: () => browserClick,
@@ -59,10 +59,8 @@ __export(browserTools_exports, {
   getActiveBrowserSessions: () => getActiveBrowserSessions
 });
 async function getPlaywright() {
-  if (playwrightChromium)
-    return playwrightChromium;
-  if (playwrightError)
-    throw playwrightError;
+  if (playwrightChromium) return playwrightChromium;
+  if (playwrightError) throw playwrightError;
   try {
     const pw = await import("playwright");
     playwrightChromium = pw.chromium;
@@ -111,8 +109,7 @@ async function getOrCreateSession(sessionId, headless = true) {
 }
 async function closeBrowserSession(sessionId) {
   const session = browserPool.get(sessionId);
-  if (!session)
-    return;
+  if (!session) return;
   try {
     await session.context.close();
     await session.browser.close();
@@ -227,7 +224,7 @@ function getActiveBrowserSessions() {
 }
 var browserPool, playwrightChromium, playwrightError;
 var init_browserTools = __esm({
-  "src/server/browserTools.js"() {
+  "src/server/browserTools.ts"() {
     "use strict";
     init_errors();
     browserPool = /* @__PURE__ */ new Map();
@@ -252,7 +249,7 @@ var init_browserTools = __esm({
   }
 });
 
-// src/server/sessionStore.js
+// src/server/sessionStore.ts
 var sessionStore_exports = {};
 __export(sessionStore_exports, {
   addMessage: () => addMessage,
@@ -348,8 +345,7 @@ function fallbackGetDb2() {
         const stmt2 = {
           run: (updatedAt, id) => {
             const s = _sessions.find((s2) => s2.id === id);
-            if (s)
-              s.updatedAt = updatedAt;
+            if (s) s.updatedAt = updatedAt;
             saveJson2();
             return { lastInsertRowid: 0, changes: 1 };
           }
@@ -410,8 +406,7 @@ function getDb2() {
   return _db2;
 }
 function initSchema2(db) {
-  if (_useFallback2)
-    return;
+  if (_useFallback2) return;
   db.exec(`
     CREATE TABLE IF NOT EXISTS sessions (
       id TEXT PRIMARY KEY,
@@ -449,8 +444,7 @@ function createSession(title) {
   const now = Date.now();
   const session = { id, title, createdAt: now, updatedAt: now };
   db.prepare("INSERT INTO sessions (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)").run(id, title, now, now);
-  if (_useFallback2)
-    saveJson2();
+  if (_useFallback2) saveJson2();
   return session;
 }
 function addMessage(sessionId, role, content) {
@@ -459,18 +453,20 @@ function addMessage(sessionId, role, content) {
   const now = Date.now();
   const insertResult = db.prepare("INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)").run(id, sessionId, role, content, now);
   if (!_useFallback2) {
-    db.prepare("INSERT INTO messages_fts (rowid, content, session_id) VALUES (?, ?, ?)").run(insertResult.lastInsertRowid, content, sessionId);
+    db.prepare("INSERT INTO messages_fts (rowid, content, session_id) VALUES (?, ?, ?)").run(
+      insertResult.lastInsertRowid,
+      content,
+      sessionId
+    );
   }
   db.prepare("UPDATE sessions SET updated_at = ? WHERE id = ?").run(now, sessionId);
-  if (_useFallback2)
-    saveJson2();
+  if (_useFallback2) saveJson2();
   return { id, sessionId, role, content, createdAt: now };
 }
 function getSession(sessionId) {
   const db = getDb2();
   const session = db.prepare("SELECT id, title, created_at, updated_at FROM sessions WHERE id = ?").get(sessionId);
-  if (!session)
-    return null;
+  if (!session) return null;
   const rows = db.prepare("SELECT id, session_id, role, content, created_at FROM messages WHERE session_id = ? ORDER BY created_at ASC").all(sessionId);
   return {
     session: {
@@ -520,9 +516,9 @@ function searchSessions(query, limit = 20) {
     return results.slice(0, limit);
   }
   const db = getDb2();
-  if (!query.trim())
-    return [];
-  const rows = db.prepare(`
+  if (!query.trim()) return [];
+  const rows = db.prepare(
+    `
     SELECT
       m.session_id AS sessionId,
       s.title AS sessionTitle,
@@ -537,7 +533,8 @@ function searchSessions(query, limit = 20) {
     WHERE messages_fts MATCH ?
     ORDER BY rank
     LIMIT ?
-  `).all(query, limit);
+  `
+  ).all(query, limit);
   return rows.map((r) => ({
     sessionId: r.sessionId,
     sessionTitle: r.sessionTitle,
@@ -564,7 +561,7 @@ function deleteSession(sessionId) {
 }
 var path7, import_crypto2, fs3, _dbPath2, _db2, _useFallback2, _sessions, _messages, _jsonPath2;
 var init_sessionStore = __esm({
-  "src/server/sessionStore.js"() {
+  "src/server/sessionStore.ts"() {
     "use strict";
     path7 = __toESM(require("path"), 1);
     import_crypto2 = require("crypto");
@@ -578,7 +575,7 @@ var init_sessionStore = __esm({
   }
 });
 
-// src/server/p2pSync.js
+// src/server/p2pSync.ts
 var p2pSync_exports = {};
 __export(p2pSync_exports, {
   closeP2PSync: () => closeP2PSync,
@@ -639,13 +636,12 @@ async function loadSharedStore() {
   }
 }
 async function saveSharedStore() {
-  await (0, import_promises12.mkdir)(path18.dirname(STORAGE_FILE), { recursive: true });
+  await (0, import_promises12.mkdir)(path17.dirname(STORAGE_FILE), { recursive: true });
   const items2 = Array.from(sharedStore.values());
   await (0, import_promises12.writeFile)(STORAGE_FILE, JSON.stringify(items2, null, 2), "utf-8");
 }
 function setupP2PSync(server, config) {
-  if (!config.enabled)
-    return;
+  if (!config.enabled) return;
   p2pConfig = config;
   wss = new import_ws.WebSocketServer({ server, path: "/p2p" });
   wss.on("connection", (ws, req) => {
@@ -703,7 +699,10 @@ async function handleMessage(peerId, msg) {
         content: msg.content,
         author: peerId,
         timestamp: Date.now(),
-        signature: encryptP2P(`${msg.shareType}:${msg.name}:${peerId}`, p2pConfig.secret).slice(0, 32)
+        signature: encryptP2P(
+          `${msg.shareType}:${msg.name}:${peerId}`,
+          p2pConfig.secret
+        ).slice(0, 32)
       };
       sharedStore.set(fragment.id, fragment);
       await saveSharedStore();
@@ -720,7 +719,9 @@ async function handleMessage(peerId, msg) {
     case "list_shares": {
       sendTo(peerId, JSON.stringify({
         type: "share_list",
-        shares: Array.from(sharedStore.values()).filter((s) => !msg.filter || s.type === msg.filter)
+        shares: Array.from(sharedStore.values()).filter(
+          (s) => !msg.filter || s.type === msg.filter
+        )
       }));
       break;
     }
@@ -735,8 +736,7 @@ function getPeers() {
 }
 function getShares(type) {
   const items2 = Array.from(sharedStore.values());
-  if (type)
-    return items2.filter((s) => s.type === type);
+  if (type) return items2.filter((s) => s.type === type);
   return items2;
 }
 function publishShare(type, name, content) {
@@ -778,31 +778,31 @@ function closeP2PSync() {
 function isP2PActive() {
   return wss !== null;
 }
-var import_ws, import_crypto6, import_promises12, path18, wss, p2pConfig, peers, peerInfo, sharedStore, STORAGE_FILE;
+var import_ws, import_crypto6, import_promises12, path17, wss, p2pConfig, peers, peerInfo, sharedStore, STORAGE_FILE;
 var init_p2pSync = __esm({
-  "src/server/p2pSync.js"() {
+  "src/server/p2pSync.ts"() {
     "use strict";
     import_ws = require("ws");
     import_crypto6 = require("crypto");
     import_promises12 = require("fs/promises");
-    path18 = __toESM(require("path"), 1);
+    path17 = __toESM(require("path"), 1);
     wss = null;
     p2pConfig = null;
     peers = /* @__PURE__ */ new Map();
     peerInfo = /* @__PURE__ */ new Map();
     sharedStore = /* @__PURE__ */ new Map();
-    STORAGE_FILE = path18.join(process.cwd(), ".opencode-infinite", "p2p-store.json");
+    STORAGE_FILE = path17.join(process.cwd(), ".opencode-infinite", "p2p-store.json");
   }
 });
 
 // server.ts
 var import_express = __toESM(require("express"), 1);
-var path23 = __toESM(require("path"), 1);
+var path22 = __toESM(require("path"), 1);
 var import_fs = require("fs");
 var import_vite = require("vite");
 var import_dotenv = __toESM(require("dotenv"), 1);
 
-// src/server/permissions.js
+// src/server/permissions.ts
 var import_crypto = require("crypto");
 var import_events = require("events");
 var PermissionEngine = class {
@@ -825,7 +825,10 @@ var PermissionEngine = class {
     return this.globMatch(request.tool, pattern) || (request.filePath ? this.globMatch(request.filePath, pattern) : false) || (request.command ? this.globMatch(request.command, pattern) : false);
   }
   globMatch(text, pattern) {
-    const regex = new RegExp("^" + pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".") + "$", "i");
+    const regex = new RegExp(
+      "^" + pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".") + "$",
+      "i"
+    );
     return regex.test(text);
   }
   createPending(request) {
@@ -850,18 +853,16 @@ var PermissionEngine = class {
   }
   async waitForResolution(id, timeoutMs) {
     const pending = this.pending.get(id);
-    if (!pending)
-      return false;
-    if (pending.resolved)
-      return pending.approved ?? false;
-    return new Promise((resolve13) => {
+    if (!pending) return false;
+    if (pending.resolved) return pending.approved ?? false;
+    return new Promise((resolve12) => {
       const timer = setTimeout(() => {
         this.emitter.off(`resolved:${id}`, onResolved);
-        resolve13(false);
+        resolve12(false);
       }, timeoutMs);
       const onResolved = (approved) => {
         clearTimeout(timer);
-        resolve13(approved);
+        resolve12(approved);
       };
       this.emitter.once(`resolved:${id}`, onResolved);
     });
@@ -874,8 +875,7 @@ var PermissionEngine = class {
   }
   clearResolved() {
     for (const [id, p] of this.pending) {
-      if (p.resolved)
-        this.pending.delete(id);
+      if (p.resolved) this.pending.delete(id);
     }
   }
 };
@@ -1300,7 +1300,7 @@ var READ_ONLY_TOOLS = new Set(
 );
 var ALL_TOOL_NAMES = TOOL_DEFINITIONS.map((t) => t.name);
 
-// src/server/hooks.js
+// src/server/hooks.ts
 init_errors();
 var HookRegistry = class {
   hooks = /* @__PURE__ */ new Map();
@@ -1312,7 +1312,10 @@ var HookRegistry = class {
   }
   unregister(id) {
     for (const [point, regs] of this.hooks) {
-      this.hooks.set(point, regs.filter((r) => r.id !== id));
+      this.hooks.set(
+        point,
+        regs.filter((r) => r.id !== id)
+      );
     }
   }
   async execute(hookPoint, data, sessionId) {
@@ -1327,8 +1330,7 @@ var HookRegistry = class {
     }
   }
   list(hookPoint) {
-    if (hookPoint)
-      return this.hooks.get(hookPoint) || [];
+    if (hookPoint) return this.hooks.get(hookPoint) || [];
     return Array.from(this.hooks.values()).flat();
   }
 };
@@ -1339,7 +1341,12 @@ function registerBuiltinHooks() {
     hookPoint: "tool.after",
     priority: 0,
     handler: (ctx) => {
-      console.log(`[HOOK] Tool executed:`, ctx.data.tool, "Result:", ctx.data.result?.substring?.(0, 100));
+      console.log(
+        `[HOOK] Tool executed:`,
+        ctx.data.tool,
+        "Result:",
+        ctx.data.result?.substring?.(0, 100)
+      );
     }
   });
   hookRegistry.register({
@@ -1352,7 +1359,7 @@ function registerBuiltinHooks() {
   });
 }
 
-// src/server/customToolLoader.js
+// src/server/customToolLoader.ts
 var import_promises = require("fs/promises");
 var path = __toESM(require("path"), 1);
 var import_child_process = require("child_process");
@@ -1373,15 +1380,16 @@ async function loadCustomTools() {
   const entries = await (0, import_promises.readdir)(_toolsDir, { withFileTypes: true });
   const tools = [];
   for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith(".json"))
-      continue;
+    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
     const filePath = path.join(_toolsDir, entry.name);
     try {
       const raw = await (0, import_promises.readFile)(filePath, "utf-8");
       const parsed = JSON.parse(raw);
       if (parsed.id && parsed.name && parsed.handler) {
         if (parsed.handler.type === "node") {
-          console.warn(`Custom tool ${parsed.id}: "node" handler type is disabled for security. Use "command" only.`);
+          console.warn(
+            `Custom tool ${parsed.id}: "node" handler type is disabled for security. Use "command" only.`
+          );
           continue;
         }
         tools.push(parsed);
@@ -1392,8 +1400,7 @@ async function loadCustomTools() {
   return tools;
 }
 function shellEscape(str) {
-  if (/^[a-zA-Z0-9_./:@~-]+$/.test(str))
-    return str;
+  if (/^[a-zA-Z0-9_./:@~-]+$/.test(str)) return str;
   return "'" + str.replace(/'/g, `'"'"'`) + "'";
 }
 async function executeCustomTool(definition, params) {
@@ -1421,14 +1428,13 @@ async function executeCustomTool(definition, params) {
   }
 }
 
-// src/server/issueTracker.js
+// src/server/issueTracker.ts
 var trackerConfig = null;
 function setTrackerConfig(config) {
   trackerConfig = config;
 }
 async function createIssue(input) {
-  if (!trackerConfig)
-    throw new Error("Issue tracker not configured");
+  if (!trackerConfig) throw new Error("Issue tracker not configured");
   switch (trackerConfig.type) {
     case "github":
       return createGitHubIssue(input);
@@ -1441,8 +1447,7 @@ async function createIssue(input) {
   }
 }
 async function listIssues(status, limit = 20) {
-  if (!trackerConfig)
-    throw new Error("Issue tracker not configured");
+  if (!trackerConfig) throw new Error("Issue tracker not configured");
   switch (trackerConfig.type) {
     case "github":
       return listGitHubIssues(status, limit);
@@ -1455,8 +1460,7 @@ async function listIssues(status, limit = 20) {
   }
 }
 async function getIssue(issueKey) {
-  if (!trackerConfig)
-    throw new Error("Issue tracker not configured");
+  if (!trackerConfig) throw new Error("Issue tracker not configured");
   switch (trackerConfig.type) {
     case "github":
       return getGitHubIssue(issueKey);
@@ -1469,8 +1473,7 @@ async function getIssue(issueKey) {
   }
 }
 async function addComment(issueKey, body) {
-  if (!trackerConfig)
-    throw new Error("Issue tracker not configured");
+  if (!trackerConfig) throw new Error("Issue tracker not configured");
   switch (trackerConfig.type) {
     case "github":
       await githubRequest(`/repos/${trackerConfig.repo}/issues/${issueKey}/comments`, "POST", { body });
@@ -1485,8 +1488,8 @@ async function addComment(issueKey, body) {
       throw new Error(`Unknown tracker: ${trackerConfig.type}`);
   }
 }
-async function githubRequest(path24, method = "GET", body) {
-  const url = path24.startsWith("http") ? path24 : `https://api.github.com${path24}`;
+async function githubRequest(path23, method = "GET", body) {
+  const url = path23.startsWith("http") ? path23 : `https://api.github.com${path23}`;
   const res = await fetch(url, {
     method,
     headers: {
@@ -1549,9 +1552,9 @@ async function getGitHubIssue(number) {
     updatedAt: i.updated_at
   };
 }
-async function jiraRequest(path24, method = "GET", body) {
+async function jiraRequest(path23, method = "GET", body) {
   const base = trackerConfig.baseUrl.replace(/\/$/, "");
-  const res = await fetch(`${base}/rest/api/3${path24}`, {
+  const res = await fetch(`${base}/rest/api/3${path23}`, {
     method,
     headers: {
       Authorization: `Basic ${Buffer.from(`${trackerConfig.token}:`).toString("base64")}`,
@@ -1629,20 +1632,22 @@ async function linearRequest(query, variables) {
     body: JSON.stringify({ query, variables })
   });
   const data = await res.json();
-  if (data.errors)
-    throw new Error(`Linear API: ${JSON.stringify(data.errors)}`);
+  if (data.errors) throw new Error(`Linear API: ${JSON.stringify(data.errors)}`);
   return data.data;
 }
 async function createLinearIssue(input) {
   const priorityNum = { low: 1, medium: 2, high: 3, urgent: 4 };
-  const data = await linearRequest(`mutation CreateIssue($input: IssueCreateInput!) { issueCreate(input: $input) { issue { id identifier title description state { name } priority priorityLabel url updatedAt } } }`, {
-    input: {
-      teamId: trackerConfig.project,
-      title: input.title,
-      description: input.description,
-      priority: input.priority ? priorityNum[input.priority] : void 0
+  const data = await linearRequest(
+    `mutation CreateIssue($input: IssueCreateInput!) { issueCreate(input: $input) { issue { id identifier title description state { name } priority priorityLabel url updatedAt } } }`,
+    {
+      input: {
+        teamId: trackerConfig.project,
+        title: input.title,
+        description: input.description,
+        priority: input.priority ? priorityNum[input.priority] : void 0
+      }
     }
-  });
+  );
   const i = data.issueCreate.issue;
   return {
     id: i.id,
@@ -1657,7 +1662,10 @@ async function createLinearIssue(input) {
 }
 async function listLinearIssues(status, limit = 20) {
   const q = status ? `(state: { name: { eq: "${status}" } })` : "";
-  const data = await linearRequest(`query Issues($first: Int!) { issues(first: $first, filter: ${q || "{}"}) { nodes { id identifier title description state { name } priorityLabel url updatedAt } } }`, { first: limit });
+  const data = await linearRequest(
+    `query Issues($first: Int!) { issues(first: $first, filter: ${q || "{}"}) { nodes { id identifier title description state { name } priorityLabel url updatedAt } } }`,
+    { first: limit }
+  );
   return (data.issues.nodes || []).map((i) => ({
     id: i.id,
     key: i.identifier,
@@ -1670,7 +1678,10 @@ async function listLinearIssues(status, limit = 20) {
   }));
 }
 async function getLinearIssue(id) {
-  const data = await linearRequest(`query Issue($id: String!) { issue(id: $id) { id identifier title description state { name } priorityLabel url updatedAt } }`, { id });
+  const data = await linearRequest(
+    `query Issue($id: String!) { issue(id: $id) { id identifier title description state { name } priorityLabel url updatedAt } }`,
+    { id }
+  );
   const i = data.issue;
   return {
     id: i.id,
@@ -1684,10 +1695,10 @@ async function getLinearIssue(id) {
   };
 }
 
-// src/server/tools.js
+// src/server/tools.ts
 init_errors();
 
-// src/server/tools/file.js
+// src/server/tools/file.ts
 var import_promises2 = require("fs/promises");
 var path2 = __toESM(require("path"), 1);
 var PROJECT_ROOT = process.cwd();
@@ -1764,7 +1775,7 @@ async function executeEditFile(params, sessionId = "default") {
   return { success: true, output: `File edited: ${String(params.path)}` };
 }
 
-// src/server/tools/system.js
+// src/server/tools/system.ts
 var import_child_process2 = require("child_process");
 var PROJECT_ROOT2 = process.cwd();
 function splitArgs(cmd) {
@@ -1791,8 +1802,7 @@ function splitArgs(cmd) {
       current += ch;
     }
   }
-  if (current)
-    args.push(current);
+  if (current) args.push(current);
   return args;
 }
 async function executeCommand(params) {
@@ -1804,7 +1814,7 @@ async function executeCommand(params) {
   }
   const [program, ...programArgs] = args;
   const timeoutMs = 3e4;
-  return new Promise((resolve13) => {
+  return new Promise((resolve12) => {
     let settled = false;
     const child = (0, import_child_process2.spawn)(program, programArgs, { cwd: resolvedCwd, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
     let stdoutData = "";
@@ -1813,7 +1823,7 @@ async function executeCommand(params) {
       if (!settled) {
         settled = true;
         child.kill("SIGTERM");
-        resolve13({ success: false, output: "", error: "Command timed out after 30s" });
+        resolve12({ success: false, output: "", error: "Command timed out after 30s" });
       }
     }, timeoutMs);
     child.stdout.on("data", (data) => {
@@ -1826,20 +1836,20 @@ async function executeCommand(params) {
       if (!settled) {
         settled = true;
         clearTimeout(timer);
-        resolve13({ success: false, output: "", error: err.message });
+        resolve12({ success: false, output: "", error: err.message });
       }
     });
     child.on("close", (code) => {
       if (!settled) {
         settled = true;
         clearTimeout(timer);
-        resolve13({ success: code === 0, output: stdoutData + (stderrData ? "\n" + stderrData : "") });
+        resolve12({ success: code === 0, output: stdoutData + (stderrData ? "\n" + stderrData : "") });
       }
     });
   });
 }
 
-// src/server/memoryStore.js
+// src/server/memoryStore.ts
 var import_promises3 = require("fs/promises");
 var path3 = __toESM(require("path"), 1);
 var _memoryDir = path3.resolve(process.cwd(), ".opencode-infinite");
@@ -1860,15 +1870,13 @@ function parseMemoryMarkdown(raw) {
   for (const line of lines) {
     const headingMatch = line.match(/^(#{2,3})\s+(.+)$/);
     if (headingMatch && headingMatch[2]) {
-      if (current)
-        sections.push(current);
+      if (current) sections.push(current);
       current = { title: headingMatch[2].trim(), lines: [] };
     } else if (current) {
       current.lines.push(line);
     }
   }
-  if (current)
-    sections.push(current);
+  if (current) sections.push(current);
   return { sections, raw };
 }
 async function ensureFile(filePath, defaultContent) {
@@ -1902,7 +1910,9 @@ async function ensureFile(filePath, defaultContent) {
 }
 async function readMemory() {
   const memoryPath = getMemoryPath();
-  await ensureFile(memoryPath, `# Project Memory
+  await ensureFile(
+    memoryPath,
+    `# Project Memory
 
 ## Project Overview
 - **Name:** cvr.name.coder
@@ -1945,7 +1955,8 @@ async function readMemory() {
 - \`npm test\` \u2014 Run tests
 - \`npm run type-check\` \u2014 TypeScript validation
 - \`npm run build\` \u2014 Production build
-`);
+`
+  );
   if (_memCache && _memCache.mtime === (await (0, import_promises3.stat)(memoryPath).catch(() => ({ mtimeMs: 0 }))).mtimeMs) {
     return _memCache.data;
   }
@@ -2001,7 +2012,9 @@ async function deleteMemorySection(section) {
 }
 async function readUser() {
   const userPath = getUserPath();
-  await ensureFile(userPath, `# User Preferences
+  await ensureFile(
+    userPath,
+    `# User Preferences
 
 ## Coding Style
 - Use TypeScript strict mode
@@ -2030,7 +2043,8 @@ async function readUser() {
 - \`npm run type-check\` \u2014 verify TypeScript
 - \`npm test\` \u2014 run test suite
 - \`npm run dev\` \u2014 start development server
-`);
+`
+  );
   if (_userCache && _userCache.mtime === (await (0, import_promises3.stat)(userPath).catch(() => ({ mtimeMs: 0 }))).mtimeMs) {
     return _userCache.data;
   }
@@ -2099,8 +2113,7 @@ function rebuildMarkdown(sections) {
   return lines.join("\n").trim() + "\n";
 }
 async function getMemoryContext() {
-  if (_contextCache && Date.now() - _contextTimestamp < 1e4)
-    return _contextCache;
+  if (_contextCache && Date.now() - _contextTimestamp < 1e4) return _contextCache;
   const [memory, user] = await Promise.all([readMemory(), readUser()]);
   const parts = [];
   if (memory.sections.some((s) => s.lines.some((l) => l.trim() !== ""))) {
@@ -2114,7 +2127,7 @@ async function getMemoryContext() {
   return _contextCache;
 }
 
-// src/server/tools/memory.js
+// src/server/tools/memory.ts
 async function executeMemoryRead(params) {
   const memoryType = String(params.type);
   if (memoryType === "user") {
@@ -2138,7 +2151,7 @@ async function executeMemoryWrite(params) {
   }
 }
 
-// src/server/skillLoader.js
+// src/server/skillLoader.ts
 var import_promises4 = require("fs/promises");
 var path4 = __toESM(require("path"), 1);
 var SKILLS_DIR = path4.resolve(process.cwd(), ".cvr", "skills");
@@ -2228,7 +2241,7 @@ async function getSkillById(id) {
   return skills.find((s) => s.id === id);
 }
 
-// src/server/tools/skill.js
+// src/server/tools/skill.ts
 async function executeSkillList() {
   const skills = await loadSkills();
   const list = skills.map((s) => ({ id: s.id, name: s.name, description: s.description, triggers: s.triggers }));
@@ -2254,7 +2267,7 @@ async function executeSkillRun(params) {
   return { success: true, output: `Skill "${runSkill.name}" loaded. Follow the instructions in the skill content.` };
 }
 
-// src/server/ragEngine.js
+// src/server/ragEngine.ts
 var path5 = __toESM(require("path"), 1);
 var fs = __toESM(require("fs"), 1);
 var _dbPath = path5.resolve(process.cwd(), ".opencode-infinite", "rag.db");
@@ -2359,8 +2372,7 @@ function getDb() {
   return _db;
 }
 function initSchema(db) {
-  if (_useFallback)
-    return;
+  if (_useFallback) return;
   db.exec(`
     CREATE TABLE IF NOT EXISTS chunks (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2383,8 +2395,7 @@ function chunkText(text, maxChars = 500) {
       current += sentence;
     }
   }
-  if (current.trim())
-    chunks.push(current.trim());
+  if (current.trim()) chunks.push(current.trim());
   return chunks.length ? chunks : [text];
 }
 function cosineSimilarity(a, b) {
@@ -2398,8 +2409,7 @@ function cosineSimilarity(a, b) {
     normA += av * av;
     normB += bv * bv;
   }
-  if (normA === 0 || normB === 0)
-    return 0;
+  if (normA === 0 || normB === 0) return 0;
   return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 async function ingestDocument(source, content, embedFn) {
@@ -2410,14 +2420,12 @@ async function ingestDocument(source, content, embedFn) {
   for (let i = 0; i < chunks.length; i++) {
     insert.run(source, chunks[i], JSON.stringify(embeddings[i]));
   }
-  if (_useFallback)
-    saveJson();
+  if (_useFallback) saveJson();
 }
 async function searchRAG(query, embedFn, topK = 3) {
   const db = getDb();
   const [queryEmbedding] = await embedFn([query]);
-  if (!queryEmbedding)
-    return [];
+  if (!queryEmbedding) return [];
   const rows = db.prepare("SELECT source, content, embedding FROM chunks").all();
   const scored = rows.map((r) => ({
     source: r.source,
@@ -2434,11 +2442,10 @@ function listSources() {
 function clearSource(source) {
   const db = getDb();
   db.prepare("DELETE FROM chunks WHERE source = ?").run(source);
-  if (_useFallback)
-    saveJson();
+  if (_useFallback) saveJson();
 }
 
-// src/server/tools/rag.js
+// src/server/tools/rag.ts
 var ragEmbedFn = null;
 function setRagEmbedFn(fn) {
   ragEmbedFn = fn;
@@ -2453,7 +2460,7 @@ async function executeRagSearch(params) {
   return { success: true, output: JSON.stringify(results, null, 2) };
 }
 
-// src/server/gitTools.js
+// src/server/gitTools.ts
 var import_child_process3 = require("child_process");
 var import_util2 = require("util");
 init_errors();
@@ -2495,11 +2502,9 @@ async function getGitStatus() {
     behind = parseInt(branchMatch[2], 10);
   } else {
     const aheadMatch = branchLine.match(/\[ahead (\d+)\]/);
-    if (aheadMatch)
-      ahead = parseInt(aheadMatch[1], 10);
+    if (aheadMatch) ahead = parseInt(aheadMatch[1], 10);
     const behindMatch = branchLine.match(/\[behind (\d+)\]/);
-    if (behindMatch)
-      behind = parseInt(behindMatch[1], 10);
+    if (behindMatch) behind = parseInt(behindMatch[1], 10);
   }
   const modified = [];
   const staged = [];
@@ -2507,22 +2512,15 @@ async function getGitStatus() {
   const deleted = [];
   const renamed = [];
   for (const line of fileLines) {
-    if (!line.trim())
-      continue;
+    if (!line.trim()) continue;
     const status = line.substring(0, 2);
     const file = line.substring(3);
-    if (status[0] === "M" || status[0] === "A")
-      staged.push(file);
-    if (status[0] === "D")
-      staged.push(file);
-    if (status[0] === "R")
-      renamed.push(file);
-    if (status[1] === "M")
-      modified.push(file);
-    if (status[1] === "D")
-      deleted.push(file);
-    if (status === "??")
-      untracked.push(file);
+    if (status[0] === "M" || status[0] === "A") staged.push(file);
+    if (status[0] === "D") staged.push(file);
+    if (status[0] === "R") renamed.push(file);
+    if (status[1] === "M") modified.push(file);
+    if (status[1] === "D") deleted.push(file);
+    if (status === "??") untracked.push(file);
   }
   return {
     branch,
@@ -2544,25 +2542,20 @@ async function getGitDiff(stagedOnly = false) {
   }
   const args = stagedOnly ? ["diff", "--cached"] : ["diff"];
   const diffOutput = await runGit(args).catch(() => "");
-  if (!diffOutput)
-    return [];
+  if (!diffOutput) return [];
   const diffs = [];
   const diffBlocks = diffOutput.split("diff --git ");
   for (const block of diffBlocks) {
-    if (!block.trim())
-      continue;
+    if (!block.trim()) continue;
     const lines = block.split("\n");
     const firstLine = lines[0] || "";
     const match = firstLine.match(/a\/(.*?) b\/(.*)/);
     if (match) {
       const file = match[2] || "";
       let status = "modified";
-      if (block.includes("new file mode"))
-        status = "added";
-      if (block.includes("deleted file mode"))
-        status = "deleted";
-      if (block.includes("rename from"))
-        status = "renamed";
+      if (block.includes("new file mode")) status = "added";
+      if (block.includes("deleted file mode")) status = "deleted";
+      if (block.includes("rename from")) status = "renamed";
       diffs.push({ file, status, diff: "diff --git " + block });
     }
   }
@@ -2591,8 +2584,7 @@ async function getGitLog(limit = 10) {
   try {
     await runGit(["rev-parse", "--git-dir"]);
     const output = await runGit(["log", "-n", String(limit), "--pretty=format:%H|%h|%s|%an|%ad"]);
-    if (!output)
-      return [];
+    if (!output) return [];
     return output.split("\n").map((line) => {
       const parts = line.split("|");
       return {
@@ -2616,7 +2608,7 @@ async function hasGitRepo() {
   }
 }
 
-// src/server/prAgent.js
+// src/server/prAgent.ts
 var import_child_process4 = require("child_process");
 var import_util3 = require("util");
 var execFileAsync3 = (0, import_util3.promisify)(import_child_process4.execFile);
@@ -2626,13 +2618,11 @@ async function runGit2(args) {
     cwd: PROJECT_ROOT4,
     timeout: 3e4
   });
-  if (stderr && !stderr.startsWith("warning:"))
-    throw new Error(stderr);
+  if (stderr && !stderr.startsWith("warning:")) throw new Error(stderr);
   return stdout.trim();
 }
 async function gatherPRContext() {
-  if (!await hasGitRepo())
-    throw new Error("Not a git repository");
+  if (!await hasGitRepo()) throw new Error("Not a git repository");
   const status = await getGitStatus();
   const diff = (await getGitDiff(false)).map((d) => d.diff).join("\n\n");
   const commits = (await getGitLog(10)).map((c) => `- ${c.shortHash}: ${c.message}`).join("\n");
@@ -2739,7 +2729,7 @@ async function listBranches() {
   return await runGit2(["branch", "-a"]);
 }
 
-// src/server/tools/git.js
+// src/server/tools/git.ts
 async function executeGitStatus() {
   const status = await getGitStatus();
   return { success: true, output: JSON.stringify(status, null, 2) };
@@ -2791,7 +2781,12 @@ async function executeGitListPRs() {
 async function executeGitCreatePR(params) {
   const ctx = await gatherPRContext();
   if (params.title && params.description) {
-    const pr = await createGitHubPR(params.title, params.description, ctx.baseBranch, !!params.draft);
+    const pr = await createGitHubPR(
+      params.title,
+      params.description,
+      ctx.baseBranch,
+      !!params.draft
+    );
     return { success: true, output: JSON.stringify(pr, null, 2) };
   }
   return {
@@ -2803,7 +2798,7 @@ ${JSON.stringify(ctx, null, 2)}`
   };
 }
 
-// src/server/tools/browser.js
+// src/server/tools/browser.ts
 var browserTools = null;
 async function getBrowserTools() {
   if (!browserTools) {
@@ -2817,8 +2812,7 @@ async function getBrowserTools() {
 }
 async function executeBrowserNavigate(params, sessionId) {
   const bt = await getBrowserTools();
-  if (!bt)
-    return { success: false, output: "", error: "playwright-core not installed" };
+  if (!bt) return { success: false, output: "", error: "playwright-core not installed" };
   const navResult = await bt.browserNavigate(sessionId, String(params.url), Boolean(params.headless ?? true));
   return {
     success: navResult.success,
@@ -2828,8 +2822,7 @@ async function executeBrowserNavigate(params, sessionId) {
 }
 async function executeBrowserClick(params, sessionId) {
   const bt = await getBrowserTools();
-  if (!bt)
-    return { success: false, output: "", error: "playwright-core not installed" };
+  if (!bt) return { success: false, output: "", error: "playwright-core not installed" };
   const clickResult = await bt.browserClick(sessionId, String(params.selector), Boolean(params.headless ?? true));
   return {
     success: clickResult.success,
@@ -2839,8 +2832,7 @@ async function executeBrowserClick(params, sessionId) {
 }
 async function executeBrowserType(params, sessionId) {
   const bt = await getBrowserTools();
-  if (!bt)
-    return { success: false, output: "", error: "playwright-core not installed" };
+  if (!bt) return { success: false, output: "", error: "playwright-core not installed" };
   const typeResult = await bt.browserType(sessionId, String(params.selector), String(params.text), Boolean(params.headless ?? true));
   return {
     success: typeResult.success,
@@ -2850,8 +2842,7 @@ async function executeBrowserType(params, sessionId) {
 }
 async function executeBrowserScreenshot(params, sessionId) {
   const bt = await getBrowserTools();
-  if (!bt)
-    return { success: false, output: "", error: "playwright-core not installed" };
+  if (!bt) return { success: false, output: "", error: "playwright-core not installed" };
   const ssResult = await bt.browserScreenshot(sessionId, Boolean(params.headless ?? true));
   return {
     success: ssResult.success,
@@ -2862,8 +2853,7 @@ async function executeBrowserScreenshot(params, sessionId) {
 }
 async function executeBrowserEvaluate(params, sessionId) {
   const bt = await getBrowserTools();
-  if (!bt)
-    return { success: false, output: "", error: "playwright-core not installed" };
+  if (!bt) return { success: false, output: "", error: "playwright-core not installed" };
   const evalResult = await bt.browserEvaluate(sessionId, String(params.script), Boolean(params.headless ?? true));
   return {
     success: evalResult.success,
@@ -2873,8 +2863,7 @@ async function executeBrowserEvaluate(params, sessionId) {
 }
 async function executeBrowserGetHtml(params, sessionId) {
   const bt = await getBrowserTools();
-  if (!bt)
-    return { success: false, output: "", error: "playwright-core not installed" };
+  if (!bt) return { success: false, output: "", error: "playwright-core not installed" };
   const htmlResult = await bt.browserGetHtml(sessionId, Boolean(params.headless ?? true));
   return {
     success: htmlResult.success,
@@ -2884,8 +2873,7 @@ async function executeBrowserGetHtml(params, sessionId) {
 }
 async function executeBrowserClose(sessionId) {
   const bt = await getBrowserTools();
-  if (!bt)
-    return { success: false, output: "", error: "playwright-core not installed" };
+  if (!bt) return { success: false, output: "", error: "playwright-core not installed" };
   const closeResult = await bt.browserClose(sessionId);
   return {
     success: closeResult.success,
@@ -2894,1389 +2882,8 @@ async function executeBrowserClose(sessionId) {
   };
 }
 
-// src/server/tools.js
-async function executeTool(toolCall, mode = "build", permissionEngine2, sessionId = "default") {
-  const { name, params } = toolCall;
-  await hookRegistry.execute("tool.before", { tool: name, params }, sessionId);
-  let result;
-  const isReadOnlyBuiltIn = READ_ONLY_TOOLS.has(name);
-  let isReadOnlyCustom = false;
-  if (!isReadOnlyBuiltIn) {
-    const customTools = await loadCustomTools();
-    const customTool = customTools.find((t) => t.id === name);
-    isReadOnlyCustom = customTool ? customTool.readOnly : false;
-  }
-  if (mode === "plan" && !isReadOnlyBuiltIn && !isReadOnlyCustom) {
-    result = {
-      success: false,
-      output: "",
-      error: `Tool "${name}" is disabled in PLAN mode. Switch to BUILD mode to make changes.`
-    };
-    await hookRegistry.execute("tool.after", { tool: name, params, result: result.output, success: false }, sessionId);
-    return result;
-  }
-  if (permissionEngine2) {
-    const permissionRequest = {
-      tool: name,
-      params
-    };
-    if (params.path)
-      permissionRequest.filePath = String(params.path);
-    if (params.command)
-      permissionRequest.command = String(params.command);
-    const checkResult = permissionEngine2.check(permissionRequest);
-    if (checkResult.action === "deny") {
-      result = {
-        success: false,
-        output: "",
-        error: `Permission denied: ${checkResult.reason || checkResult.rule?.pattern || "default policy"}`
-      };
-      await hookRegistry.execute("tool.after", { tool: name, params, result: result.output, success: false }, sessionId);
-      return result;
-    }
-    if (checkResult.action === "ask") {
-      const pending = permissionEngine2.createPending(permissionRequest);
-      const approved = await permissionEngine2.waitForResolution(pending.id, 5 * 60 * 1e3);
-      if (!approved) {
-        result = {
-          success: false,
-          output: "",
-          error: `Permission denied or timed out: ${name}`
-        };
-        await hookRegistry.execute("tool.after", { tool: name, params, result: result.output, success: false }, sessionId);
-        return result;
-      }
-    }
-  }
-  try {
-    switch (name) {
-      case "read_file":
-        result = await executeReadFile(params);
-        break;
-      case "list_directory":
-        result = await executeListDirectory(params);
-        break;
-      case "search_files":
-        result = await executeSearchFiles(params);
-        break;
-      case "write_file":
-        result = await executeWriteFile(params, sessionId);
-        break;
-      case "edit_file":
-        result = await executeEditFile(params, sessionId);
-        break;
-      case "execute_command":
-        result = await executeCommand(params);
-        break;
-      case "memory_read":
-        result = await executeMemoryRead(params);
-        break;
-      case "memory_write":
-        result = await executeMemoryWrite(params);
-        break;
-      case "skill_list":
-        result = await executeSkillList();
-        break;
-      case "skill_read":
-        result = await executeSkillRead(params);
-        break;
-      case "skill_run":
-        result = await executeSkillRun(params);
-        break;
-      case "rag_search":
-        result = await executeRagSearch(params);
-        break;
-      case "git_status":
-        result = await executeGitStatus();
-        break;
-      case "git_diff":
-        result = await executeGitDiff(params);
-        break;
-      case "git_commit":
-        result = await executeGitCommit(params);
-        break;
-      case "git_push":
-        result = await executeGitPush();
-        break;
-      case "git_log":
-        result = await executeGitLog(params);
-        break;
-      case "git_branch":
-        result = await executeGitBranch(params);
-        break;
-      case "git_branches":
-        result = await executeGitBranches();
-        break;
-      case "git_switch_branch":
-        result = await executeGitSwitchBranch(params);
-        break;
-      case "git_pr_context":
-        result = await executeGitPRContext();
-        break;
-      case "git_list_prs":
-        result = await executeGitListPRs();
-        break;
-      case "git_create_pr":
-        result = await executeGitCreatePR(params);
-        break;
-      case "issue_create": {
-        const issueInput = {
-          title: String(params.title),
-          ...params.description !== void 0 ? { description: String(params.description) } : {},
-          ...params.priority !== void 0 ? { priority: String(params.priority) } : {},
-          ...params.labels !== void 0 ? { labels: Array.isArray(params.labels) ? params.labels : [params.labels] } : {}
-        };
-        const issue = await createIssue(issueInput);
-        result = { success: true, output: JSON.stringify(issue, null, 2) };
-        break;
-      }
-      case "issue_list":
-        result = { success: true, output: JSON.stringify(await listIssues(params.status, typeof params.limit === "number" ? params.limit : 20), null, 2) };
-        break;
-      case "issue_view":
-        result = { success: true, output: JSON.stringify(await getIssue(params.key), null, 2) };
-        break;
-      case "issue_comment": {
-        await addComment(params.key, params.body);
-        result = { success: true, output: `Comment added to ${params.key}` };
-        break;
-      }
-      case "browser_navigate":
-        result = await executeBrowserNavigate(params, sessionId);
-        break;
-      case "browser_click":
-        result = await executeBrowserClick(params, sessionId);
-        break;
-      case "browser_type":
-        result = await executeBrowserType(params, sessionId);
-        break;
-      case "browser_screenshot":
-        result = await executeBrowserScreenshot(params, sessionId);
-        break;
-      case "browser_evaluate":
-        result = await executeBrowserEvaluate(params, sessionId);
-        break;
-      case "browser_get_html":
-        result = await executeBrowserGetHtml(params, sessionId);
-        break;
-      case "browser_close":
-        result = await executeBrowserClose(sessionId);
-        break;
-      default: {
-        const customTools = await loadCustomTools();
-        const customTool = customTools.find((t) => t.id === name);
-        if (customTool) {
-          result = await executeCustomTool(customTool, params);
-        } else {
-          result = { success: false, output: "", error: `Unknown tool: ${name}` };
-        }
-        break;
-      }
-    }
-  } catch (err) {
-    result = { success: false, output: "", error: getErrorMessage(err) };
-  }
-  await hookRegistry.execute("tool.after", { tool: name, params, result: result.output, success: result.success }, sessionId);
-  return result;
-}
-
-// src/server/agentLoader.js
-var fs2 = __toESM(require("fs"), 1);
-var path6 = __toESM(require("path"), 1);
-var cachedAgents = [];
-var agentsDir = ".cvr/agents";
-async function loadAgents(dir) {
-  const targetDir = dir || agentsDir;
-  const agents = [];
-  try {
-    const files = await fs2.promises.readdir(targetDir);
-    const mdFiles = files.filter((f) => f.endsWith(".md"));
-    for (const file of mdFiles) {
-      const content = await fs2.promises.readFile(path6.join(targetDir, file), "utf-8");
-      const agent = parseAgentMarkdown(content);
-      if (agent)
-        agents.push(agent);
-    }
-  } catch (e) {
-    console.error("Failed to load agents:", e);
-  }
-  cachedAgents = agents;
-  return agents;
-}
-function getAgents() {
-  return cachedAgents;
-}
-function getAgentById(id) {
-  return cachedAgents.find((a) => a.id === id);
-}
-function parseAgentMarkdown(content) {
-  const match = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/);
-  if (!match)
-    return null;
-  const frontmatter = match[1];
-  const body = match[2];
-  const config = {};
-  for (const line of frontmatter.split("\n")) {
-    const [key, ...rest] = line.split(":");
-    if (key && rest.length > 0) {
-      const value = rest.join(":").trim();
-      const trimmedKey = key.trim();
-      if (trimmedKey === "id" || trimmedKey === "name" || trimmedKey === "description" || trimmedKey === "model" || trimmedKey === "provider") {
-        config[trimmedKey] = value;
-      } else if (trimmedKey === "temperature" || trimmedKey === "maxTokens") {
-        const num = Number(value);
-        if (!isNaN(num)) {
-          config[trimmedKey] = num;
-        }
-      } else if (trimmedKey === "tools") {
-        if (value.startsWith("[") && value.endsWith("]")) {
-          config.tools = value.slice(1, -1).split(",").map((s) => s.trim());
-        }
-      }
-    }
-  }
-  return {
-    id: config.id || "unknown",
-    name: config.name || config.id || "Unknown Agent",
-    description: config.description ?? void 0,
-    model: config.model || "",
-    provider: config.provider || "",
-    temperature: config.temperature ?? void 0,
-    maxTokens: config.maxTokens ?? void 0,
-    tools: config.tools ?? [],
-    systemPrompt: body.trim()
-  };
-}
-
-// server.ts
-init_sessionStore();
-
-// src/server/skillCreator.js
-var path8 = __toESM(require("path"), 1);
-init_errors();
-var _skillsDir2 = path8.resolve(process.cwd(), ".cvr", "skills");
-function setSkillCreatorDir(dir) {
-  _skillsDir2 = dir;
-}
-
-// src/server/cache.js
-var import_crypto3 = require("crypto");
-var path9 = __toESM(require("path"), 1);
-var fs4 = __toESM(require("fs"), 1);
-
-// src/server/logger.js
-var Logger = class {
-  context;
-  level;
-  constructor(context, level = "info") {
-    this.context = context;
-    this.level = level;
-  }
-  shouldLog(level) {
-    const levels = ["debug", "info", "warn", "error"];
-    return levels.indexOf(level) >= levels.indexOf(this.level);
-  }
-  format(entry) {
-    const ctx = entry.context ? ` ${JSON.stringify(entry.context)}` : "";
-    const dur = entry.duration ? ` [${entry.duration}ms]` : "";
-    return `[${entry.timestamp}] [${entry.level.toUpperCase()}] [${this.context}] ${entry.message}${ctx}${dur}`;
-  }
-  debug(message, context) {
-    if (!this.shouldLog("debug"))
-      return;
-    const entry = { timestamp: (/* @__PURE__ */ new Date()).toISOString(), level: "debug", message, context };
-    console.debug(this.format(entry));
-  }
-  info(message, context) {
-    if (!this.shouldLog("info"))
-      return;
-    const entry = { timestamp: (/* @__PURE__ */ new Date()).toISOString(), level: "info", message, context };
-    console.info(this.format(entry));
-  }
-  warn(message, context) {
-    if (!this.shouldLog("warn"))
-      return;
-    const entry = { timestamp: (/* @__PURE__ */ new Date()).toISOString(), level: "warn", message, context };
-    console.warn(this.format(entry));
-  }
-  error(message, error, context) {
-    if (!this.shouldLog("error"))
-      return;
-    const entry = {
-      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-      level: "error",
-      message,
-      context: { ...context, error: error?.message, stack: error?.stack }
-    };
-    console.error(this.format(entry));
-  }
-  time(label) {
-    const start = Date.now();
-    return () => {
-      const duration = Date.now() - start;
-      this.debug(`${label} completed`, { duration });
-      return duration;
-    };
-  }
-};
-var createLogger = (context, level) => new Logger(context, level);
-var log = createLogger("cvr", process.env.LOG_LEVEL || "info");
-
-// src/server/cache.js
-var _dbPath3 = path9.resolve(process.cwd(), ".opencode-infinite", "cache.db");
-var _db3 = null;
-var _useFallback3 = false;
-var _jsonEntries = [];
-var _jsonPath3 = "";
-function loadJson3() {
-  try {
-    if (fs4.existsSync(_jsonPath3)) {
-      const raw = fs4.readFileSync(_jsonPath3, "utf-8");
-      _jsonEntries = JSON.parse(raw);
-    }
-  } catch {
-  }
-}
-function saveJson3() {
-  try {
-    fs4.mkdirSync(path9.dirname(_jsonPath3), { recursive: true });
-    fs4.writeFileSync(_jsonPath3, JSON.stringify(_jsonEntries, null, 2));
-  } catch {
-  }
-}
-function fallbackGetDb3() {
-  if (!_jsonPath3) {
-    _jsonPath3 = _dbPath3.replace(/\.db$/, "") + "-fallback.json";
-    loadJson3();
-  }
-  return {
-    prepare: (sql) => {
-      const trimmed = sql.trim().toLowerCase();
-      if (trimmed.startsWith("insert into cache_entries")) {
-        return {
-          run: (key, value, timestamp, ttl, hits) => {
-            const idx = _jsonEntries.findIndex((e) => e.key === String(key));
-            if (idx !== -1)
-              _jsonEntries.splice(idx, 1);
-            _jsonEntries.push({
-              key: String(key),
-              value: String(value),
-              timestamp: Number(timestamp),
-              ttl: Number(ttl),
-              hits: Number(hits)
-            });
-            saveJson3();
-            return { lastInsertRowid: _jsonEntries.length, changes: 1 };
-          }
-        };
-      }
-      if (trimmed.startsWith("select * from cache_entries where key =")) {
-        return {
-          get: (key) => _jsonEntries.find((e) => e.key === String(key))
-        };
-      }
-      if (trimmed.startsWith("select * from cache_entries")) {
-        return {
-          all: () => _jsonEntries
-        };
-      }
-      if (trimmed.startsWith("delete from cache_entries")) {
-        return {
-          run: () => {
-            _jsonEntries = [];
-            saveJson3();
-            return { lastInsertRowid: 0, changes: 0 };
-          }
-        };
-      }
-      return {
-        run: () => ({ lastInsertRowid: 0, changes: 0 }),
-        get: () => void 0,
-        all: () => []
-      };
-    },
-    exec: () => {
-    },
-    pragma: () => {
-    }
-  };
-}
-function setCacheDbPath(dir) {
-  _dbPath3 = path9.join(dir, "cache.db");
-  _db3 = null;
-  _jsonEntries = [];
-  if (_useFallback3) {
-    _jsonPath3 = _dbPath3.replace(/\.db$/, "") + "-fallback.json";
-    loadJson3();
-  }
-}
-function getDb3() {
-  if (!_db3) {
-    try {
-      const DatabaseClass = require("better-sqlite3");
-      const db = new DatabaseClass(_dbPath3);
-      db.pragma("journal_mode = WAL");
-      initSchema3(db);
-      _db3 = db;
-    } catch {
-      _useFallback3 = true;
-      _db3 = fallbackGetDb3();
-    }
-  }
-  return _db3;
-}
-function initSchema3(db) {
-  if (_useFallback3)
-    return;
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS cache_entries (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL,
-      timestamp INTEGER NOT NULL,
-      ttl INTEGER NOT NULL,
-      hits INTEGER NOT NULL DEFAULT 0
-    );
-    CREATE INDEX IF NOT EXISTS idx_cache_timestamp ON cache_entries(timestamp);
-  `);
-}
-var AIResponseCache = class {
-  cache = /* @__PURE__ */ new Map();
-  _keys = [];
-  defaultTTL;
-  maxSize;
-  stats = { hits: 0, misses: 0 };
-  _warmed = false;
-  _pendingRequests = /* @__PURE__ */ new Map();
-  _pruneInterval = null;
-  constructor(defaultTTL = 3e5, maxSize = 500) {
-    this.defaultTTL = defaultTTL;
-    this.maxSize = maxSize;
-    this._pruneInterval = setInterval(() => {
-      const pruned = this.prune();
-      if (pruned > 0)
-        log.debug("Background cache prune", { count: pruned });
-    }, 3e5);
-  }
-  hashKey(prompt, contents, provider, model) {
-    return (0, import_crypto3.createHash)("sha256").update(JSON.stringify({ prompt, contents, provider, model })).digest("hex").slice(0, 32);
-  }
-  warmFromDb() {
-    if (this._warmed)
-      return;
-    this._warmed = true;
-    try {
-      const db = getDb3();
-      const rows = db.prepare("SELECT * FROM cache_entries").all();
-      const now = Date.now();
-      let loaded = 0;
-      let expired = 0;
-      for (const row of rows) {
-        if (now - row.timestamp > row.ttl) {
-          expired++;
-          continue;
-        }
-        if (this.cache.size >= this.maxSize)
-          break;
-        this.cache.set(row.key, {
-          value: row.value,
-          timestamp: row.timestamp,
-          ttl: row.ttl,
-          hits: row.hits
-        });
-        this._keys.push(row.key);
-        loaded++;
-      }
-      if (loaded > 0 || expired > 0) {
-        log.info("Cache warmed from DB", { loaded, expired, size: this.cache.size });
-      }
-    } catch {
-    }
-  }
-  get(prompt, contents, provider, model) {
-    this.warmFromDb();
-    const key = this.hashKey(prompt, contents, provider, model);
-    const entry = this.cache.get(key);
-    if (!entry) {
-      const dbEntry = this.getFromDb(key);
-      if (dbEntry) {
-        if (this.cache.size >= this.maxSize) {
-          this.evictOldest();
-        }
-        this.cache.set(key, dbEntry);
-        this._keys.push(key);
-        dbEntry.hits++;
-        this.stats.hits++;
-        return dbEntry.value;
-      }
-      this.stats.misses++;
-      return null;
-    }
-    if (Date.now() - entry.timestamp > entry.ttl) {
-      this.cache.delete(key);
-      this._keys = this._keys.filter((k) => k !== key);
-      this.deleteFromDb(key);
-      this.stats.misses++;
-      return null;
-    }
-    entry.hits++;
-    this.stats.hits++;
-    return entry.value;
-  }
-  set(prompt, contents, provider, response, model, ttl) {
-    this.warmFromDb();
-    if (this.cache.size >= this.maxSize) {
-      this.evictOldest();
-    }
-    const key = this.hashKey(prompt, contents, provider, model);
-    const entry = {
-      value: response,
-      timestamp: Date.now(),
-      ttl: ttl ?? this.defaultTTL,
-      hits: 0
-    };
-    this.cache.set(key, entry);
-    this._keys.push(key);
-    this.saveToDb(key, entry);
-  }
-  coalesce(prompt, contents, provider, model, factory) {
-    const key = this.hashKey(prompt, contents, provider, model);
-    const cached = this.get(prompt, contents, provider, model);
-    if (cached)
-      return Promise.resolve(cached);
-    const pending = this._pendingRequests.get(key);
-    if (pending)
-      return pending;
-    const promise = factory().then((result) => {
-      this._pendingRequests.delete(key);
-      this.set(prompt, contents, provider, result, model);
-      return result;
-    }).catch((err) => {
-      this._pendingRequests.delete(key);
-      throw err;
-    });
-    this._pendingRequests.set(key, promise);
-    return promise;
-  }
-  getFromDb(key) {
-    try {
-      const db = getDb3();
-      const row = db.prepare("SELECT * FROM cache_entries WHERE key = ?").get(key);
-      if (!row)
-        return null;
-      if (Date.now() - row.timestamp > row.ttl) {
-        this.deleteFromDb(key);
-        return null;
-      }
-      return {
-        value: row.value,
-        timestamp: row.timestamp,
-        ttl: row.ttl,
-        hits: row.hits
-      };
-    } catch {
-      return null;
-    }
-  }
-  saveToDb(key, entry) {
-    try {
-      const db = getDb3();
-      db.prepare("INSERT OR REPLACE INTO cache_entries (key, value, timestamp, ttl, hits) VALUES (?, ?, ?, ?, ?)").run(key, entry.value, entry.timestamp, entry.ttl, entry.hits);
-      if (_useFallback3)
-        saveJson3();
-    } catch {
-    }
-  }
-  deleteFromDb(key) {
-    try {
-      const db = getDb3();
-      db.prepare("DELETE FROM cache_entries WHERE key = ?").run(key);
-      if (_useFallback3) {
-        _jsonEntries = _jsonEntries.filter((e) => e.key !== key);
-        saveJson3();
-      }
-    } catch {
-    }
-  }
-  evictOldest() {
-    let oldest = null;
-    let oldestTime = Infinity;
-    for (const [key, entry] of this.cache) {
-      if (entry.timestamp < oldestTime) {
-        oldestTime = entry.timestamp;
-        oldest = key;
-      }
-    }
-    if (oldest) {
-      this.cache.delete(oldest);
-      this._keys = this._keys.filter((k) => k !== oldest);
-    }
-  }
-  clear() {
-    this.cache.clear();
-    this._keys = [];
-    this._pendingRequests.clear();
-    this.stats = { hits: 0, misses: 0 };
-    try {
-      const db = getDb3();
-      db.prepare("DELETE FROM cache_entries").run();
-      if (_useFallback3) {
-        _jsonEntries = [];
-        saveJson3();
-      }
-    } catch {
-    }
-    log.info("Cache cleared");
-  }
-  getStats() {
-    return {
-      hits: this.stats.hits,
-      misses: this.stats.misses,
-      size: this.cache.size,
-      hitRate: this.stats.hits + this.stats.misses > 0 ? this.stats.hits / (this.stats.hits + this.stats.misses) : 0
-    };
-  }
-  prune() {
-    const now = Date.now();
-    let pruned = 0;
-    for (const [key, entry] of this.cache) {
-      if (now - entry.timestamp > entry.ttl) {
-        this.cache.delete(key);
-        this.deleteFromDb(key);
-        pruned++;
-      }
-    }
-    this._keys = this._keys.filter((k) => this.cache.has(k));
-    try {
-      const db = getDb3();
-      const result = db.prepare("DELETE FROM cache_entries WHERE timestamp + ttl < ?").run(now);
-      const dbPruned = result.changes;
-      if (dbPruned > 0) {
-        pruned += dbPruned;
-        if (_useFallback3)
-          saveJson3();
-      }
-    } catch {
-    }
-    if (pruned > 0) {
-      log.debug("Cache pruned", { count: pruned });
-    }
-    return pruned;
-  }
-  dispose() {
-    if (this._pruneInterval) {
-      clearInterval(this._pruneInterval);
-      this._pruneInterval = null;
-    }
-  }
-};
-var aiCache = new AIResponseCache();
-
-// src/server/projectOracle.js
-var fs5 = __toESM(require("fs"), 1);
-var path10 = __toESM(require("path"), 1);
-var MAX_FILE_SIZE = 100 * 1024;
-var ORACLE_SOURCE_PREFIX = "oracle:";
-var SKIP_DIRS = /* @__PURE__ */ new Set([
-  "node_modules",
-  ".git",
-  ".opencode-infinite",
-  "dist",
-  "build",
-  ".next",
-  "__pycache__",
-  ".venv",
-  "target",
-  ".turbo",
-  ".cache",
-  "coverage",
-  ".nyc_output",
-  "tmp",
-  ".DS_Store"
-]);
-var TEXT_EXTENSIONS = /* @__PURE__ */ new Set([
-  ".ts",
-  ".tsx",
-  ".js",
-  ".jsx",
-  ".mjs",
-  ".cjs",
-  ".json",
-  ".md",
-  ".mdx",
-  ".css",
-  ".scss",
-  ".less",
-  ".html",
-  ".htm",
-  ".xml",
-  ".svg",
-  ".py",
-  ".pyi",
-  ".pyx",
-  ".go",
-  ".rs",
-  ".rb",
-  ".php",
-  ".java",
-  ".kt",
-  ".kts",
-  ".swift",
-  ".c",
-  ".cpp",
-  ".h",
-  ".hpp",
-  ".cc",
-  ".cxx",
-  ".sql",
-  ".graphql",
-  ".gql",
-  ".yaml",
-  ".yml",
-  ".toml",
-  ".ini",
-  ".cfg",
-  ".env",
-  ".sh",
-  ".bash",
-  ".zsh",
-  ".fish",
-  ".ps1",
-  ".dockerfile",
-  "dockerfile",
-  ".prisma",
-  ".proto",
-  ".txt",
-  ".log"
-]);
-async function indexProject(rootDir, embedFn) {
-  clearSource(ORACLE_SOURCE_PREFIX + "*");
-  const oracleDirs = getAllOracleDirs(rootDir);
-  let fileCount = 0;
-  for (const dir of oracleDirs) {
-    const indexed = await indexDirectory(dir, rootDir, embedFn);
-    fileCount += indexed;
-  }
-  log.info("Project Oracle indexed", { files: fileCount });
-  return fileCount;
-}
-function getAllOracleDirs(root) {
-  const dirs = [root];
-  try {
-    const entries = fs5.readdirSync(root, { withFileTypes: true });
-    for (const entry of entries) {
-      if (entry.isDirectory() && !SKIP_DIRS.has(entry.name) && !entry.name.startsWith(".")) {
-        const fullPath = path10.join(root, entry.name);
-        dirs.push(...getAllOracleDirs(fullPath));
-      }
-    }
-  } catch {
-  }
-  return dirs;
-}
-async function indexDirectory(dir, rootDir, embedFn) {
-  let count = 0;
-  try {
-    const entries = fs5.readdirSync(dir, { withFileTypes: true });
-    for (const entry of entries) {
-      if (!entry.isFile())
-        continue;
-      const ext = path10.extname(entry.name).toLowerCase();
-      const baseName = entry.name.toLowerCase();
-      const isText = TEXT_EXTENSIONS.has(ext) || baseName === "dockerfile" || baseName === "makefile";
-      if (!isText)
-        continue;
-      const filePath = path10.join(dir, entry.name);
-      try {
-        const stat5 = fs5.statSync(filePath);
-        if (stat5.size > MAX_FILE_SIZE)
-          continue;
-        const content = fs5.readFileSync(filePath, "utf-8");
-        if (!content.trim())
-          continue;
-        const relativePath = path10.relative(rootDir, filePath).replace(/\\/g, "/");
-        const source = ORACLE_SOURCE_PREFIX + relativePath;
-        await ingestDocument(source, content, embedFn);
-        count++;
-      } catch {
-      }
-    }
-  } catch {
-  }
-  return count;
-}
-
-// src/server/instructionLoader.js
-var import_promises5 = require("fs/promises");
-var path11 = __toESM(require("path"), 1);
-var RULES_DIR = path11.resolve(process.cwd(), ".cvr", "rules");
-var _rulesDir = RULES_DIR;
-function setRulesDir(dir) {
-  _rulesDir = dir;
-}
-async function loadInstructions() {
-  try {
-    await (0, import_promises5.access)(_rulesDir);
-  } catch {
-    return [];
-  }
-  const entries = await (0, import_promises5.readdir)(_rulesDir, { withFileTypes: true });
-  const files = [];
-  for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith(".md"))
-      continue;
-    const filePath = path11.join(_rulesDir, entry.name);
-    const raw = await (0, import_promises5.readFile)(filePath, "utf-8");
-    let priority = 0;
-    const frontmatterMatch = raw.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
-    if (frontmatterMatch && frontmatterMatch[1] !== void 0) {
-      const priorityMatch = frontmatterMatch[1].match(/priority:\s*(\d+)/);
-      if (priorityMatch && priorityMatch[1] !== void 0)
-        priority = parseInt(priorityMatch[1], 10);
-    }
-    const content = frontmatterMatch ? raw.slice(frontmatterMatch[0].length).trim() : raw.trim();
-    files.push({
-      name: entry.name.replace(/\.md$/, ""),
-      content,
-      priority
-    });
-  }
-  return files.sort((a, b) => b.priority - a.priority);
-}
-async function getInstructionsContext() {
-  const instructions = await loadInstructions();
-  if (instructions.length === 0)
-    return "";
-  const parts = instructions.map((f) => `## ${f.name}
-${f.content}`);
-  return `## USER RULES
-${parts.join("\n\n")}`;
-}
-async function saveInstruction(name, content, priority = 0) {
-  try {
-    await (0, import_promises5.access)(_rulesDir);
-  } catch {
-    await (0, import_promises5.mkdir)(_rulesDir, { recursive: true });
-  }
-  const frontmatter = `---
-priority: ${priority}
----
-`;
-  const filePath = path11.join(_rulesDir, `${name}.md`);
-  await (0, import_promises5.writeFile)(filePath, frontmatter + content, "utf-8");
-}
-async function deleteInstruction(name) {
-  try {
-    const filePath = path11.join(_rulesDir, `${name}.md`);
-    await (0, import_promises5.unlink)(filePath);
-  } catch {
-  }
-}
-
-// src/server/pluginManager.js
-var import_promises6 = require("fs/promises");
-var path12 = __toESM(require("path"), 1);
-var PLUGINS_DIR = path12.resolve(process.cwd(), ".cvr", "plugins");
-var _pluginsDir = PLUGINS_DIR;
-var _plugins = [];
-function setPluginsDir(dir) {
-  _pluginsDir = dir;
-}
-async function loadPlugins() {
-  try {
-    await (0, import_promises6.access)(_pluginsDir);
-  } catch {
-    _plugins = [];
-    return [];
-  }
-  const entries = await (0, import_promises6.readdir)(_pluginsDir, { withFileTypes: true });
-  const plugins = [];
-  for (const entry of entries) {
-    if (!entry.isDirectory())
-      continue;
-    const pluginPath = path12.join(_pluginsDir, entry.name);
-    const manifestPath = path12.join(pluginPath, "manifest.json");
-    try {
-      const raw = await (0, import_promises6.readFile)(manifestPath, "utf-8");
-      const manifest = JSON.parse(raw);
-      if (manifest.id) {
-        plugins.push({ manifest, enabled: true, dir: pluginPath });
-      }
-    } catch {
-    }
-  }
-  _plugins = plugins;
-  return plugins;
-}
-async function registerPlugins() {
-  const plugins = await loadPlugins();
-  for (const plugin of plugins) {
-    if (!plugin.enabled)
-      continue;
-    await registerPlugin(plugin);
-  }
-}
-async function registerPlugin(plugin) {
-  if (plugin.manifest.hooks) {
-    console.warn(`Plugin ${plugin.manifest.id}: hooks declared in manifest.json are ignored for security. Use a signed JS module instead.`);
-  }
-}
-function getPlugins() {
-  return [..._plugins];
-}
-function disablePlugin(id) {
-  const plugin = _plugins.find((p) => p.manifest.id === id);
-  if (plugin)
-    plugin.enabled = false;
-}
-function enablePlugin(id) {
-  const plugin = _plugins.find((p) => p.manifest.id === id);
-  if (plugin)
-    plugin.enabled = true;
-}
-
-// src/server/mcpServer.js
-var import_server = require("@modelcontextprotocol/sdk/server/index.js");
-var import_stdio = require("@modelcontextprotocol/sdk/server/stdio.js");
-var import_sse = require("@modelcontextprotocol/sdk/server/sse.js");
-var import_types = require("@modelcontextprotocol/sdk/types.js");
-
-// src/types/tools.js
-var TOOL_DEFINITIONS2 = [
-  {
-    name: "read_file",
-    description: "Read the contents of a file at the given path.",
-    parameters: {
-      type: "object",
-      properties: {
-        path: { type: "string", description: "Relative path to the file" }
-      },
-      required: ["path"]
-    },
-    isReadOnly: true
-  },
-  {
-    name: "list_directory",
-    description: "List files and directories at the given path.",
-    parameters: {
-      type: "object",
-      properties: {
-        path: { type: "string", description: "Relative path to the directory" }
-      },
-      required: ["path"]
-    },
-    isReadOnly: true
-  },
-  {
-    name: "search_files",
-    description: "Search for files by name or content using a query.",
-    parameters: {
-      type: "object",
-      properties: {
-        query: { type: "string", description: "Search query string" },
-        path: { type: "string", description: "Optional relative path to limit search" }
-      },
-      required: ["query"]
-    },
-    isReadOnly: true
-  },
-  {
-    name: "write_file",
-    description: "Write or overwrite a file with the given content.",
-    parameters: {
-      type: "object",
-      properties: {
-        path: { type: "string", description: "Relative path to the file" },
-        content: { type: "string", description: "Full file content" }
-      },
-      required: ["path", "content"]
-    },
-    isReadOnly: false
-  },
-  {
-    name: "edit_file",
-    description: "Edit a file by replacing an exact string with another.",
-    parameters: {
-      type: "object",
-      properties: {
-        path: { type: "string", description: "Relative path to the file" },
-        oldString: { type: "string", description: "Exact text to replace" },
-        newString: { type: "string", description: "Replacement text" }
-      },
-      required: ["path", "oldString", "newString"]
-    },
-    isReadOnly: false
-  },
-  {
-    name: "execute_command",
-    description: "Execute a shell command in the project directory.",
-    parameters: {
-      type: "object",
-      properties: {
-        command: { type: "string", description: "Shell command to execute" },
-        cwd: { type: "string", description: "Optional working directory relative to project root" }
-      },
-      required: ["command"]
-    },
-    isReadOnly: false
-  },
-  {
-    name: "memory_read",
-    description: "Read persistent memory (project facts or user preferences).",
-    parameters: {
-      type: "object",
-      properties: {
-        type: { type: "string", description: "'project' for MEMORY.md or 'user' for USER.md" }
-      },
-      required: ["type"]
-    },
-    isReadOnly: true
-  },
-  {
-    name: "memory_write",
-    description: "Write a fact to persistent memory. Use this to remember important discoveries, patterns, or user preferences across sessions.",
-    parameters: {
-      type: "object",
-      properties: {
-        type: { type: "string", description: "'project' for MEMORY.md or 'user' for USER.md" },
-        content: { type: "string", description: "The fact or preference to remember" },
-        section: { type: "string", description: "Optional section title (e.g., 'Project Facts', 'Code Patterns')" }
-      },
-      required: ["type", "content"]
-    },
-    isReadOnly: false
-  },
-  {
-    name: "skill_list",
-    description: "List all available skills (reusable workflows) in the project.",
-    parameters: {
-      type: "object",
-      properties: {},
-      required: []
-    },
-    isReadOnly: true
-  },
-  {
-    name: "skill_read",
-    description: "Read the full content of a skill by its ID.",
-    parameters: {
-      type: "object",
-      properties: {
-        id: { type: "string", description: "Skill ID" }
-      },
-      required: ["id"]
-    },
-    isReadOnly: true
-  },
-  {
-    name: "skill_run",
-    description: "Run a skill workflow by its ID. Returns the skill instructions to follow.",
-    parameters: {
-      type: "object",
-      properties: {
-        id: { type: "string", description: "Skill ID" }
-      },
-      required: ["id"]
-    },
-    isReadOnly: true
-  },
-  {
-    name: "rag_search",
-    description: "Search the RAG memory for relevant context chunks matching a query.",
-    parameters: {
-      type: "object",
-      properties: {
-        query: { type: "string", description: "Search query" },
-        topK: { type: "number", description: "Number of results (default 3)" }
-      },
-      required: ["query"]
-    },
-    isReadOnly: true
-  },
-  {
-    name: "git_status",
-    description: "Get the current git status of the repository.",
-    parameters: {
-      type: "object",
-      properties: {},
-      required: []
-    },
-    isReadOnly: true
-  },
-  {
-    name: "git_diff",
-    description: "Get the git diff for staged or unstaged changes.",
-    parameters: {
-      type: "object",
-      properties: {
-        staged: { type: "boolean", description: "Show diff for staged changes only" }
-      },
-      required: []
-    },
-    isReadOnly: true
-  },
-  {
-    name: "git_commit",
-    description: "Commit staged changes with a message.",
-    parameters: {
-      type: "object",
-      properties: {
-        message: { type: "string", description: "Commit message" }
-      },
-      required: ["message"]
-    },
-    isReadOnly: false
-  },
-  {
-    name: "git_push",
-    description: "Push the current branch to the remote.",
-    parameters: {
-      type: "object",
-      properties: {},
-      required: []
-    },
-    isReadOnly: false
-  },
-  {
-    name: "git_log",
-    description: "Get recent git commit history.",
-    parameters: {
-      type: "object",
-      properties: {
-        limit: { type: "number", description: "Number of commits to return (default 10)" }
-      },
-      required: []
-    },
-    isReadOnly: true
-  },
-  {
-    name: "browser_navigate",
-    description: "Navigate the browser to a URL.",
-    parameters: {
-      type: "object",
-      properties: {
-        url: { type: "string", description: "URL to navigate to" },
-        headless: { type: "boolean", description: "Run in headless mode (default true)" }
-      },
-      required: ["url"]
-    },
-    isReadOnly: false
-  },
-  {
-    name: "browser_click",
-    description: "Click an element on the page by CSS selector.",
-    parameters: {
-      type: "object",
-      properties: {
-        selector: { type: "string", description: "CSS selector of the element to click" },
-        headless: { type: "boolean", description: "Run in headless mode (default true)" }
-      },
-      required: ["selector"]
-    },
-    isReadOnly: false
-  },
-  {
-    name: "browser_type",
-    description: "Type text into an input element by CSS selector.",
-    parameters: {
-      type: "object",
-      properties: {
-        selector: { type: "string", description: "CSS selector of the input element" },
-        text: { type: "string", description: "Text to type" },
-        headless: { type: "boolean", description: "Run in headless mode (default true)" }
-      },
-      required: ["selector", "text"]
-    },
-    isReadOnly: false
-  },
-  {
-    name: "browser_screenshot",
-    description: "Take a screenshot of the current page and return it as base64 PNG.",
-    parameters: {
-      type: "object",
-      properties: {
-        headless: { type: "boolean", description: "Run in headless mode (default true)" }
-      },
-      required: []
-    },
-    isReadOnly: true
-  },
-  {
-    name: "browser_evaluate",
-    description: "Execute JavaScript in the browser page context.",
-    parameters: {
-      type: "object",
-      properties: {
-        script: { type: "string", description: "JavaScript code to execute" },
-        headless: { type: "boolean", description: "Run in headless mode (default true)" }
-      },
-      required: ["script"]
-    },
-    isReadOnly: false
-  },
-  {
-    name: "browser_get_html",
-    description: "Get the full HTML of the current page.",
-    parameters: {
-      type: "object",
-      properties: {
-        headless: { type: "boolean", description: "Run in headless mode (default true)" }
-      },
-      required: []
-    },
-    isReadOnly: true
-  },
-  {
-    name: "browser_close",
-    description: "Close the browser for this session.",
-    parameters: {
-      type: "object",
-      properties: {},
-      required: []
-    },
-    isReadOnly: false
-  },
-  {
-    name: "git_branch",
-    description: "Create a new git branch and switch to it.",
-    parameters: {
-      type: "object",
-      properties: {
-        name: { type: "string", description: "Branch name" }
-      },
-      required: ["name"]
-    },
-    isReadOnly: false
-  },
-  {
-    name: "git_branches",
-    description: "List all branches (local and remote).",
-    parameters: {
-      type: "object",
-      properties: {},
-      required: []
-    },
-    isReadOnly: true
-  },
-  {
-    name: "git_switch_branch",
-    description: "Switch to an existing branch.",
-    parameters: {
-      type: "object",
-      properties: {
-        name: { type: "string", description: "Branch name to switch to" }
-      },
-      required: ["name"]
-    },
-    isReadOnly: false
-  },
-  {
-    name: "git_pr_context",
-    description: "Gather PR context (diff, commits, files) for the current branch.",
-    parameters: {
-      type: "object",
-      properties: {},
-      required: []
-    },
-    isReadOnly: true
-  },
-  {
-    name: "git_create_pr",
-    description: "Create a GitHub pull request with AI-generated title and description. Requires `gh` CLI installed and authenticated.",
-    parameters: {
-      type: "object",
-      properties: {
-        draft: { type: "boolean", description: "Create as draft PR (default false)" }
-      },
-      required: []
-    },
-    isReadOnly: false
-  },
-  {
-    name: "git_list_prs",
-    description: "List open pull requests.",
-    parameters: {
-      type: "object",
-      properties: {},
-      required: []
-    },
-    isReadOnly: true
-  },
-  {
-    name: "issue_create",
-    description: "Create an issue in the configured tracker (GitHub/Jira/Linear). Requires tracker config set via Settings \u2192 Integrations.",
-    parameters: {
-      type: "object",
-      properties: {
-        title: { type: "string", description: "Issue title" },
-        description: { type: "string", description: "Issue description (markdown)" },
-        priority: { type: "string", description: "Issue priority: low, medium, high, or urgent" },
-        labels: { type: "array", description: "Labels to apply" }
-      },
-      required: ["title"]
-    },
-    isReadOnly: false
-  },
-  {
-    name: "issue_list",
-    description: "List issues from the configured tracker.",
-    parameters: {
-      type: "object",
-      properties: {
-        status: { type: "string", description: "Filter by status (e.g. 'open', 'In Progress')" },
-        limit: { type: "number", description: "Max issues to return (default 20)" }
-      },
-      required: []
-    },
-    isReadOnly: true
-  },
-  {
-    name: "issue_view",
-    description: "View details of a specific issue by key or number.",
-    parameters: {
-      type: "object",
-      properties: {
-        key: { type: "string", description: "Issue key (e.g. '#42', 'PROJ-123', 'TEAM-456')" }
-      },
-      required: ["key"]
-    },
-    isReadOnly: true
-  },
-  {
-    name: "issue_comment",
-    description: "Add a comment to an issue.",
-    parameters: {
-      type: "object",
-      properties: {
-        key: { type: "string", description: "Issue key or number" },
-        body: { type: "string", description: "Comment text (markdown)" }
-      },
-      required: ["key", "body"]
-    },
-    isReadOnly: false
-  }
-];
-var READ_ONLY_TOOLS2 = new Set(TOOL_DEFINITIONS2.filter((t) => t.isReadOnly).map((t) => t.name));
-var ALL_TOOL_NAMES2 = TOOL_DEFINITIONS2.map((t) => t.name);
-
-// src/server/mcpServer.js
-var import_promises8 = require("fs/promises");
-var path14 = __toESM(require("path"), 1);
-
-// src/types/errors.js
-function isError2(e) {
-  return e instanceof Error;
-}
-function getErrorMessage2(e) {
-  if (isError2(e))
-    return e.message;
-  if (typeof e === "string")
-    return e;
-  return "Unknown error";
-}
-
 // src/server/tools.ts
-init_errors();
-async function executeTool2(toolCall, mode = "build", permissionEngine2, sessionId = "default") {
+async function executeTool(toolCall, mode = "build", permissionEngine2, sessionId = "default") {
   const { name, params } = toolCall;
   await hookRegistry.execute("tool.before", { tool: name, params }, sessionId);
   let result;
@@ -4462,47 +3069,83 @@ async function executeTool2(toolCall, mode = "build", permissionEngine2, session
   return result;
 }
 
-// src/server/hooks.ts
-init_errors();
-var HookRegistry2 = class {
-  hooks = /* @__PURE__ */ new Map();
-  register(reg) {
-    const existing = this.hooks.get(reg.hookPoint) || [];
-    existing.push(reg);
-    existing.sort((a, b) => b.priority - a.priority);
-    this.hooks.set(reg.hookPoint, existing);
-  }
-  unregister(id) {
-    for (const [point, regs] of this.hooks) {
-      this.hooks.set(
-        point,
-        regs.filter((r) => r.id !== id)
-      );
+// src/server/agentLoader.ts
+var fs2 = __toESM(require("fs"), 1);
+var path6 = __toESM(require("path"), 1);
+var cachedAgents = [];
+var agentsDir = ".cvr/agents";
+async function loadAgents(dir) {
+  const targetDir = dir || agentsDir;
+  const agents = [];
+  try {
+    const files = await fs2.promises.readdir(targetDir);
+    const mdFiles = files.filter((f) => f.endsWith(".md"));
+    for (const file of mdFiles) {
+      const content = await fs2.promises.readFile(path6.join(targetDir, file), "utf-8");
+      const agent = parseAgentMarkdown(content);
+      if (agent) agents.push(agent);
     }
+  } catch (e) {
+    console.error("Failed to load agents:", e);
   }
-  async execute(hookPoint, data, sessionId) {
-    const regs = this.hooks.get(hookPoint) || [];
-    const ctx = { hookPoint, data, timestamp: Date.now(), sessionId };
-    for (const reg of regs) {
-      try {
-        await reg.handler(ctx);
-      } catch (err) {
-        console.error(`Hook ${reg.id} failed at ${hookPoint}:`, getErrorMessage(err));
+  cachedAgents = agents;
+  return agents;
+}
+function getAgents() {
+  return cachedAgents;
+}
+function getAgentById(id) {
+  return cachedAgents.find((a) => a.id === id);
+}
+function parseAgentMarkdown(content) {
+  const match = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/);
+  if (!match) return null;
+  const frontmatter = match[1];
+  const body = match[2];
+  const config = {};
+  for (const line of frontmatter.split("\n")) {
+    const [key, ...rest] = line.split(":");
+    if (key && rest.length > 0) {
+      const value = rest.join(":").trim();
+      const trimmedKey = key.trim();
+      if (trimmedKey === "id" || trimmedKey === "name" || trimmedKey === "description" || trimmedKey === "model" || trimmedKey === "provider") {
+        config[trimmedKey] = value;
+      } else if (trimmedKey === "temperature" || trimmedKey === "maxTokens") {
+        const num = Number(value);
+        if (!isNaN(num)) {
+          config[trimmedKey] = num;
+        }
+      } else if (trimmedKey === "tools") {
+        if (value.startsWith("[") && value.endsWith("]")) {
+          config.tools = value.slice(1, -1).split(",").map((s) => s.trim());
+        }
       }
     }
   }
-  list(hookPoint) {
-    if (hookPoint) return this.hooks.get(hookPoint) || [];
-    return Array.from(this.hooks.values()).flat();
-  }
-};
-var hookRegistry2 = new HookRegistry2();
+  return {
+    id: config.id || "unknown",
+    name: config.name || config.id || "Unknown Agent",
+    description: config.description ?? void 0,
+    model: config.model || "",
+    provider: config.provider || "",
+    temperature: config.temperature ?? void 0,
+    maxTokens: config.maxTokens ?? void 0,
+    tools: config.tools ?? [],
+    systemPrompt: body.trim()
+  };
+}
+
+// server.ts
+init_sessionStore();
 
 // src/server/skillCreator.ts
-var import_promises7 = require("fs/promises");
-var path13 = __toESM(require("path"), 1);
+var import_promises5 = require("fs/promises");
+var path8 = __toESM(require("path"), 1);
 init_errors();
-var _skillsDir3 = path13.resolve(process.cwd(), ".cvr", "skills");
+var _skillsDir2 = path8.resolve(process.cwd(), ".cvr", "skills");
+function setSkillCreatorDir(dir) {
+  _skillsDir2 = dir;
+}
 async function maybeCreateSkill(input) {
   const MIN_STEPS = 3;
   const MIN_UNIQUE_TOOLS = 2;
@@ -4529,10 +3172,10 @@ triggers: ${JSON.stringify(triggers)}
 ---
 
 ${content}`;
-  const filePath = path13.join(_skillsDir3, `${id}.md`);
+  const filePath = path8.join(_skillsDir2, `${id}.md`);
   try {
-    await (0, import_promises7.mkdir)(_skillsDir3, { recursive: true });
-    await (0, import_promises7.writeFile)(filePath, frontmatter, "utf-8");
+    await (0, import_promises5.mkdir)(_skillsDir2, { recursive: true });
+    await (0, import_promises5.writeFile)(filePath, frontmatter, "utf-8");
     return { created: true, path: filePath, reason: "Skill created successfully." };
   } catch (e) {
     return { created: false, reason: `Write failed: ${getErrorMessage(e)}` };
@@ -4573,7 +3216,670 @@ function buildSkillContent(input) {
   return lines.join("\n");
 }
 
-// src/server/agentLoop.js
+// src/server/cache.ts
+var import_crypto3 = require("crypto");
+var path9 = __toESM(require("path"), 1);
+var fs4 = __toESM(require("fs"), 1);
+
+// src/server/logger.ts
+var Logger = class {
+  context;
+  level;
+  constructor(context, level = "info") {
+    this.context = context;
+    this.level = level;
+  }
+  shouldLog(level) {
+    const levels = ["debug", "info", "warn", "error"];
+    return levels.indexOf(level) >= levels.indexOf(this.level);
+  }
+  format(entry) {
+    const ctx = entry.context ? ` ${JSON.stringify(entry.context)}` : "";
+    const dur = entry.duration ? ` [${entry.duration}ms]` : "";
+    return `[${entry.timestamp}] [${entry.level.toUpperCase()}] [${this.context}] ${entry.message}${ctx}${dur}`;
+  }
+  debug(message, context) {
+    if (!this.shouldLog("debug")) return;
+    const entry = { timestamp: (/* @__PURE__ */ new Date()).toISOString(), level: "debug", message, context };
+    console.debug(this.format(entry));
+  }
+  info(message, context) {
+    if (!this.shouldLog("info")) return;
+    const entry = { timestamp: (/* @__PURE__ */ new Date()).toISOString(), level: "info", message, context };
+    console.info(this.format(entry));
+  }
+  warn(message, context) {
+    if (!this.shouldLog("warn")) return;
+    const entry = { timestamp: (/* @__PURE__ */ new Date()).toISOString(), level: "warn", message, context };
+    console.warn(this.format(entry));
+  }
+  error(message, error, context) {
+    if (!this.shouldLog("error")) return;
+    const entry = {
+      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+      level: "error",
+      message,
+      context: { ...context, error: error?.message, stack: error?.stack }
+    };
+    console.error(this.format(entry));
+  }
+  time(label) {
+    const start = Date.now();
+    return () => {
+      const duration = Date.now() - start;
+      this.debug(`${label} completed`, { duration });
+      return duration;
+    };
+  }
+};
+var createLogger = (context, level) => new Logger(context, level);
+var log = createLogger("cvr", process.env.LOG_LEVEL || "info");
+
+// src/server/cache.ts
+var _dbPath3 = path9.resolve(process.cwd(), ".opencode-infinite", "cache.db");
+var _db3 = null;
+var _useFallback3 = false;
+var _jsonEntries = [];
+var _jsonPath3 = "";
+function loadJson3() {
+  try {
+    if (fs4.existsSync(_jsonPath3)) {
+      const raw = fs4.readFileSync(_jsonPath3, "utf-8");
+      _jsonEntries = JSON.parse(raw);
+    }
+  } catch {
+  }
+}
+function saveJson3() {
+  try {
+    fs4.mkdirSync(path9.dirname(_jsonPath3), { recursive: true });
+    fs4.writeFileSync(_jsonPath3, JSON.stringify(_jsonEntries, null, 2));
+  } catch {
+  }
+}
+function fallbackGetDb3() {
+  if (!_jsonPath3) {
+    _jsonPath3 = _dbPath3.replace(/\.db$/, "") + "-fallback.json";
+    loadJson3();
+  }
+  return {
+    prepare: (sql) => {
+      const trimmed = sql.trim().toLowerCase();
+      if (trimmed.startsWith("insert into cache_entries")) {
+        return {
+          run: (key, value, timestamp, ttl, hits) => {
+            const idx = _jsonEntries.findIndex((e) => e.key === String(key));
+            if (idx !== -1) _jsonEntries.splice(idx, 1);
+            _jsonEntries.push({
+              key: String(key),
+              value: String(value),
+              timestamp: Number(timestamp),
+              ttl: Number(ttl),
+              hits: Number(hits)
+            });
+            saveJson3();
+            return { lastInsertRowid: _jsonEntries.length, changes: 1 };
+          }
+        };
+      }
+      if (trimmed.startsWith("select * from cache_entries where key =")) {
+        return {
+          get: (key) => _jsonEntries.find((e) => e.key === String(key))
+        };
+      }
+      if (trimmed.startsWith("select * from cache_entries")) {
+        return {
+          all: () => _jsonEntries
+        };
+      }
+      if (trimmed.startsWith("delete from cache_entries")) {
+        return {
+          run: () => {
+            _jsonEntries = [];
+            saveJson3();
+            return { lastInsertRowid: 0, changes: 0 };
+          }
+        };
+      }
+      return {
+        run: () => ({ lastInsertRowid: 0, changes: 0 }),
+        get: () => void 0,
+        all: () => []
+      };
+    },
+    exec: () => {
+    },
+    pragma: () => {
+    }
+  };
+}
+function setCacheDbPath(dir) {
+  _dbPath3 = path9.join(dir, "cache.db");
+  _db3 = null;
+  _jsonEntries = [];
+  if (_useFallback3) {
+    _jsonPath3 = _dbPath3.replace(/\.db$/, "") + "-fallback.json";
+    loadJson3();
+  }
+}
+function getDb3() {
+  if (!_db3) {
+    try {
+      const DatabaseClass = require("better-sqlite3");
+      const db = new DatabaseClass(_dbPath3);
+      db.pragma("journal_mode = WAL");
+      initSchema3(db);
+      _db3 = db;
+    } catch {
+      _useFallback3 = true;
+      _db3 = fallbackGetDb3();
+    }
+  }
+  return _db3;
+}
+function initSchema3(db) {
+  if (_useFallback3) return;
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cache_entries (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      timestamp INTEGER NOT NULL,
+      ttl INTEGER NOT NULL,
+      hits INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_cache_timestamp ON cache_entries(timestamp);
+  `);
+}
+var AIResponseCache = class {
+  cache = /* @__PURE__ */ new Map();
+  _keys = [];
+  defaultTTL;
+  maxSize;
+  stats = { hits: 0, misses: 0 };
+  _warmed = false;
+  _pendingRequests = /* @__PURE__ */ new Map();
+  _pruneInterval = null;
+  constructor(defaultTTL = 3e5, maxSize = 500) {
+    this.defaultTTL = defaultTTL;
+    this.maxSize = maxSize;
+    this._pruneInterval = setInterval(() => {
+      const pruned = this.prune();
+      if (pruned > 0) log.debug("Background cache prune", { count: pruned });
+    }, 3e5);
+  }
+  hashKey(prompt, contents, provider, model) {
+    return (0, import_crypto3.createHash)("sha256").update(JSON.stringify({ prompt, contents, provider, model })).digest("hex").slice(0, 32);
+  }
+  warmFromDb() {
+    if (this._warmed) return;
+    this._warmed = true;
+    try {
+      const db = getDb3();
+      const rows = db.prepare("SELECT * FROM cache_entries").all();
+      const now = Date.now();
+      let loaded = 0;
+      let expired = 0;
+      for (const row of rows) {
+        if (now - row.timestamp > row.ttl) {
+          expired++;
+          continue;
+        }
+        if (this.cache.size >= this.maxSize) break;
+        this.cache.set(row.key, {
+          value: row.value,
+          timestamp: row.timestamp,
+          ttl: row.ttl,
+          hits: row.hits
+        });
+        this._keys.push(row.key);
+        loaded++;
+      }
+      if (loaded > 0 || expired > 0) {
+        log.info("Cache warmed from DB", { loaded, expired, size: this.cache.size });
+      }
+    } catch {
+    }
+  }
+  get(prompt, contents, provider, model) {
+    this.warmFromDb();
+    const key = this.hashKey(prompt, contents, provider, model);
+    const entry = this.cache.get(key);
+    if (!entry) {
+      const dbEntry = this.getFromDb(key);
+      if (dbEntry) {
+        if (this.cache.size >= this.maxSize) {
+          this.evictOldest();
+        }
+        this.cache.set(key, dbEntry);
+        this._keys.push(key);
+        dbEntry.hits++;
+        this.stats.hits++;
+        return dbEntry.value;
+      }
+      this.stats.misses++;
+      return null;
+    }
+    if (Date.now() - entry.timestamp > entry.ttl) {
+      this.cache.delete(key);
+      this._keys = this._keys.filter((k) => k !== key);
+      this.deleteFromDb(key);
+      this.stats.misses++;
+      return null;
+    }
+    entry.hits++;
+    this.stats.hits++;
+    return entry.value;
+  }
+  set(prompt, contents, provider, response, model, ttl) {
+    this.warmFromDb();
+    if (this.cache.size >= this.maxSize) {
+      this.evictOldest();
+    }
+    const key = this.hashKey(prompt, contents, provider, model);
+    const entry = {
+      value: response,
+      timestamp: Date.now(),
+      ttl: ttl ?? this.defaultTTL,
+      hits: 0
+    };
+    this.cache.set(key, entry);
+    this._keys.push(key);
+    this.saveToDb(key, entry);
+  }
+  coalesce(prompt, contents, provider, model, factory) {
+    const key = this.hashKey(prompt, contents, provider, model);
+    const cached = this.get(prompt, contents, provider, model);
+    if (cached) return Promise.resolve(cached);
+    const pending = this._pendingRequests.get(key);
+    if (pending) return pending;
+    const promise = factory().then((result) => {
+      this._pendingRequests.delete(key);
+      this.set(prompt, contents, provider, result, model);
+      return result;
+    }).catch((err) => {
+      this._pendingRequests.delete(key);
+      throw err;
+    });
+    this._pendingRequests.set(key, promise);
+    return promise;
+  }
+  getFromDb(key) {
+    try {
+      const db = getDb3();
+      const row = db.prepare("SELECT * FROM cache_entries WHERE key = ?").get(key);
+      if (!row) return null;
+      if (Date.now() - row.timestamp > row.ttl) {
+        this.deleteFromDb(key);
+        return null;
+      }
+      return {
+        value: row.value,
+        timestamp: row.timestamp,
+        ttl: row.ttl,
+        hits: row.hits
+      };
+    } catch {
+      return null;
+    }
+  }
+  saveToDb(key, entry) {
+    try {
+      const db = getDb3();
+      db.prepare(
+        "INSERT OR REPLACE INTO cache_entries (key, value, timestamp, ttl, hits) VALUES (?, ?, ?, ?, ?)"
+      ).run(key, entry.value, entry.timestamp, entry.ttl, entry.hits);
+      if (_useFallback3) saveJson3();
+    } catch {
+    }
+  }
+  deleteFromDb(key) {
+    try {
+      const db = getDb3();
+      db.prepare("DELETE FROM cache_entries WHERE key = ?").run(key);
+      if (_useFallback3) {
+        _jsonEntries = _jsonEntries.filter((e) => e.key !== key);
+        saveJson3();
+      }
+    } catch {
+    }
+  }
+  evictOldest() {
+    let oldest = null;
+    let oldestTime = Infinity;
+    for (const [key, entry] of this.cache) {
+      if (entry.timestamp < oldestTime) {
+        oldestTime = entry.timestamp;
+        oldest = key;
+      }
+    }
+    if (oldest) {
+      this.cache.delete(oldest);
+      this._keys = this._keys.filter((k) => k !== oldest);
+    }
+  }
+  clear() {
+    this.cache.clear();
+    this._keys = [];
+    this._pendingRequests.clear();
+    this.stats = { hits: 0, misses: 0 };
+    try {
+      const db = getDb3();
+      db.prepare("DELETE FROM cache_entries").run();
+      if (_useFallback3) {
+        _jsonEntries = [];
+        saveJson3();
+      }
+    } catch {
+    }
+    log.info("Cache cleared");
+  }
+  getStats() {
+    return {
+      hits: this.stats.hits,
+      misses: this.stats.misses,
+      size: this.cache.size,
+      hitRate: this.stats.hits + this.stats.misses > 0 ? this.stats.hits / (this.stats.hits + this.stats.misses) : 0
+    };
+  }
+  prune() {
+    const now = Date.now();
+    let pruned = 0;
+    for (const [key, entry] of this.cache) {
+      if (now - entry.timestamp > entry.ttl) {
+        this.cache.delete(key);
+        this.deleteFromDb(key);
+        pruned++;
+      }
+    }
+    this._keys = this._keys.filter((k) => this.cache.has(k));
+    try {
+      const db = getDb3();
+      const result = db.prepare("DELETE FROM cache_entries WHERE timestamp + ttl < ?").run(now);
+      const dbPruned = result.changes;
+      if (dbPruned > 0) {
+        pruned += dbPruned;
+        if (_useFallback3) saveJson3();
+      }
+    } catch {
+    }
+    if (pruned > 0) {
+      log.debug("Cache pruned", { count: pruned });
+    }
+    return pruned;
+  }
+  dispose() {
+    if (this._pruneInterval) {
+      clearInterval(this._pruneInterval);
+      this._pruneInterval = null;
+    }
+  }
+};
+var aiCache = new AIResponseCache();
+
+// src/server/projectOracle.ts
+var fs5 = __toESM(require("fs"), 1);
+var path10 = __toESM(require("path"), 1);
+var MAX_FILE_SIZE = 100 * 1024;
+var ORACLE_SOURCE_PREFIX = "oracle:";
+var SKIP_DIRS = /* @__PURE__ */ new Set([
+  "node_modules",
+  ".git",
+  ".opencode-infinite",
+  "dist",
+  "build",
+  ".next",
+  "__pycache__",
+  ".venv",
+  "target",
+  ".turbo",
+  ".cache",
+  "coverage",
+  ".nyc_output",
+  "tmp",
+  ".DS_Store"
+]);
+var TEXT_EXTENSIONS = /* @__PURE__ */ new Set([
+  ".ts",
+  ".tsx",
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".cjs",
+  ".json",
+  ".md",
+  ".mdx",
+  ".css",
+  ".scss",
+  ".less",
+  ".html",
+  ".htm",
+  ".xml",
+  ".svg",
+  ".py",
+  ".pyi",
+  ".pyx",
+  ".go",
+  ".rs",
+  ".rb",
+  ".php",
+  ".java",
+  ".kt",
+  ".kts",
+  ".swift",
+  ".c",
+  ".cpp",
+  ".h",
+  ".hpp",
+  ".cc",
+  ".cxx",
+  ".sql",
+  ".graphql",
+  ".gql",
+  ".yaml",
+  ".yml",
+  ".toml",
+  ".ini",
+  ".cfg",
+  ".env",
+  ".sh",
+  ".bash",
+  ".zsh",
+  ".fish",
+  ".ps1",
+  ".dockerfile",
+  "dockerfile",
+  ".prisma",
+  ".proto",
+  ".txt",
+  ".log"
+]);
+async function indexProject(rootDir, embedFn) {
+  clearSource(ORACLE_SOURCE_PREFIX + "*");
+  const oracleDirs = getAllOracleDirs(rootDir);
+  let fileCount = 0;
+  for (const dir of oracleDirs) {
+    const indexed = await indexDirectory(dir, rootDir, embedFn);
+    fileCount += indexed;
+  }
+  log.info("Project Oracle indexed", { files: fileCount });
+  return fileCount;
+}
+function getAllOracleDirs(root) {
+  const dirs = [root];
+  try {
+    const entries = fs5.readdirSync(root, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isDirectory() && !SKIP_DIRS.has(entry.name) && !entry.name.startsWith(".")) {
+        const fullPath = path10.join(root, entry.name);
+        dirs.push(...getAllOracleDirs(fullPath));
+      }
+    }
+  } catch {
+  }
+  return dirs;
+}
+async function indexDirectory(dir, rootDir, embedFn) {
+  let count = 0;
+  try {
+    const entries = fs5.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      const ext = path10.extname(entry.name).toLowerCase();
+      const baseName = entry.name.toLowerCase();
+      const isText = TEXT_EXTENSIONS.has(ext) || baseName === "dockerfile" || baseName === "makefile";
+      if (!isText) continue;
+      const filePath = path10.join(dir, entry.name);
+      try {
+        const stat5 = fs5.statSync(filePath);
+        if (stat5.size > MAX_FILE_SIZE) continue;
+        const content = fs5.readFileSync(filePath, "utf-8");
+        if (!content.trim()) continue;
+        const relativePath = path10.relative(rootDir, filePath).replace(/\\/g, "/");
+        const source = ORACLE_SOURCE_PREFIX + relativePath;
+        await ingestDocument(source, content, embedFn);
+        count++;
+      } catch {
+      }
+    }
+  } catch {
+  }
+  return count;
+}
+
+// src/server/instructionLoader.ts
+var import_promises6 = require("fs/promises");
+var path11 = __toESM(require("path"), 1);
+var RULES_DIR = path11.resolve(process.cwd(), ".cvr", "rules");
+var _rulesDir = RULES_DIR;
+function setRulesDir(dir) {
+  _rulesDir = dir;
+}
+async function loadInstructions() {
+  try {
+    await (0, import_promises6.access)(_rulesDir);
+  } catch {
+    return [];
+  }
+  const entries = await (0, import_promises6.readdir)(_rulesDir, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+    const filePath = path11.join(_rulesDir, entry.name);
+    const raw = await (0, import_promises6.readFile)(filePath, "utf-8");
+    let priority = 0;
+    const frontmatterMatch = raw.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
+    if (frontmatterMatch && frontmatterMatch[1] !== void 0) {
+      const priorityMatch = frontmatterMatch[1].match(/priority:\s*(\d+)/);
+      if (priorityMatch && priorityMatch[1] !== void 0) priority = parseInt(priorityMatch[1], 10);
+    }
+    const content = frontmatterMatch ? raw.slice(frontmatterMatch[0].length).trim() : raw.trim();
+    files.push({
+      name: entry.name.replace(/\.md$/, ""),
+      content,
+      priority
+    });
+  }
+  return files.sort((a, b) => b.priority - a.priority);
+}
+async function getInstructionsContext() {
+  const instructions = await loadInstructions();
+  if (instructions.length === 0) return "";
+  const parts = instructions.map((f) => `## ${f.name}
+${f.content}`);
+  return `## USER RULES
+${parts.join("\n\n")}`;
+}
+async function saveInstruction(name, content, priority = 0) {
+  try {
+    await (0, import_promises6.access)(_rulesDir);
+  } catch {
+    await (0, import_promises6.mkdir)(_rulesDir, { recursive: true });
+  }
+  const frontmatter = `---
+priority: ${priority}
+---
+`;
+  const filePath = path11.join(_rulesDir, `${name}.md`);
+  await (0, import_promises6.writeFile)(filePath, frontmatter + content, "utf-8");
+}
+async function deleteInstruction(name) {
+  try {
+    const filePath = path11.join(_rulesDir, `${name}.md`);
+    await (0, import_promises6.unlink)(filePath);
+  } catch {
+  }
+}
+
+// src/server/pluginManager.ts
+var import_promises7 = require("fs/promises");
+var path12 = __toESM(require("path"), 1);
+var PLUGINS_DIR = path12.resolve(process.cwd(), ".cvr", "plugins");
+var _pluginsDir = PLUGINS_DIR;
+var _plugins = [];
+function setPluginsDir(dir) {
+  _pluginsDir = dir;
+}
+async function loadPlugins() {
+  try {
+    await (0, import_promises7.access)(_pluginsDir);
+  } catch {
+    _plugins = [];
+    return [];
+  }
+  const entries = await (0, import_promises7.readdir)(_pluginsDir, { withFileTypes: true });
+  const plugins = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const pluginPath = path12.join(_pluginsDir, entry.name);
+    const manifestPath = path12.join(pluginPath, "manifest.json");
+    try {
+      const raw = await (0, import_promises7.readFile)(manifestPath, "utf-8");
+      const manifest = JSON.parse(raw);
+      if (manifest.id) {
+        plugins.push({ manifest, enabled: true, dir: pluginPath });
+      }
+    } catch {
+    }
+  }
+  _plugins = plugins;
+  return plugins;
+}
+async function registerPlugins() {
+  const plugins = await loadPlugins();
+  for (const plugin of plugins) {
+    if (!plugin.enabled) continue;
+    await registerPlugin(plugin);
+  }
+}
+async function registerPlugin(plugin) {
+  if (plugin.manifest.hooks) {
+    console.warn(
+      `Plugin ${plugin.manifest.id}: hooks declared in manifest.json are ignored for security. Use a signed JS module instead.`
+    );
+  }
+}
+function getPlugins() {
+  return [..._plugins];
+}
+function disablePlugin(id) {
+  const plugin = _plugins.find((p) => p.manifest.id === id);
+  if (plugin) plugin.enabled = false;
+}
+function enablePlugin(id) {
+  const plugin = _plugins.find((p) => p.manifest.id === id);
+  if (plugin) plugin.enabled = true;
+}
+
+// src/server/mcpServer.ts
+var import_server = require("@modelcontextprotocol/sdk/server/index.js");
+var import_stdio = require("@modelcontextprotocol/sdk/server/stdio.js");
+var import_sse = require("@modelcontextprotocol/sdk/server/sse.js");
+var import_types = require("@modelcontextprotocol/sdk/types.js");
+var import_promises8 = require("fs/promises");
+var path13 = __toESM(require("path"), 1);
+init_errors();
+
+// src/server/agentLoop.ts
 init_errors();
 var AgentLoop = class {
   state;
@@ -4596,13 +3902,13 @@ var AgentLoop = class {
     };
     this.permissionEngine = options.permissionEngine;
     this.thinkFn = options.thinkFn;
-    this.executeToolFn = options.executeToolFn || ((toolCall, mode) => executeTool2(toolCall, mode || "build", this.permissionEngine, this.sessionId));
+    this.executeToolFn = options.executeToolFn || ((toolCall, mode) => executeTool(toolCall, mode || "build", this.permissionEngine, this.sessionId));
     this.onStep = options.onStep;
     this.onStatus = options.onStatus;
   }
   async run() {
     try {
-      await hookRegistry2.execute("loop.start", { goal: this.state.goal }, this.sessionId);
+      await hookRegistry.execute("loop.start", { goal: this.state.goal }, this.sessionId);
       while (this.state.status !== "completed" && this.state.status !== "error") {
         if (this.state.currentStep >= this.state.maxSteps || this._abort) {
           if (this._abort) {
@@ -4624,7 +3930,7 @@ var AgentLoop = class {
         this.state.status = "completed";
       }
       this.onStatus?.(this.state.status);
-      await hookRegistry2.execute("loop.complete", { state: this.state }, this.sessionId);
+      await hookRegistry.execute("loop.complete", { state: this.state }, this.sessionId);
       if (this.state.status === "completed" && this.state.steps.length >= 3) {
         const toolNames = this.state.steps.map((s) => s.action?.tool || "");
         maybeCreateSkill({
@@ -4639,7 +3945,7 @@ var AgentLoop = class {
       return this.state;
     } catch (err) {
       this.state.status = "error";
-      await hookRegistry2.execute("loop.error", { error: getErrorMessage(err) }, this.sessionId);
+      await hookRegistry.execute("loop.error", { error: getErrorMessage(err) }, this.sessionId);
       throw err;
     }
   }
@@ -4665,7 +3971,10 @@ var AgentLoop = class {
       this.state.status = "executing";
       this.onStatus?.("executing");
       try {
-        const result = await this.executeToolFn({ name: action.tool, params: action.params }, "build");
+        const result = await this.executeToolFn(
+          { name: action.tool, params: action.params },
+          "build"
+        );
         step.observation = JSON.stringify(result);
       } catch (err) {
         step.observation = `Error: ${getErrorMessage(err)}`;
@@ -4674,7 +3983,7 @@ var AgentLoop = class {
     this.state.steps.push(step);
     this.onStep?.(step);
     this.state.currentStep++;
-    await hookRegistry2.execute("loop.step", { step }, this.sessionId);
+    await hookRegistry.execute("loop.step", { step }, this.sessionId);
     this.state.status = "observing";
     this.onStatus?.("observing");
     return step;
@@ -4702,7 +4011,9 @@ Your thought:`;
     return (await this.thinkFn(prompt)).trim();
   }
   buildContext() {
-    return this.state.steps.slice(-5).map((s) => `Step ${s.id}: ${s.thought.substring(0, 200)}${s.thought.length > 200 ? "..." : ""} Observation: ${s.observation?.substring(0, 200)}${s.observation && s.observation.length > 200 ? "..." : ""}`).join("\n");
+    return this.state.steps.slice(-5).map(
+      (s) => `Step ${s.id}: ${s.thought.substring(0, 200)}${s.thought.length > 200 ? "..." : ""} Observation: ${s.observation?.substring(0, 200)}${s.observation && s.observation.length > 200 ? "..." : ""}`
+    ).join("\n");
   }
   parseAction(thought) {
     const actionMatch = thought.match(/ACTION:\s*(\w+)/);
@@ -4724,7 +4035,8 @@ Your thought:`;
   }
 };
 
-// src/server/subagentManager.js
+// src/server/subagentManager.ts
+init_errors();
 var SubagentManager = class {
   tasks = /* @__PURE__ */ new Map();
   queue = [];
@@ -4763,7 +4075,7 @@ var SubagentManager = class {
       task.result = state.steps.map((s) => s.observation || s.thought).join("\n\n");
     } catch (err) {
       task.status = "failed";
-      task.error = getErrorMessage2(err);
+      task.error = getErrorMessage(err);
     } finally {
       task.endTime = Date.now();
       this.processQueue(thinkFn);
@@ -4771,15 +4083,13 @@ var SubagentManager = class {
   }
   processQueue(thinkFn) {
     const running = this.getRunningCount();
-    if (running >= this.maxConcurrent)
-      return;
+    if (running >= this.maxConcurrent) return;
     const nextId = this.queue.shift();
-    if (!nextId)
-      return;
+    if (!nextId) return;
     const nextTask = this.tasks.get(nextId);
     if (nextTask) {
       this.executeTask(nextTask, thinkFn).catch((err) => {
-        console.error(`Queued subagent ${nextId} failed:`, getErrorMessage2(err));
+        console.error(`Queued subagent ${nextId} failed:`, getErrorMessage(err));
       });
     }
   }
@@ -4807,7 +4117,7 @@ var SubagentManager = class {
   }
 };
 
-// src/server/serverState.js
+// src/server/serverState.ts
 var permissionEngine;
 var agentLoopMap = /* @__PURE__ */ new Map();
 var subagentManager = new SubagentManager();
@@ -4815,11 +4125,11 @@ function setPermissionEngine(pe) {
   permissionEngine = pe;
 }
 
-// src/server/mcpServer.js
+// src/server/mcpServer.ts
 var PROJECT_ROOT5 = process.cwd();
 async function loadMcpConfig() {
   try {
-    const configPath = path14.join(PROJECT_ROOT5, ".cvr", "mcp.json");
+    const configPath = path13.join(PROJECT_ROOT5, ".cvr", "mcp.json");
     const data = await (0, import_promises8.readFile)(configPath, "utf-8");
     return JSON.parse(data);
   } catch {
@@ -4836,8 +4146,7 @@ function customParamsToSchema(params) {
     properties[p.name] = { type: p.type, description: p.description };
     if (p.default !== void 0) {
       const prop = properties[p.name];
-      if (prop)
-        prop.default = p.default;
+      if (prop) prop.default = p.default;
     }
     if (p.required) {
       required.push(p.name);
@@ -4846,15 +4155,18 @@ function customParamsToSchema(params) {
   return { type: "object", properties, required };
 }
 async function createMcpServer() {
-  const server = new import_server.Server({ name: "cvr-name-coder", version: "1.3.0" }, {
-    capabilities: {
-      tools: {},
-      resources: {},
-      prompts: {}
+  const server = new import_server.Server(
+    { name: "cvr-name-coder", version: "1.3.0" },
+    {
+      capabilities: {
+        tools: {},
+        resources: {},
+        prompts: {}
+      }
     }
-  });
+  );
   server.setRequestHandler(import_types.ListToolsRequestSchema, async () => {
-    const tools = TOOL_DEFINITIONS2.map((t) => ({
+    const tools = TOOL_DEFINITIONS.map((t) => ({
       name: t.name,
       description: t.description,
       inputSchema: t.parameters
@@ -4876,7 +4188,12 @@ async function createMcpServer() {
   server.setRequestHandler(import_types.CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
     try {
-      const result = await executeTool({ name, params: args || {} }, "build", permissionEngine, "mcp-session");
+      const result = await executeTool(
+        { name, params: args || {} },
+        "build",
+        permissionEngine,
+        "mcp-session"
+      );
       return {
         content: [
           {
@@ -4887,31 +4204,45 @@ async function createMcpServer() {
         isError: !result.success
       };
     } catch (err) {
-      throw new import_types.McpError(import_types.ErrorCode.InternalError, `Tool execution failed: ${getErrorMessage2(err)}`);
+      throw new import_types.McpError(
+        import_types.ErrorCode.InternalError,
+        `Tool execution failed: ${getErrorMessage(err)}`
+      );
     }
   });
   server.setRequestHandler(import_types.ListResourcesRequestSchema, async () => {
     try {
       const entries = await (0, import_promises8.readdir)(PROJECT_ROOT5, { withFileTypes: true });
-      const resources = entries.filter((e) => !e.name.startsWith(".") && !e.name.startsWith("node_modules") && e.isFile()).map((e) => ({
-        uri: `file://${path14.join(PROJECT_ROOT5, e.name)}`,
+      const resources = entries.filter(
+        (e) => !e.name.startsWith(".") && !e.name.startsWith("node_modules") && e.isFile()
+      ).map((e) => ({
+        uri: `file://${path13.join(PROJECT_ROOT5, e.name)}`,
         name: e.name,
         mimeType: "text/plain"
       }));
       return { resources };
     } catch (e) {
-      throw new import_types.McpError(import_types.ErrorCode.InternalError, `Failed to list resources: ${getErrorMessage2(e)}`);
+      throw new import_types.McpError(
+        import_types.ErrorCode.InternalError,
+        `Failed to list resources: ${getErrorMessage(e)}`
+      );
     }
   });
   server.setRequestHandler(import_types.ReadResourceRequestSchema, async (request) => {
     const uri = request.params.uri;
     if (!uri.startsWith("file://")) {
-      throw new import_types.McpError(import_types.ErrorCode.InvalidRequest, "Only file:// URIs are supported");
+      throw new import_types.McpError(
+        import_types.ErrorCode.InvalidRequest,
+        "Only file:// URIs are supported"
+      );
     }
     const filePath = uri.slice(7);
-    const resolved = path14.resolve(filePath);
+    const resolved = path13.resolve(filePath);
     if (!resolved.startsWith(PROJECT_ROOT5)) {
-      throw new import_types.McpError(import_types.ErrorCode.InvalidRequest, "Path escapes project root");
+      throw new import_types.McpError(
+        import_types.ErrorCode.InvalidRequest,
+        "Path escapes project root"
+      );
     }
     try {
       const content = await (0, import_promises8.readFile)(filePath, "utf-8");
@@ -4919,7 +4250,10 @@ async function createMcpServer() {
         contents: [{ uri, mimeType: "text/plain", text: content }]
       };
     } catch (e) {
-      throw new import_types.McpError(import_types.ErrorCode.InternalError, `Failed to read resource: ${getErrorMessage2(e)}`);
+      throw new import_types.McpError(
+        import_types.ErrorCode.InternalError,
+        `Failed to read resource: ${getErrorMessage(e)}`
+      );
     }
   });
   server.setRequestHandler(import_types.ListPromptsRequestSchema, async () => {
@@ -4990,9 +4324,9 @@ function mountMcpSseRoutes(app2, basePath = "/mcp") {
 // server.ts
 init_browserTools();
 
-// src/server/teamSync.js
+// src/server/teamSync.ts
 var import_promises9 = require("fs/promises");
-var path15 = __toESM(require("path"), 1);
+var path14 = __toESM(require("path"), 1);
 var import_child_process5 = require("child_process");
 var import_util4 = require("util");
 var import_crypto4 = require("crypto");
@@ -5006,18 +4340,18 @@ var _status = {
   provider: "none"
 };
 var _intervalId = null;
-var SYNC_DIR = path15.join(process.cwd(), ".cvr");
-var CONFIG_PATH = path15.join(SYNC_DIR, "sync.json");
-var SYNC_STORAGE_DIR = path15.join(process.cwd(), ".opencode-infinite");
+var SYNC_DIR = path14.join(process.cwd(), ".cvr");
+var CONFIG_PATH = path14.join(SYNC_DIR, "sync.json");
+var SYNC_STORAGE_DIR = path14.join(process.cwd(), ".opencode-infinite");
 var SYNC_FILES = ["MEMORY.md", "USER.md", "history.json", "memory.json", "sessions.db"];
 function getSyncDir() {
   if (_config?.provider === "git" && _config.repo) {
-    return path15.join(process.cwd(), ".sync-clone");
+    return path14.join(process.cwd(), ".sync-clone");
   }
   if (_config?.provider === "file" && _config.path) {
     return _config.path;
   }
-  return path15.join(SYNC_DIR, "sync-data");
+  return path14.join(SYNC_DIR, "sync-data");
 }
 function getKey() {
   const keyStr = _config?.encryptionKey || process.env.SYNC_ENCRYPTION_KEY;
@@ -5122,12 +4456,12 @@ async function gitCommitAndPush(syncDir) {
 }
 function resolveSyncPath(fileName, syncDir) {
   if (_config?.encrypt) {
-    return path15.join(syncDir, `${fileName}.enc`);
+    return path14.join(syncDir, `${fileName}.enc`);
   }
-  return path15.join(syncDir, fileName);
+  return path14.join(syncDir, fileName);
 }
 async function exportFile(fileName, syncDir) {
-  const sourcePath = path15.join(SYNC_STORAGE_DIR, fileName);
+  const sourcePath = path14.join(SYNC_STORAGE_DIR, fileName);
   let data;
   try {
     data = await (0, import_promises9.readFile)(sourcePath);
@@ -5155,7 +4489,7 @@ async function importFile(fileName, syncDir) {
       throw new Error(`Failed to decrypt ${fileName}. Check encryption key.`);
     }
   }
-  const destPath = path15.join(SYNC_STORAGE_DIR, fileName);
+  const destPath = path14.join(SYNC_STORAGE_DIR, fileName);
   await (0, import_promises9.writeFile)(destPath, data);
 }
 async function exportAll(syncDir) {
@@ -5173,10 +4507,8 @@ async function resolveConflict(sourcePath, destPath) {
       (0, import_promises9.stat)(sourcePath).catch(() => null),
       (0, import_promises9.stat)(destPath).catch(() => null)
     ]);
-    if (!destStat)
-      return true;
-    if (!srcStat)
-      return false;
+    if (!destStat) return true;
+    if (!srcStat) return false;
     return srcStat.mtimeMs > destStat.mtimeMs;
   } catch {
     return true;
@@ -5186,7 +4518,7 @@ async function importWithConflictCheck(syncDir) {
   const conflicts = [];
   for (const file of SYNC_FILES) {
     const sourcePath = resolveSyncPath(file, syncDir);
-    const destPath = path15.join(SYNC_STORAGE_DIR, file);
+    const destPath = path14.join(SYNC_STORAGE_DIR, file);
     const shouldOverwrite = await resolveConflict(sourcePath, destPath);
     if (!shouldOverwrite) {
       conflicts.push(file);
@@ -5208,8 +4540,7 @@ async function exportSync() {
   try {
     const syncDir = getSyncDir();
     if (_config.provider === "git") {
-      if (!_config.repo)
-        throw new Error("Git repo URL not configured");
+      if (!_config.repo) throw new Error("Git repo URL not configured");
       await gitInit(syncDir);
       await gitSetRemote(syncDir, _config.repo);
       await gitPull(syncDir);
@@ -5238,8 +4569,7 @@ async function importSync() {
   try {
     const syncDir = getSyncDir();
     if (_config.provider === "git") {
-      if (!_config.repo)
-        throw new Error("Git repo URL not configured");
+      if (!_config.repo) throw new Error("Git repo URL not configured");
       await gitInit(syncDir);
       await gitSetRemote(syncDir, _config.repo);
       await gitPull(syncDir);
@@ -5274,8 +4604,7 @@ function restartAutoSync() {
     clearInterval(_intervalId);
     _intervalId = null;
   }
-  if (!_config?.enabled || !_config.interval)
-    return;
+  if (!_config?.enabled || !_config.interval) return;
   const intervalMs = _config.interval * 1e3;
   _intervalId = setInterval(() => {
     exportSync().catch((err) => {
@@ -5290,8 +4619,7 @@ async function initSync() {
   }
 }
 async function resolveConflictsManually(resolutions) {
-  if (!_config)
-    throw new Error("Sync not configured");
+  if (!_config) throw new Error("Sync not configured");
   const syncDir = getSyncDir();
   for (const [file, choice] of Object.entries(resolutions)) {
     if (choice === "remote") {
@@ -5300,7 +4628,7 @@ async function resolveConflictsManually(resolutions) {
   }
 }
 
-// src/server/standalone/middleware.js
+// src/server/standalone/middleware.ts
 var import_helmet = __toESM(require("helmet"), 1);
 var import_express_rate_limit = __toESM(require("express-rate-limit"), 1);
 function setupSecurityMiddleware(app2) {
@@ -5341,7 +4669,7 @@ function createApiKeyMiddleware() {
   };
 }
 
-// src/server/standalone/health.js
+// src/server/standalone/health.ts
 var _requestCount = 0;
 var _cacheHits = 0;
 var _cacheMisses = 0;
@@ -5393,10 +4721,10 @@ function setupHealthRoute(app2) {
   });
 }
 
-// src/server/providers.js
+// src/server/providers.ts
 var import_genai = require("@google/genai");
 
-// src/utils/constants.js
+// src/utils/constants.ts
 var TIMEOUT_PERMISSION = 5 * 60 * 1e3;
 var RATE_LIMIT_WINDOW_MS = 1 * 60 * 1e3;
 var PROVIDER_DEFAULT_MODELS = {
@@ -5406,7 +4734,7 @@ var PROVIDER_DEFAULT_MODELS = {
   deepseek: "deepseek-chat",
   grok: "grok-3",
   groq: "meta-llama/llama-4-maverick-17b-128e-instruct",
-  baseten: "meta-llama-4-maverick",
+  baseten: "meta-llama/Llama-4-Maverick-17B-128E-Instruct",
   openrouter: "google/gemini-2.5-flash",
   together: "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
   mistral: "mistral-large-latest",
@@ -5424,8 +4752,8 @@ var PROVIDER_BASE_URLS = {
   mistral: "https://api.mistral.ai/v1"
 };
 
-// src/server/costTracker.js
-var path16 = __toESM(require("path"), 1);
+// src/server/costTracker.ts
+var path15 = __toESM(require("path"), 1);
 var import_promises10 = require("fs/promises");
 var RATE_CARDS = {
   gemini: { input: 0.075, output: 0.3 },
@@ -5434,8 +4762,8 @@ var RATE_CARDS = {
   deepseek: { input: 0.14, output: 0.28 }
 };
 var GENERIC_RATE = { input: 1, output: 1 };
-var STORAGE_DIR = path16.join(process.cwd(), ".opencode-infinite");
-var COSTS_FILE = path16.join(STORAGE_DIR, "costs.json");
+var STORAGE_DIR = path15.join(process.cwd(), ".opencode-infinite");
+var COSTS_FILE = path15.join(STORAGE_DIR, "costs.json");
 function getRateCard(provider) {
   const key = provider.toLowerCase();
   return RATE_CARDS[key] || GENERIC_RATE;
@@ -5451,8 +4779,7 @@ async function loadCosts() {
     await (0, import_promises10.access)(COSTS_FILE);
     const data = await (0, import_promises10.readFile)(COSTS_FILE, "utf-8");
     const parsed = JSON.parse(data);
-    if (Array.isArray(parsed))
-      return parsed;
+    if (Array.isArray(parsed)) return parsed;
     return [];
   } catch {
     return [];
@@ -5510,12 +4837,11 @@ async function resetCosts() {
   await saveCosts([]);
 }
 function estimateTokens(text) {
-  if (!text)
-    return 0;
+  if (!text) return 0;
   return Math.ceil(text.length / 4);
 }
 
-// src/server/providers.js
+// src/server/providers.ts
 var AIProvider = class {
   resolveApiKey(envVar, override) {
     return override || process.env[envVar] || "";
@@ -5526,8 +4852,7 @@ var GeminiProvider = class extends AIProvider {
   cachedKey = void 0;
   getClient(apiKey) {
     const key = this.resolveApiKey("GEMINI_API_KEY", apiKey);
-    if (!apiKey && this.cachedClient && this.cachedKey === key)
-      return this.cachedClient;
+    if (!apiKey && this.cachedClient && this.cachedKey === key) return this.cachedClient;
     const client = new import_genai.GoogleGenAI({ apiKey: key });
     if (!apiKey) {
       this.cachedClient = client;
@@ -5581,10 +4906,8 @@ function buildOpenAICompatibleBody(options, providerName) {
           return {
             role: c.role === "model" ? "assistant" : c.role,
             content: c.parts.map((p) => {
-              if (p.text)
-                return { type: "text", text: p.text };
-              if (p.inlineData)
-                return { type: "image_url", image_url: { url: `data:${p.inlineData.mimeType};base64,${p.inlineData.data}` } };
+              if (p.text) return { type: "text", text: p.text };
+              if (p.inlineData) return { type: "image_url", image_url: { url: `data:${p.inlineData.mimeType};base64,${p.inlineData.data}` } };
               return null;
             }).filter((x) => x !== null)
           };
@@ -5596,10 +4919,8 @@ function buildOpenAICompatibleBody(options, providerName) {
       })
     ]
   };
-  if (temperature !== void 0)
-    body.temperature = temperature;
-  if (maxTokens !== void 0)
-    body.max_tokens = maxTokens;
+  if (temperature !== void 0) body.temperature = temperature;
+  if (maxTokens !== void 0) body.max_tokens = maxTokens;
   return body;
 }
 function getEnvVarForProvider(provider) {
@@ -5624,8 +4945,7 @@ var ALLOWED_LOCAL_URLS = [
   "http://0.0.0.0"
 ];
 function validateLocalUrl(localUrl, provider) {
-  if (!localUrl)
-    return null;
+  if (!localUrl) return null;
   try {
     const parsed = new URL(localUrl);
     const origin = parsed.origin.toLowerCase();
@@ -5641,7 +4961,6 @@ function validateLocalUrl(localUrl, provider) {
   }
 }
 var OpenAICompatibleProvider = class extends AIProvider {
-  provider;
   constructor(provider) {
     super();
     this.provider = provider;
@@ -5649,8 +4968,7 @@ var OpenAICompatibleProvider = class extends AIProvider {
   async generate(options) {
     const { prompt, contents, localUrl, apiKey, modelName, temperature, maxTokens } = options;
     const urlError = validateLocalUrl(localUrl, this.provider);
-    if (urlError)
-      throw new Error(urlError);
+    if (urlError) throw new Error(urlError);
     const baseUrl = localUrl || PROVIDER_BASE_URLS[this.provider] || "";
     const key = this.resolveApiKey(getEnvVarForProvider(this.provider), apiKey);
     const body = buildOpenAICompatibleBody({ prompt, contents, modelName, temperature, maxTokens }, this.provider);
@@ -5664,8 +4982,7 @@ var OpenAICompatibleProvider = class extends AIProvider {
       body: JSON.stringify(body)
     });
     const data = await response.json();
-    if (data.error)
-      throw new Error(data.error.message || `${this.provider} API error`);
+    if (data.error) throw new Error(data.error.message || `${this.provider} API error`);
     const text = data.choices?.[0]?.message?.content ?? "";
     const inputTokens = data.usage?.prompt_tokens || estimateTokens(prompt + contents.map((c) => c.parts?.[0]?.text || "").join(" "));
     const outputTokens = data.usage?.completion_tokens || estimateTokens(text);
@@ -5693,10 +5010,8 @@ var AnthropicProvider = class extends AIProvider {
             return {
               role: c.role === "model" ? "assistant" : c.role,
               content: c.parts.map((p) => {
-                if (p.text)
-                  return { type: "text", text: p.text };
-                if (p.inlineData)
-                  return { type: "image", source: { type: "base64", media_type: p.inlineData.mimeType, data: p.inlineData.data } };
+                if (p.text) return { type: "text", text: p.text };
+                if (p.inlineData) return { type: "image", source: { type: "base64", media_type: p.inlineData.mimeType, data: p.inlineData.data } };
                 return null;
               }).filter((x) => x !== null)
             };
@@ -5709,8 +5024,7 @@ var AnthropicProvider = class extends AIProvider {
       })
     });
     const data = await response.json();
-    if (data.error)
-      throw new Error(data.error.message || "Anthropic error");
+    if (data.error) throw new Error(data.error.message || "Anthropic error");
     const text = data.content?.[0]?.text ?? "";
     const inputTokens = data.usage?.input_tokens || estimateTokens(prompt);
     const outputTokens = data.usage?.output_tokens || estimateTokens(text);
@@ -5737,8 +5051,7 @@ async function generateAIContent(prompt, contents = [], provider, localUrl, mode
   }
   if (useCache) {
     const cached = aiCache.get(prompt, contents, provider, modelName);
-    if (cached)
-      return cached;
+    if (cached) return cached;
   }
   const p = providers[provider];
   if (!p) {
@@ -5753,27 +5066,45 @@ async function generateAIContent(prompt, contents = [], provider, localUrl, mode
 async function generateWithDualModel(prompt, contents = [], config, purpose = "auto") {
   const useThinking = purpose === "think" || purpose === "auto" && config.thinkingProvider && config.thinkingModel;
   if (useThinking && config.thinkingProvider && config.thinkingModel) {
-    return generateAIContent(prompt, contents, config.thinkingProvider, config.thinkingLocalUrl || config.primaryLocalUrl, config.thinkingModel, config.apiKey, config.temperature, config.maxTokens);
+    return generateAIContent(
+      prompt,
+      contents,
+      config.thinkingProvider,
+      config.thinkingLocalUrl || config.primaryLocalUrl,
+      config.thinkingModel,
+      config.apiKey,
+      config.temperature,
+      config.maxTokens
+    );
   }
-  return generateAIContent(prompt, contents, config.primaryProvider, config.primaryLocalUrl, config.primaryModel, config.apiKey, config.temperature, config.maxTokens);
+  return generateAIContent(
+    prompt,
+    contents,
+    config.primaryProvider,
+    config.primaryLocalUrl,
+    config.primaryModel,
+    config.apiKey,
+    config.temperature,
+    config.maxTokens
+  );
 }
 async function generateEmbeddings(texts) {
   const gemini = providers.gemini;
   return gemini.embed(texts);
 }
 
-// src/server/agentMarketplace.js
+// src/server/agentMarketplace.ts
 var import_promises11 = require("fs/promises");
-var path17 = __toESM(require("path"), 1);
+var path16 = __toESM(require("path"), 1);
 var import_crypto5 = require("crypto");
-var MARKET_DIR = path17.join(process.cwd(), ".cvr", "marketplace");
-var INDEX_FILE = path17.join(MARKET_DIR, "index.json");
-var REVIEWS_FILE = path17.join(MARKET_DIR, "reviews.json");
+var MARKET_DIR = path16.join(process.cwd(), ".cvr", "marketplace");
+var INDEX_FILE = path16.join(MARKET_DIR, "index.json");
+var REVIEWS_FILE = path16.join(MARKET_DIR, "reviews.json");
 var items = [];
 var reviews = [];
 async function ensureMarketDir() {
   await (0, import_promises11.mkdir)(MARKET_DIR, { recursive: true });
-  await (0, import_promises11.mkdir)(path17.join(MARKET_DIR, "packages"), { recursive: true });
+  await (0, import_promises11.mkdir)(path16.join(MARKET_DIR, "packages"), { recursive: true });
 }
 async function loadIndex() {
   try {
@@ -5805,20 +5136,20 @@ async function initMarketplace() {
 }
 function getMarketItems(type, tag, search) {
   let result = [...items];
-  if (type)
-    result = result.filter((i) => i.type === type);
-  if (tag)
-    result = result.filter((i) => i.tags.includes(tag));
+  if (type) result = result.filter((i) => i.type === type);
+  if (tag) result = result.filter((i) => i.tags.includes(tag));
   if (search) {
     const q = search.toLowerCase();
-    result = result.filter((i) => i.name.toLowerCase().includes(q) || i.description.toLowerCase().includes(q) || i.tags.some((t) => t.toLowerCase().includes(q)));
+    result = result.filter(
+      (i) => i.name.toLowerCase().includes(q) || i.description.toLowerCase().includes(q) || i.tags.some((t) => t.toLowerCase().includes(q))
+    );
   }
   return result.sort((a, b) => b.downloads - a.downloads);
 }
 async function publishItem(type, name, description, content, author = "unknown", version = "1.0.0", tags = []) {
   await ensureMarketDir();
   const id = `${type}-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${(0, import_crypto5.randomBytes)(4).toString("hex")}`;
-  const pkgPath = path17.join(MARKET_DIR, "packages", `${id}.json`);
+  const pkgPath = path16.join(MARKET_DIR, "packages", `${id}.json`);
   const pkg = { type, name, description, content, author, version, tags };
   await (0, import_promises11.writeFile)(pkgPath, JSON.stringify(pkg, null, 2), "utf-8");
   const existing = items.find((i) => i.name === name && i.type === type);
@@ -5852,16 +5183,14 @@ async function publishItem(type, name, description, content, author = "unknown",
 }
 async function downloadItem(id) {
   const item = items.find((i) => i.id === id);
-  if (!item)
-    return null;
+  if (!item) return null;
   item.downloads++;
   await saveIndex();
   return item;
 }
 async function removeItem(id) {
   const idx = items.findIndex((i) => i.id === id);
-  if (idx === -1)
-    return false;
+  if (idx === -1) return false;
   const item = items[idx];
   if (item) {
     try {
@@ -5901,8 +5230,7 @@ function getTags(type) {
   const tagSet = /* @__PURE__ */ new Set();
   const pool = type ? items.filter((i) => i.type === type) : items;
   for (const item of pool) {
-    for (const tag of item.tags)
-      tagSet.add(tag);
+    for (const tag of item.tags) tagSet.add(tag);
   }
   return Array.from(tagSet).sort();
 }
@@ -5919,7 +5247,7 @@ function getStats() {
 // server.ts
 init_p2pSync();
 
-// src/server/validation.js
+// src/server/validation.ts
 var import_zod = require("zod");
 function validateBody(schema) {
   return (req, res, next) => {
@@ -6022,11 +5350,11 @@ var SettingsSchema = import_zod.z.object({
   thinkingLocalUrl: import_zod.z.string().optional()
 }).passthrough();
 
-// src/server/routes/chat.js
-var path19 = __toESM(require("path"), 1);
+// src/server/routes/chat.ts
+var path18 = __toESM(require("path"), 1);
 var import_promises14 = require("fs/promises");
 
-// src/server/prompts.js
+// src/server/prompts.ts
 var import_promises13 = require("fs/promises");
 var AGENT_PROMPTS = {
   build: `[ROLE: BUILD] - DEFAULT DEVELOPER AGENT. You have full access to developer tools (read/write files, execute bash). Focus on iterative coding, bug fixing, and implementation.`,
@@ -6075,10 +5403,14 @@ Do NOT write files or execute commands. Provide structured review comments with 
 You are in BUILD mode. You have full access to all tools including write_file, edit_file, and execute_command.
 Implement the plan directly and efficiently.`;
   const customTools = await loadCustomTools();
-  const customToolDescriptions = customTools.map((t) => `- ${t.id}${t.readOnly ? " (read-only)" : ""}: ${t.description}
-  params: ${JSON.stringify(t.parameters.map((p) => p.name))}`).join("\n");
-  const toolDescriptions = TOOL_DEFINITIONS.map((t) => `- ${t.name}${t.isReadOnly ? " (read-only)" : ""}: ${t.description}
-  params: ${JSON.stringify(t.parameters.properties)}`).join("\n") + (customToolDescriptions ? "\n" + customToolDescriptions : "");
+  const customToolDescriptions = customTools.map(
+    (t) => `- ${t.id}${t.readOnly ? " (read-only)" : ""}: ${t.description}
+  params: ${JSON.stringify(t.parameters.map((p) => p.name))}`
+  ).join("\n");
+  const toolDescriptions = TOOL_DEFINITIONS.map(
+    (t) => `- ${t.name}${t.isReadOnly ? " (read-only)" : ""}: ${t.description}
+  params: ${JSON.stringify(t.parameters.properties)}`
+  ).join("\n") + (customToolDescriptions ? "\n" + customToolDescriptions : "");
   const memoryContext = await getMemoryContext();
   const instructionsContext = await getInstructionsContext();
   const persistentContext = contextParts || memoryContext || "No previous knowledge clusters found. Kernel is in cold-start mode.";
@@ -6145,14 +5477,7 @@ ${persistentContext}${instructionsContext ? "\n" + instructionsContext : ""}`;
   return resultPrompt;
 }
 
-// src/server/contextWindow.js
-var Priority;
-(function(Priority2) {
-  Priority2[Priority2["CRITICAL"] = 5] = "CRITICAL";
-  Priority2[Priority2["HIGH"] = 3] = "HIGH";
-  Priority2[Priority2["NORMAL"] = 1] = "NORMAL";
-  Priority2[Priority2["LOW"] = 0] = "LOW";
-})(Priority || (Priority = {}));
+// src/server/contextWindow.ts
 var ContextWindow = class {
   messages = [];
   maxTokens;
@@ -6162,7 +5487,7 @@ var ContextWindow = class {
     this.maxTokens = options.maxTokens ?? 128e3;
     this.tokenBuffer = options.tokenBuffer ?? 16e3;
   }
-  add(role, content, priority = Priority.NORMAL) {
+  add(role, content, priority = 1 /* NORMAL */) {
     this.messages.push({
       role,
       content,
@@ -6173,7 +5498,7 @@ var ContextWindow = class {
   }
   addMany(msgs) {
     for (const m of msgs) {
-      this.add(m.role, m.content, m.priority ?? Priority.NORMAL);
+      this.add(m.role, m.content, m.priority ?? 1 /* NORMAL */);
     }
   }
   clear() {
@@ -6187,8 +5512,8 @@ var ContextWindow = class {
   }
   getMessages() {
     const effectiveBudget = this.maxTokens - this.tokenBuffer;
-    const systemMsgs = this.messages.filter((m) => m.priority === Priority.CRITICAL);
-    const rest = this.messages.filter((m) => m.priority !== Priority.CRITICAL);
+    const systemMsgs = this.messages.filter((m) => m.priority === 5 /* CRITICAL */);
+    const rest = this.messages.filter((m) => m.priority !== 5 /* CRITICAL */);
     const systemTokens = systemMsgs.reduce((sum, m) => sum + estimateTokens(m.content), 0);
     let remainingBudget = effectiveBudget - systemTokens;
     if (remainingBudget <= 0) {
@@ -6230,7 +5555,7 @@ var ContextWindow = class {
 };
 var globalContextWindow = new ContextWindow();
 
-// src/server/imageProcessor.js
+// src/server/imageProcessor.ts
 var import_sharp = __toESM(require("sharp"), 1);
 init_errors();
 var DEFAULT_MAX_DIMENSION = 1024;
@@ -6247,14 +5572,10 @@ function detectMimeTypeFromBase64(base64) {
   const clean = base64.replace(/^data:image\/\w+;base64,/, "");
   const header = clean.slice(0, 8);
   const headerHex = Buffer.from(header, "base64").toString("hex");
-  if (headerHex.startsWith("89504e47"))
-    return "image/png";
-  if (headerHex.startsWith("ffd8"))
-    return "image/jpeg";
-  if (headerHex.startsWith("52494646") || headerHex.startsWith("57454250"))
-    return "image/webp";
-  if (headerHex.startsWith("47494638"))
-    return "image/gif";
+  if (headerHex.startsWith("89504e47")) return "image/png";
+  if (headerHex.startsWith("ffd8")) return "image/jpeg";
+  if (headerHex.startsWith("52494646") || headerHex.startsWith("57454250")) return "image/webp";
+  if (headerHex.startsWith("47494638")) return "image/gif";
   return "image/png";
 }
 function stripDataUrl(base64) {
@@ -6325,33 +5646,26 @@ async function processImages(base64Images, options = {}) {
   return results;
 }
 
-// src/server/routes/chat.js
+// src/server/routes/chat.ts
+init_errors();
 function buildDualConfig(cfg) {
   const result = {
     primaryProvider: cfg.aiProvider || ""
   };
-  if (cfg.aiModel !== void 0)
-    result.primaryModel = cfg.aiModel;
-  if (cfg.localUrl !== void 0)
-    result.primaryLocalUrl = cfg.localUrl;
-  if (cfg.multiModelEnabled && cfg.thinkingProvider !== void 0)
-    result.thinkingProvider = cfg.thinkingProvider;
-  if (cfg.multiModelEnabled && cfg.thinkingModel !== void 0)
-    result.thinkingModel = cfg.thinkingModel;
-  if (cfg.thinkingLocalUrl !== void 0)
-    result.thinkingLocalUrl = cfg.thinkingLocalUrl;
+  if (cfg.aiModel !== void 0) result.primaryModel = cfg.aiModel;
+  if (cfg.localUrl !== void 0) result.primaryLocalUrl = cfg.localUrl;
+  if (cfg.multiModelEnabled && cfg.thinkingProvider !== void 0) result.thinkingProvider = cfg.thinkingProvider;
+  if (cfg.multiModelEnabled && cfg.thinkingModel !== void 0) result.thinkingModel = cfg.thinkingModel;
+  if (cfg.thinkingLocalUrl !== void 0) result.thinkingLocalUrl = cfg.thinkingLocalUrl;
   const providerKey = cfg.providerKeys?.[cfg.aiProvider || ""] || cfg.apiKey;
-  if (providerKey !== void 0)
-    result.apiKey = providerKey;
-  if (cfg.temperature !== void 0)
-    result.temperature = cfg.temperature;
-  if (cfg.maxTokens !== void 0)
-    result.maxTokens = cfg.maxTokens;
+  if (providerKey !== void 0) result.apiKey = providerKey;
+  if (cfg.temperature !== void 0) result.temperature = cfg.temperature;
+  if (cfg.maxTokens !== void 0) result.maxTokens = cfg.maxTokens;
   return result;
 }
-var STORAGE_DIR2 = path19.join(process.cwd(), ".opencode-infinite");
-var HISTORY_FILE = path19.join(STORAGE_DIR2, "history.json");
-var MEMORY_FILE = path19.join(STORAGE_DIR2, "memory.json");
+var STORAGE_DIR2 = path18.join(process.cwd(), ".opencode-infinite");
+var HISTORY_FILE = path18.join(STORAGE_DIR2, "history.json");
+var MEMORY_FILE = path18.join(STORAGE_DIR2, "memory.json");
 async function ensureStorage() {
   try {
     await (0, import_promises14.mkdir)(STORAGE_DIR2, { recursive: true });
@@ -6374,8 +5688,7 @@ var _historyCacheTime = 0;
 var _memoryCache = null;
 var _memoryCacheTime = 0;
 async function getHistoryCached() {
-  if (_historyCache && Date.now() - _historyCacheTime < 5e3)
-    return _historyCache;
+  if (_historyCache && Date.now() - _historyCacheTime < 5e3) return _historyCache;
   try {
     _historyCache = JSON.parse(await (0, import_promises14.readFile)(HISTORY_FILE, "utf-8"));
     _historyCacheTime = Date.now();
@@ -6385,8 +5698,7 @@ async function getHistoryCached() {
   }
 }
 async function getMemoriesCached() {
-  if (_memoryCache && Date.now() - _memoryCacheTime < 5e3)
-    return _memoryCache;
+  if (_memoryCache && Date.now() - _memoryCacheTime < 5e3) return _memoryCache;
   try {
     _memoryCache = JSON.parse(await (0, import_promises14.readFile)(MEMORY_FILE, "utf-8"));
     _memoryCacheTime = Date.now();
@@ -6404,8 +5716,7 @@ function invalidateMemoryCache() {
   _memoryCacheTime = 0;
 }
 async function summarizeLongHistory(messages, provider, localUrl, modelName, apiKey, dualConfig) {
-  if (messages.length < 5)
-    return null;
+  if (messages.length < 5) return null;
   const instruction = `You are the "cvr.name Dreamer Engine". Examine the conversation below and extract:
   1. KEY_FACTS: Fundamental project decisions or requirements.
   2. INVARIANT_RULES: Coding standards or logic that MUST not change.
@@ -6466,7 +5777,7 @@ function registerRoutes(app2) {
       };
       const ctxWindow = new ContextWindow({ maxTokens: 128e3, tokenBuffer: 16e3 });
       for (const m of history.slice(-20)) {
-        const priority = m.role === "user" && m.content.startsWith("/") ? Priority.HIGH : Priority.NORMAL;
+        const priority = m.role === "user" && m.content.startsWith("/") ? 3 /* HIGH */ : 1 /* NORMAL */;
         ctxWindow.add(m.role, m.content, priority);
       }
       const visibleHistory = ctxWindow.getMessages();
@@ -6519,8 +5830,8 @@ function registerRoutes(app2) {
       trackCost(aiProvider, resolvedModel || "unknown", estimatedInputTokens, estimatedOutputTokens).catch(() => {
       });
     } catch (error) {
-      console.error("API Error:", getErrorMessage2(error));
-      res.status(500).json({ error: getErrorMessage2(error) });
+      console.error("API Error:", getErrorMessage(error));
+      res.status(500).json({ error: getErrorMessage(error) });
     }
   });
   app2.get("/api/models", async (req, res) => {
@@ -6601,8 +5912,9 @@ function registerRoutes(app2) {
         res.status(400).json({ error: "API key required \u2014 set via env var or enter in settings" });
         return;
       }
+      const authPrefix = provider === "baseten" ? "Api-Key" : "Bearer";
       const resp = await fetch(`${baseUrl.replace(/\/$/, "")}/models`, {
-        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" }
+        headers: { Authorization: `${authPrefix} ${key}`, "Content-Type": "application/json" }
       });
       if (!resp.ok) {
         const err = await resp.text().catch(() => "");
@@ -6614,7 +5926,7 @@ function registerRoutes(app2) {
       const models = rawModels.filter((m) => m.id && !m.id.includes("embed") && !m.id.includes("tts") && !m.id.includes("whisper") && !m.id.includes("dall")).sort((a, b) => (b.created || 0) - (a.created || 0)).slice(0, 40).map((m) => ({ id: m.id || "", name: m.id || "" }));
       res.json({ models });
     } catch (err) {
-      res.status(500).json({ error: getErrorMessage2(err) });
+      res.status(500).json({ error: getErrorMessage(err) });
     }
   });
   app2.get("/api/history", async (_req, res) => {
@@ -6635,14 +5947,15 @@ function registerRoutes(app2) {
   });
 }
 
-// src/server/routes/memory.js
+// src/server/routes/memory.ts
+init_errors();
 function registerRoutes2(app2) {
   app2.get("/api/memory", async (_req, res) => {
     try {
       const data = await readMemory();
       res.json({ raw: data.raw, sections: data.sections });
     } catch (e) {
-      res.status(500).json({ error: getErrorMessage2(e) });
+      res.status(500).json({ error: getErrorMessage(e) });
     }
   });
   app2.post("/api/memory", async (req, res) => {
@@ -6651,7 +5964,7 @@ function registerRoutes2(app2) {
       await writeMemory(content ?? "", section);
       res.json({ saved: true });
     } catch (e) {
-      res.status(500).json({ error: getErrorMessage2(e) });
+      res.status(500).json({ error: getErrorMessage(e) });
     }
   });
   app2.put("/api/memory", async (req, res) => {
@@ -6660,7 +5973,7 @@ function registerRoutes2(app2) {
       await replaceMemorySection(section, content.split("\n"));
       res.json({ saved: true });
     } catch (e) {
-      res.status(500).json({ error: getErrorMessage2(e) });
+      res.status(500).json({ error: getErrorMessage(e) });
     }
   });
   app2.delete("/api/memory", async (req, res) => {
@@ -6669,7 +5982,7 @@ function registerRoutes2(app2) {
       await deleteMemorySection(section);
       res.json({ deleted: true });
     } catch (e) {
-      res.status(500).json({ error: getErrorMessage2(e) });
+      res.status(500).json({ error: getErrorMessage(e) });
     }
   });
   app2.get("/api/user", async (_req, res) => {
@@ -6677,7 +5990,7 @@ function registerRoutes2(app2) {
       const data = await readUser();
       res.json({ raw: data.raw, sections: data.sections });
     } catch (e) {
-      res.status(500).json({ error: getErrorMessage2(e) });
+      res.status(500).json({ error: getErrorMessage(e) });
     }
   });
   app2.post("/api/user", async (req, res) => {
@@ -6686,7 +5999,7 @@ function registerRoutes2(app2) {
       await writeUser(content ?? "", section);
       res.json({ saved: true });
     } catch (e) {
-      res.status(500).json({ error: getErrorMessage2(e) });
+      res.status(500).json({ error: getErrorMessage(e) });
     }
   });
   app2.put("/api/user", async (req, res) => {
@@ -6695,7 +6008,7 @@ function registerRoutes2(app2) {
       await replaceUserSection(section, content.split("\n"));
       res.json({ saved: true });
     } catch (e) {
-      res.status(500).json({ error: getErrorMessage2(e) });
+      res.status(500).json({ error: getErrorMessage(e) });
     }
   });
   app2.delete("/api/user", async (req, res) => {
@@ -6704,13 +6017,14 @@ function registerRoutes2(app2) {
       await deleteUserSection(section);
       res.json({ deleted: true });
     } catch (e) {
-      res.status(500).json({ error: getErrorMessage2(e) });
+      res.status(500).json({ error: getErrorMessage(e) });
     }
   });
 }
 
-// src/server/routes/sessions.js
+// src/server/routes/sessions.ts
 init_sessionStore();
+init_errors();
 function registerRoutes3(app2) {
   app2.post("/api/sessions", async (req, res) => {
     try {
@@ -6718,7 +6032,7 @@ function registerRoutes3(app2) {
       const session = createSession(title || "New Session");
       return res.json(session);
     } catch (e) {
-      return res.status(500).json({ error: getErrorMessage2(e) });
+      return res.status(500).json({ error: getErrorMessage(e) });
     }
   });
   app2.get("/api/sessions", async (_req, res) => {
@@ -6726,17 +6040,16 @@ function registerRoutes3(app2) {
       const sessions = listSessions();
       return res.json({ sessions });
     } catch (e) {
-      return res.status(500).json({ error: getErrorMessage2(e) });
+      return res.status(500).json({ error: getErrorMessage(e) });
     }
   });
   app2.get("/api/sessions/:id", async (req, res) => {
     try {
       const result = getSession(req.params.id);
-      if (!result)
-        return res.status(404).json({ error: "Session not found" });
+      if (!result) return res.status(404).json({ error: "Session not found" });
       return res.json(result);
     } catch (e) {
-      return res.status(500).json({ error: getErrorMessage2(e) });
+      return res.status(500).json({ error: getErrorMessage(e) });
     }
   });
   app2.post("/api/sessions/:id/messages", async (req, res) => {
@@ -6767,7 +6080,7 @@ function registerRoutes3(app2) {
   });
 }
 
-// src/server/routes/knowledge.js
+// src/server/routes/knowledge.ts
 function registerRoutes4(app2) {
   app2.get("/api/skills", async (_req, res) => {
     try {
@@ -6780,8 +6093,7 @@ function registerRoutes4(app2) {
   app2.get("/api/skills/:id", async (req, res) => {
     try {
       const skill = await getSkillById(req.params.id);
-      if (!skill)
-        return res.status(404).json({ error: "Skill not found" });
+      if (!skill) return res.status(404).json({ error: "Skill not found" });
       return res.json({ id: skill.id, name: skill.name, description: skill.description, triggers: skill.triggers, content: skill.content });
     } catch (e) {
       return res.status(500).json({ error: e.message });
@@ -6832,8 +6144,7 @@ function registerRoutes4(app2) {
     try {
       const instructions = await loadInstructions();
       const rule = instructions.find((r) => r.name === req.params.name);
-      if (!rule)
-        return res.status(404).json({ error: "Rule not found" });
+      if (!rule) return res.status(404).json({ error: "Rule not found" });
       return res.json({ name: rule.name, content: rule.content, priority: rule.priority });
     } catch (e) {
       return res.status(500).json({ error: e.message });
@@ -6876,8 +6187,7 @@ function registerRoutes4(app2) {
     try {
       const tools = await loadCustomTools();
       const tool = tools.find((t) => t.id === req.params.id);
-      if (!tool)
-        return res.status(404).json({ error: "Tool not found" });
+      if (!tool) return res.status(404).json({ error: "Tool not found" });
       return res.json({ id: tool.id, name: tool.name, description: tool.description, parameters: tool.parameters, readOnly: tool.readOnly });
     } catch (e) {
       return res.status(500).json({ error: e.message });
@@ -6885,13 +6195,12 @@ function registerRoutes4(app2) {
   });
 }
 
-// src/server/cronScheduler.js
+// src/server/cronScheduler.ts
 var import_crypto7 = require("crypto");
 function parseSchedule(schedule) {
   if (schedule.startsWith("every ")) {
     const match = schedule.match(/every (\d+) (minute|minutes|hour|hours|day|days)/);
-    if (!match || match[1] === void 0 || match[2] === void 0)
-      return null;
+    if (!match || match[1] === void 0 || match[2] === void 0) return null;
     const num = parseInt(match[1], 10);
     const unit = match[2];
     const ms = unit.startsWith("minute") ? num * 60 * 1e3 : unit.startsWith("hour") ? num * 60 * 60 * 1e3 : num * 24 * 60 * 60 * 1e3;
@@ -6900,8 +6209,7 @@ function parseSchedule(schedule) {
   const parts = schedule.split(" ");
   if (parts.length === 5 && parts[0] !== void 0 && parts[0].startsWith("*/")) {
     const mins = parseInt(parts[0].slice(2), 10);
-    if (!isNaN(mins))
-      return mins * 60 * 1e3;
+    if (!isNaN(mins)) return mins * 60 * 1e3;
   }
   return null;
 }
@@ -6923,15 +6231,13 @@ var CronScheduler = class {
   }
   enableTask(id) {
     const task = this.tasks.get(id);
-    if (!task)
-      return;
+    if (!task) return;
     task.enabled = true;
     this.startTask(id);
   }
   disableTask(id) {
     const task = this.tasks.get(id);
-    if (!task)
-      return;
+    if (!task) return;
     task.enabled = false;
     this.stopTask(id);
   }
@@ -6943,11 +6249,9 @@ var CronScheduler = class {
   }
   startTask(id) {
     const task = this.tasks.get(id);
-    if (!task || !task.enabled)
-      return;
+    if (!task || !task.enabled) return;
     const interval = parseSchedule(task.schedule);
-    if (!interval)
-      return;
+    if (!interval) return;
     task.nextRun = Date.now() + interval;
     const timer = setInterval(() => {
       this.runTask(id);
@@ -6963,20 +6267,17 @@ var CronScheduler = class {
   }
   runTask(id) {
     const task = this.tasks.get(id);
-    if (!task)
-      return;
+    if (!task) return;
     task.lastRun = Date.now();
     task.nextRun = Date.now() + (parseSchedule(task.schedule) || 0);
     console.log(`[CRON] Running task ${task.name}: ${task.command}`);
   }
   onTaskRun(id, callback) {
     const task = this.tasks.get(id);
-    if (!task)
-      return;
+    if (!task) return;
     this.stopTask(id);
     const interval = parseSchedule(task.schedule);
-    if (!interval)
-      return;
+    if (!interval) return;
     const timer = setInterval(() => {
       task.lastRun = Date.now();
       task.nextRun = Date.now() + interval;
@@ -6993,7 +6294,7 @@ var CronScheduler = class {
 };
 var cronScheduler = new CronScheduler();
 
-// src/server/promptTester.js
+// src/server/promptTester.ts
 async function runPromptTest(req) {
   const variantResults = [];
   for (const variant of req.variants) {
@@ -7010,7 +6311,16 @@ async function runPromptTest(req) {
         temperature: req.temperature ?? 0.7,
         maxTokens: req.maxTokens ?? 4096
       };
-      const response = await generateAIContent(options.prompt, contents, req.provider, req.localUrl ?? "", req.model ?? "", req.apiKey ?? "", options.temperature, options.maxTokens);
+      const response = await generateAIContent(
+        options.prompt,
+        contents,
+        req.provider,
+        req.localUrl ?? "",
+        req.model ?? "",
+        req.apiKey ?? "",
+        options.temperature,
+        options.maxTokens
+      );
       const outputTok = estimateTokens(response);
       variantResults.push({
         variantName: variant.name,
@@ -7038,7 +6348,14 @@ async function runPromptTest(req) {
   const judgeProvider = req.judgeProvider || req.provider;
   const judgeModel = req.judgeModel || req.model;
   if (variantResults.length >= 2 && variantResults.every((v) => !v.error) && judgeProvider) {
-    const comparison = await compareWithJudge(req.task, variantResults, judgeProvider, req.localUrl ?? "", judgeModel ?? "", req.apiKey ?? "");
+    const comparison = await compareWithJudge(
+      req.task,
+      variantResults,
+      judgeProvider,
+      req.localUrl ?? "",
+      judgeModel ?? "",
+      req.apiKey ?? ""
+    );
     result.comparison = comparison;
   }
   return result;
@@ -7064,30 +6381,47 @@ Output ONLY a JSON object (no markdown, no code fences):
     "VariantB": { "quality": 7, "efficiency": 9, "creativity": 8 }
   }
 }`;
-  const variantsText = results.map((r) => `### VARIANT: ${r.variantName} (${r.inputTokens + r.outputTokens} tokens, ${r.timeMs}ms)
-${r.output.slice(0, 2e3)}`).join("\n\n---\n\n");
+  const variantsText = results.map(
+    (r) => `### VARIANT: ${r.variantName} (${r.inputTokens + r.outputTokens} tokens, ${r.timeMs}ms)
+${r.output.slice(0, 2e3)}`
+  ).join("\n\n---\n\n");
   try {
-    const response = await generateAIContent(comparisonPrompt + "\n\n" + variantsText, [], provider, localUrl, model, apiKey, 0.3, 2048);
+    const response = await generateAIContent(
+      comparisonPrompt + "\n\n" + variantsText,
+      [],
+      provider,
+      localUrl,
+      model,
+      apiKey,
+      0.3,
+      2048
+    );
     const cleaned = response.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
     return JSON.parse(cleaned);
   } catch {
-    const bestTokens = results.reduce((best, r) => r.inputTokens + r.outputTokens < best.inputTokens + best.outputTokens ? r : best);
+    const bestTokens = results.reduce(
+      (best, r) => r.inputTokens + r.outputTokens < best.inputTokens + best.outputTokens ? r : best
+    );
     return {
       winner: bestTokens.variantName,
       reasoning: "Fallback: selected by lowest token count (judge unavailable).",
-      scores: Object.fromEntries(results.map((r) => [
-        r.variantName,
-        {
-          quality: Math.round((1 - (r.output.length ? 0 : 1)) * 10),
-          efficiency: Math.round(Math.min(10, 1e4 / Math.max(1, r.inputTokens + r.outputTokens))),
-          creativity: 5
-        }
-      ]))
+      scores: Object.fromEntries(
+        results.map((r) => [
+          r.variantName,
+          {
+            quality: Math.round((1 - (r.output.length ? 0 : 1)) * 10),
+            efficiency: Math.round(
+              Math.min(10, 1e4 / Math.max(1, r.inputTokens + r.outputTokens))
+            ),
+            creativity: 5
+          }
+        ])
+      )
     };
   }
 }
 
-// src/server/routes/ecosystem.js
+// src/server/routes/ecosystem.ts
 init_p2pSync();
 function registerRoutes5(app2) {
   app2.get("/api/plugins", async (_req, res) => {
@@ -7263,11 +6597,11 @@ function registerRoutes5(app2) {
   });
 }
 
-// src/server/changes.js
+// src/server/changes.ts
 var import_promises15 = require("fs/promises");
-var path20 = __toESM(require("path"), 1);
-var STORAGE_DIR3 = path20.join(process.cwd(), ".opencode-infinite");
-var CHANGES_FILE = path20.join(STORAGE_DIR3, "changes.json");
+var path19 = __toESM(require("path"), 1);
+var STORAGE_DIR3 = path19.join(process.cwd(), ".opencode-infinite");
+var CHANGES_FILE = path19.join(STORAGE_DIR3, "changes.json");
 var MAX_CHANGES = 50;
 var MAX_SNAPSHOT_SIZE = 1024 * 1024;
 async function loadHistory() {
@@ -7286,7 +6620,7 @@ async function recordChange(filePath, operation, afterContent, description) {
   const history = await loadHistory();
   let beforeContent = null;
   try {
-    const fullPath = path20.join(process.cwd(), filePath);
+    const fullPath = path19.join(process.cwd(), filePath);
     const fileStats = await (0, import_promises15.stat)(fullPath);
     if (fileStats.size <= MAX_SNAPSHOT_SIZE) {
       beforeContent = await (0, import_promises15.readFile)(fullPath, "utf-8");
@@ -7327,7 +6661,7 @@ async function undoChange() {
     return { success: false, error: "Nothing to undo" };
   }
   history.undoStack.push(change.id);
-  const fullPath = path20.join(process.cwd(), change.filePath);
+  const fullPath = path19.join(process.cwd(), change.filePath);
   if (change.beforeContent === null) {
     try {
       await (0, import_promises15.unlink)(fullPath);
@@ -7337,7 +6671,7 @@ async function undoChange() {
     await saveHistory(history);
     return { success: false, error: "Cannot undo: file was too large to snapshot" };
   } else {
-    await (0, import_promises15.mkdir)(path20.dirname(fullPath), { recursive: true });
+    await (0, import_promises15.mkdir)(path19.dirname(fullPath), { recursive: true });
     await (0, import_promises15.writeFile)(fullPath, change.beforeContent, "utf-8");
   }
   await saveHistory(history);
@@ -7355,8 +6689,8 @@ async function redoChange() {
   }
   history.redoStack.pop();
   history.undoStack = history.undoStack.filter((id) => id !== changeId);
-  const fullPath = path20.join(process.cwd(), change.filePath);
-  await (0, import_promises15.mkdir)(path20.dirname(fullPath), { recursive: true });
+  const fullPath = path19.join(process.cwd(), change.filePath);
+  await (0, import_promises15.mkdir)(path19.dirname(fullPath), { recursive: true });
   await (0, import_promises15.writeFile)(fullPath, change.afterContent, "utf-8");
   await saveHistory(history);
   return { success: true, restored: change };
@@ -7369,27 +6703,19 @@ async function getChangeState() {
   return { changes: history.changes, canUndo, canRedo };
 }
 
-// src/server/routes/git.js
+// src/server/routes/git.ts
 function buildDualConfig2(cfg) {
   const result = {
     primaryProvider: cfg.aiProvider || ""
   };
-  if (cfg.aiModel !== void 0)
-    result.primaryModel = cfg.aiModel;
-  if (cfg.localUrl !== void 0)
-    result.primaryLocalUrl = cfg.localUrl;
-  if (cfg.multiModelEnabled && cfg.thinkingProvider !== void 0)
-    result.thinkingProvider = cfg.thinkingProvider;
-  if (cfg.multiModelEnabled && cfg.thinkingModel !== void 0)
-    result.thinkingModel = cfg.thinkingModel;
-  if (cfg.thinkingLocalUrl !== void 0)
-    result.thinkingLocalUrl = cfg.thinkingLocalUrl;
-  if (cfg.apiKey !== void 0)
-    result.apiKey = cfg.apiKey;
-  if (cfg.temperature !== void 0)
-    result.temperature = cfg.temperature;
-  if (cfg.maxTokens !== void 0)
-    result.maxTokens = cfg.maxTokens;
+  if (cfg.aiModel !== void 0) result.primaryModel = cfg.aiModel;
+  if (cfg.localUrl !== void 0) result.primaryLocalUrl = cfg.localUrl;
+  if (cfg.multiModelEnabled && cfg.thinkingProvider !== void 0) result.thinkingProvider = cfg.thinkingProvider;
+  if (cfg.multiModelEnabled && cfg.thinkingModel !== void 0) result.thinkingModel = cfg.thinkingModel;
+  if (cfg.thinkingLocalUrl !== void 0) result.thinkingLocalUrl = cfg.thinkingLocalUrl;
+  if (cfg.apiKey !== void 0) result.apiKey = cfg.apiKey;
+  if (cfg.temperature !== void 0) result.temperature = cfg.temperature;
+  if (cfg.maxTokens !== void 0) result.maxTokens = cfg.maxTokens;
   return result;
 }
 function registerRoutes6(app2) {
@@ -7442,7 +6768,18 @@ function registerRoutes6(app2) {
   app2.post("/api/git/pr", async (req, res) => {
     try {
       const { draft, config = {} } = req.body || {};
-      const { aiProvider, localUrl, aiModel, apiKey, temperature, maxTokens, multiModelEnabled, thinkingProvider, thinkingModel, thinkingLocalUrl } = config;
+      const {
+        aiProvider,
+        localUrl,
+        aiModel,
+        apiKey,
+        temperature,
+        maxTokens,
+        multiModelEnabled,
+        thinkingProvider,
+        thinkingModel,
+        thinkingLocalUrl
+      } = config;
       const dualCfg = buildDualConfig2({
         aiProvider,
         aiModel,
@@ -7515,10 +6852,10 @@ function registerRoutes6(app2) {
   });
 }
 
-// src/server/routes/agent.js
+// src/server/routes/agent.ts
 var import_crypto8 = require("crypto");
 
-// src/server/planner.js
+// src/server/planner.ts
 async function createPlan(goal, thinkFn) {
   const prompt = `Break down this goal into a sequence of concrete tasks:
 Goal: ${goal}
@@ -7547,7 +6884,7 @@ Tasks:`;
   }
 }
 
-// src/server/routes/agent.js
+// src/server/routes/agent.ts
 function registerRoutes7(app2) {
   app2.post("/api/agent/loop", validateBody(AgentLoopSchema), async (req, res) => {
     try {
@@ -7584,14 +6921,12 @@ function registerRoutes7(app2) {
   });
   app2.get("/api/agent/loop/:id", (req, res) => {
     const loop = agentLoopMap.get(req.params.id);
-    if (!loop)
-      return res.status(404).json({ error: "Loop not found" });
+    if (!loop) return res.status(404).json({ error: "Loop not found" });
     return res.json(loop.getState());
   });
   app2.post("/api/agent/loop/:id/abort", (req, res) => {
     const loop = agentLoopMap.get(req.params.id);
-    if (!loop)
-      return res.status(404).json({ error: "Loop not found" });
+    if (!loop) return res.status(404).json({ error: "Loop not found" });
     loop.abort();
     return res.json({ aborted: true });
   });
@@ -7605,7 +6940,10 @@ function registerRoutes7(app2) {
         thinkingModel,
         thinkingLocalUrl
       };
-      const plan = await createPlan(goal, (prompt) => generateWithDualModel(prompt, [], dualCfg, "think"));
+      const plan = await createPlan(
+        goal,
+        (prompt) => generateWithDualModel(prompt, [], dualCfg, "think")
+      );
       res.json(plan);
     } catch (error) {
       res.status(500).json({ error: error.message });
@@ -7621,7 +6959,12 @@ function registerRoutes7(app2) {
         thinkingModel,
         thinkingLocalUrl
       };
-      const task = await subagentManager.spawn(req.body.parentId || "main", goal, agentConfig, (prompt) => generateWithDualModel(prompt, [], dualCfg, "think"));
+      const task = await subagentManager.spawn(
+        req.body.parentId || "main",
+        goal,
+        agentConfig,
+        (prompt) => generateWithDualModel(prompt, [], dualCfg, "think")
+      );
       res.json(task);
     } catch (error) {
       res.status(500).json({ error: error.message });
@@ -7636,14 +6979,12 @@ function registerRoutes7(app2) {
     res.json({ aborted: true });
   });
   app2.post("/api/permissions/check", (req, res) => {
-    if (!permissionEngine)
-      return res.status(503).json({ error: "Permission engine not initialized" });
+    if (!permissionEngine) return res.status(503).json({ error: "Permission engine not initialized" });
     const result = permissionEngine.check(req.body);
     return res.json(result);
   });
   app2.post("/api/permissions/ask", (req, res) => {
-    if (!permissionEngine)
-      return res.status(503).json({ error: "Permission engine not initialized" });
+    if (!permissionEngine) return res.status(503).json({ error: "Permission engine not initialized" });
     const request = req.body;
     const check = permissionEngine.check(request);
     if (check.action === "allow") {
@@ -7656,49 +6997,41 @@ function registerRoutes7(app2) {
     return res.json({ action: "ask", pending });
   });
   app2.get("/api/permissions/pending", (_req, res) => {
-    if (!permissionEngine)
-      return res.json({ pending: [] });
+    if (!permissionEngine) return res.json({ pending: [] });
     return res.json({ pending: permissionEngine.listPending() });
   });
   app2.get("/api/permissions/pending/:id", (req, res) => {
-    if (!permissionEngine)
-      return res.status(503).json({ error: "Permission engine not initialized" });
+    if (!permissionEngine) return res.status(503).json({ error: "Permission engine not initialized" });
     const pending = permissionEngine.getPending(req.params.id);
-    if (!pending)
-      return res.status(404).json({ error: "Not found" });
+    if (!pending) return res.status(404).json({ error: "Not found" });
     return res.json(pending);
   });
   app2.post("/api/permissions/resolve/:id", (req, res) => {
-    if (!permissionEngine)
-      return res.status(503).json({ error: "Permission engine not initialized" });
+    if (!permissionEngine) return res.status(503).json({ error: "Permission engine not initialized" });
     const { approved } = req.body;
     permissionEngine.resolve(req.params.id, approved === true);
     return res.json({ resolved: true });
   });
 }
 
-// src/server/codeReview.js
+// src/server/codeReview.ts
 var pendingReviews = /* @__PURE__ */ new Map();
 function getPendingReviews() {
   return Array.from(pendingReviews.values());
 }
 function acceptComment(reviewId, commentId) {
   const review = pendingReviews.get(reviewId);
-  if (!review)
-    return false;
+  if (!review) return false;
   const comment = review.comments.find((c) => c.id === commentId);
-  if (!comment)
-    return false;
+  if (!comment) return false;
   comment.accepted = true;
   return true;
 }
 function rejectComment(reviewId, commentId) {
   const review = pendingReviews.get(reviewId);
-  if (!review)
-    return false;
+  if (!review) return false;
   const comment = review.comments.find((c) => c.id === commentId);
-  if (!comment)
-    return false;
+  if (!comment) return false;
   comment.accepted = false;
   return true;
 }
@@ -7706,28 +7039,22 @@ function parseDiffIntoHunks(diffText) {
   const diffHunks = [];
   const diffBlocks = diffText.split("diff --git ");
   for (const block of diffBlocks) {
-    if (!block.trim())
-      continue;
+    if (!block.trim()) continue;
     const lines = block.split("\n");
     const firstLine = lines[0] || "";
     const match = firstLine.match(/a\/(.*?) b\/(.*)/);
-    if (!match)
-      continue;
+    if (!match) continue;
     const file = match[2] || "";
     let status = "modified";
-    if (block.includes("new file mode"))
-      status = "added";
-    if (block.includes("deleted file mode"))
-      status = "deleted";
-    if (block.includes("rename from"))
-      status = "renamed";
+    if (block.includes("new file mode")) status = "added";
+    if (block.includes("deleted file mode")) status = "deleted";
+    if (block.includes("rename from")) status = "renamed";
     const hunks = [];
     let currentHunk = null;
     for (const line of lines) {
       const hunkHeader = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
       if (hunkHeader) {
-        if (currentHunk)
-          hunks.push(currentHunk);
+        if (currentHunk) hunks.push(currentHunk);
         currentHunk = {
           oldStart: parseInt(hunkHeader[1], 10),
           oldLines: parseInt(hunkHeader[2] || "1", 10),
@@ -7739,8 +7066,7 @@ function parseDiffIntoHunks(diffText) {
         currentHunk.lines.push(line);
       }
     }
-    if (currentHunk)
-      hunks.push(currentHunk);
+    if (currentHunk) hunks.push(currentHunk);
     diffHunks.push({ file, status, diff: "diff --git " + block, hunks });
   }
   return diffHunks;
@@ -7854,27 +7180,19 @@ async function analyzeDiff(generateFn, providedDiff) {
   return parsed;
 }
 
-// src/server/routes/review.js
+// src/server/routes/review.ts
 function buildDualConfig3(cfg) {
   const result = {
     primaryProvider: cfg.aiProvider || ""
   };
-  if (cfg.aiModel !== void 0)
-    result.primaryModel = cfg.aiModel;
-  if (cfg.localUrl !== void 0)
-    result.primaryLocalUrl = cfg.localUrl;
-  if (cfg.multiModelEnabled && cfg.thinkingProvider !== void 0)
-    result.thinkingProvider = cfg.thinkingProvider;
-  if (cfg.multiModelEnabled && cfg.thinkingModel !== void 0)
-    result.thinkingModel = cfg.thinkingModel;
-  if (cfg.thinkingLocalUrl !== void 0)
-    result.thinkingLocalUrl = cfg.thinkingLocalUrl;
-  if (cfg.apiKey !== void 0)
-    result.apiKey = cfg.apiKey;
-  if (cfg.temperature !== void 0)
-    result.temperature = cfg.temperature;
-  if (cfg.maxTokens !== void 0)
-    result.maxTokens = cfg.maxTokens;
+  if (cfg.aiModel !== void 0) result.primaryModel = cfg.aiModel;
+  if (cfg.localUrl !== void 0) result.primaryLocalUrl = cfg.localUrl;
+  if (cfg.multiModelEnabled && cfg.thinkingProvider !== void 0) result.thinkingProvider = cfg.thinkingProvider;
+  if (cfg.multiModelEnabled && cfg.thinkingModel !== void 0) result.thinkingModel = cfg.thinkingModel;
+  if (cfg.thinkingLocalUrl !== void 0) result.thinkingLocalUrl = cfg.thinkingLocalUrl;
+  if (cfg.apiKey !== void 0) result.apiKey = cfg.apiKey;
+  if (cfg.temperature !== void 0) result.temperature = cfg.temperature;
+  if (cfg.maxTokens !== void 0) result.maxTokens = cfg.maxTokens;
   return result;
 }
 function registerRoutes8(app2) {
@@ -7882,7 +7200,10 @@ function registerRoutes8(app2) {
     try {
       const { diff, config = {} } = req.body;
       const dualCfg = buildDualConfig3(config);
-      const result = await analyzeDiff((prompt) => generateWithDualModel(prompt, [], dualCfg, "think"), diff);
+      const result = await analyzeDiff(
+        (prompt) => generateWithDualModel(prompt, [], dualCfg, "think"),
+        diff
+      );
       return res.json(result);
     } catch (e) {
       return res.status(500).json({ error: e.message });
@@ -7908,7 +7229,7 @@ function registerRoutes8(app2) {
   });
 }
 
-// src/server/routes/browser.js
+// src/server/routes/browser.ts
 var browserTools2 = null;
 async function getBrowserTools2() {
   if (!browserTools2) {
@@ -7924,8 +7245,7 @@ function registerRoutes9(app2) {
   app2.post("/api/browser/navigate", validateBody(BrowserNavigateSchema), async (req, res) => {
     try {
       const bt = await getBrowserTools2();
-      if (!bt)
-        return res.status(503).json({ success: false, output: "", error: "playwright-core not installed" });
+      if (!bt) return res.status(503).json({ success: false, output: "", error: "playwright-core not installed" });
       const { url, headless = true, sessionId = "default" } = req.body;
       if (!url || typeof url !== "string") {
         return res.status(400).json({ error: "url is required" });
@@ -7939,8 +7259,7 @@ function registerRoutes9(app2) {
   app2.post("/api/browser/click", validateBody(BrowserActionSchema), async (req, res) => {
     try {
       const bt = await getBrowserTools2();
-      if (!bt)
-        return res.status(503).json({ success: false, output: "", error: "playwright-core not installed" });
+      if (!bt) return res.status(503).json({ success: false, output: "", error: "playwright-core not installed" });
       const { selector, headless = true, sessionId = "default" } = req.body;
       if (!selector || typeof selector !== "string") {
         return res.status(400).json({ error: "selector is required" });
@@ -7954,8 +7273,7 @@ function registerRoutes9(app2) {
   app2.post("/api/browser/type", validateBody(BrowserActionSchema), async (req, res) => {
     try {
       const bt = await getBrowserTools2();
-      if (!bt)
-        return res.status(503).json({ success: false, output: "", error: "playwright-core not installed" });
+      if (!bt) return res.status(503).json({ success: false, output: "", error: "playwright-core not installed" });
       const { selector, text, headless = true, sessionId = "default" } = req.body;
       if (!selector || typeof selector !== "string" || typeof text !== "string") {
         return res.status(400).json({ error: "selector and text are required" });
@@ -7969,8 +7287,7 @@ function registerRoutes9(app2) {
   app2.get("/api/browser/screenshot", async (req, res) => {
     try {
       const bt = await getBrowserTools2();
-      if (!bt)
-        return res.status(503).json({ success: false, output: "", error: "playwright-core not installed" });
+      if (!bt) return res.status(503).json({ success: false, output: "", error: "playwright-core not installed" });
       const sessionId = String(req.query.sessionId || "default");
       const headless = req.query.headless !== "false";
       const result = await bt.browserScreenshot(sessionId, headless);
@@ -7985,8 +7302,7 @@ function registerRoutes9(app2) {
   app2.post("/api/browser/evaluate", async (req, res) => {
     try {
       const bt = await getBrowserTools2();
-      if (!bt)
-        return res.status(503).json({ success: false, output: "", error: "playwright-core not installed" });
+      if (!bt) return res.status(503).json({ success: false, output: "", error: "playwright-core not installed" });
       const { script, headless = true, sessionId = "default" } = req.body;
       if (!script || typeof script !== "string") {
         return res.status(400).json({ error: "script is required" });
@@ -8000,8 +7316,7 @@ function registerRoutes9(app2) {
   app2.get("/api/browser/html", async (req, res) => {
     try {
       const bt = await getBrowserTools2();
-      if (!bt)
-        return res.status(503).json({ success: false, output: "", error: "playwright-core not installed" });
+      if (!bt) return res.status(503).json({ success: false, output: "", error: "playwright-core not installed" });
       const sessionId = String(req.query.sessionId || "default");
       const headless = req.query.headless !== "false";
       const result = await bt.browserGetHtml(sessionId, headless);
@@ -8013,8 +7328,7 @@ function registerRoutes9(app2) {
   app2.post("/api/browser/close", async (req, res) => {
     try {
       const bt = await getBrowserTools2();
-      if (!bt)
-        return res.status(503).json({ success: false, output: "", error: "playwright-core not installed" });
+      if (!bt) return res.status(503).json({ success: false, output: "", error: "playwright-core not installed" });
       const { sessionId = "default" } = req.body;
       const result = await bt.browserClose(sessionId);
       return res.json(result);
@@ -8024,13 +7338,12 @@ function registerRoutes9(app2) {
   });
   app2.get("/api/browser/sessions", async (_req, res) => {
     const bt = await getBrowserTools2();
-    if (!bt)
-      return res.json({ sessions: [] });
+    if (!bt) return res.json({ sessions: [] });
     return res.json({ sessions: bt.getActiveBrowserSessions() });
   });
 }
 
-// src/server/routes/tracker.js
+// src/server/routes/tracker.ts
 function registerRoutes10(app2) {
   app2.post("/api/tracker/config", (req, res) => {
     try {
@@ -8091,12 +7404,12 @@ function registerRoutes10(app2) {
   });
 }
 
-// src/server/ciPipeline.js
+// src/server/ciPipeline.ts
 var import_promises16 = require("fs/promises");
-var path21 = __toESM(require("path"), 1);
+var path20 = __toESM(require("path"), 1);
 var WORKFLOW_DIR = ".github/workflows";
 async function ensureWorkflowDir() {
-  const dir = path21.join(process.cwd(), WORKFLOW_DIR);
+  const dir = path20.join(process.cwd(), WORKFLOW_DIR);
   await (0, import_promises16.mkdir)(dir, { recursive: true });
   return dir;
 }
@@ -8325,9 +7638,9 @@ async function generateCIPipeline(config) {
     default:
       throw new Error(`Unknown pipeline type: ${config.pipelineType}`);
   }
-  await (0, import_promises16.writeFile)(path21.join(dir, filename), content, "utf-8");
+  await (0, import_promises16.writeFile)(path20.join(dir, filename), content, "utf-8");
   return {
-    files: [path21.join(WORKFLOW_DIR, filename)],
+    files: [path20.join(WORKFLOW_DIR, filename)],
     pipelineType: config.pipelineType,
     path: dir
   };
@@ -8339,12 +7652,16 @@ var PIPELINE_TEMPLATES = [
   { type: "static-deploy", name: "Static Site Deploy", description: "Build static site and deploy (Pages/Vercel/Cloudflare)" }
 ];
 
-// src/server/routes/marketplace.js
+// src/server/routes/marketplace.ts
 function registerRoutes11(app2) {
   app2.get("/api/marketplace", async (req, res) => {
     try {
       const { type, tag, search } = req.query;
-      const items2 = getMarketItems(type, tag, search);
+      const items2 = getMarketItems(
+        type,
+        tag,
+        search
+      );
       res.json({ items: items2, stats: getStats(), tags: getTags() });
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -8431,8 +7748,8 @@ function registerRoutes11(app2) {
   });
 }
 
-// src/server/routes/tools.js
-var path22 = __toESM(require("path"), 1);
+// src/server/routes/tools.ts
+var path21 = __toESM(require("path"), 1);
 var import_promises17 = require("fs/promises");
 var import_crypto9 = require("crypto");
 function registerRoutes12(app2) {
@@ -8442,8 +7759,13 @@ function registerRoutes12(app2) {
       const result = await executeTool(toolCall, mode, permissionEngine, sessionId);
       incrementToolCall();
       if (result.success && (toolCall.name === "write_file" || toolCall.name === "edit_file")) {
-        const afterContent = toolCall.name === "write_file" ? toolCall.params.content : await (0, import_promises17.readFile)(path22.join(process.cwd(), toolCall.params.path), "utf-8");
-        const change = await recordChange(toolCall.params.path, toolCall.name === "write_file" ? "write" : "edit", afterContent, `${toolCall.name}: ${toolCall.params.path}`);
+        const afterContent = toolCall.name === "write_file" ? toolCall.params.content : await (0, import_promises17.readFile)(path21.join(process.cwd(), toolCall.params.path), "utf-8");
+        const change = await recordChange(
+          toolCall.params.path,
+          toolCall.name === "write_file" ? "write" : "edit",
+          afterContent,
+          `${toolCall.name}: ${toolCall.params.path}`
+        );
         result.changeId = change.id;
       }
       res.json(result);
@@ -8526,7 +7848,7 @@ app.use("/api", requireApiKey);
 app.use("/mcp", requireApiKey);
 app.get("/api/settings", (_req, res) => {
   try {
-    const settingsPath = path23.join(process.cwd(), ".opencode-infinite", "settings.json");
+    const settingsPath = path22.join(process.cwd(), ".opencode-infinite", "settings.json");
     if ((0, import_fs.existsSync)(settingsPath)) {
       const data = JSON.parse((0, import_fs.readFileSync)(settingsPath, "utf-8"));
       res.json(data);
@@ -8544,8 +7866,8 @@ app.post("/api/settings", (req, res) => {
       res.status(400).json({ error: "Invalid settings", details: parsed.error.format() });
       return;
     }
-    const settingsPath = path23.join(process.cwd(), ".opencode-infinite", "settings.json");
-    const dir = path23.dirname(settingsPath);
+    const settingsPath = path22.join(process.cwd(), ".opencode-infinite", "settings.json");
+    const dir = path22.dirname(settingsPath);
     if (!(0, import_fs.existsSync)(dir)) (0, import_fs.mkdirSync)(dir, { recursive: true });
     (0, import_fs.writeFileSync)(settingsPath, JSON.stringify(parsed.data, null, 2));
     res.json({ saved: true });
@@ -8592,13 +7914,13 @@ async function startServer() {
   await initSync();
   await initMarketplace();
   setSessionDbPath(STORAGE_DIR2);
-  setSkillsDir(path23.join(process.cwd(), ".cvr", "skills"));
-  setSkillCreatorDir(path23.join(process.cwd(), ".cvr", "skills"));
+  setSkillsDir(path22.join(process.cwd(), ".cvr", "skills"));
+  setSkillCreatorDir(path22.join(process.cwd(), ".cvr", "skills"));
   setRagDbPath(STORAGE_DIR2);
   setCacheDbPath(STORAGE_DIR2);
-  setRulesDir(path23.join(process.cwd(), ".cvr", "rules"));
-  setCustomToolsDir(path23.join(process.cwd(), ".cvr", "tools"));
-  setPluginsDir(path23.join(process.cwd(), ".cvr", "plugins"));
+  setRulesDir(path22.join(process.cwd(), ".cvr", "rules"));
+  setCustomToolsDir(path22.join(process.cwd(), ".cvr", "tools"));
+  setPluginsDir(path22.join(process.cwd(), ".cvr", "plugins"));
   await loadAgents();
   await registerPlugins();
   registerBuiltinHooks();
@@ -8624,10 +7946,10 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path23.join(process.cwd(), "dist");
+    const distPath = path22.join(process.cwd(), "dist");
     app.use(import_express.default.static(distPath));
     app.get("*", (_req, res) => {
-      res.sendFile(path23.join(distPath, "index.html"));
+      res.sendFile(path22.join(distPath, "index.html"));
     });
   }
   const server = app.listen(PORT, "127.0.0.1", () => {

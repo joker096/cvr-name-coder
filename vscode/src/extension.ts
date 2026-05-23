@@ -562,14 +562,15 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
       if (provider === 'mistral') baseUrl = 'https://api.mistral.ai/v1';
       if (!baseUrl) throw new Error(`Provider ${provider} requires a URL. Configure it in Settings.`);
       const key = apiKey || getProviderEnvKey(provider);
-      const model = modelName || (provider === 'openai' ? 'gpt-4.1' : provider === 'deepseek' ? 'deepseek-chat' : provider === 'grok' ? 'grok-3' : provider === 'groq' ? 'meta-llama/llama-4-maverick-17b-128e-instruct' : provider === 'baseten' ? 'meta-llama-4-maverick' : provider === 'openrouter' ? 'google/gemini-2.5-flash' : provider === 'together' ? 'meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8' : provider === 'mistral' ? 'mistral-large-latest' : 'custom-model');
+      const model = modelName || (provider === 'openai' ? 'gpt-4.1' : provider === 'deepseek' ? 'deepseek-chat' : provider === 'grok' ? 'grok-3' : provider === 'groq' ? 'meta-llama/llama-4-maverick-17b-128e-instruct' : provider === 'baseten' ? 'meta-llama/Llama-4-Maverick-17B-128E-Instruct' : provider === 'openrouter' ? 'google/gemini-2.5-flash' : provider === 'together' ? 'meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8' : provider === 'mistral' ? 'mistral-large-latest' : 'custom-model');
 
       const bodyObj: any = { model, messages: msgs, stream: true };
       if (temperature !== undefined) bodyObj.temperature = temperature;
       if (maxTokens !== undefined) bodyObj.max_tokens = maxTokens;
+      const authHeader = provider === 'baseten' ? `Api-Key ${key}` : `Bearer ${key}`;
       const response = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+        headers: { 'Content-Type': 'application/json', 'Authorization': authHeader },
         body: JSON.stringify(bodyObj),
         signal,
       });

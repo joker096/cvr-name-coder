@@ -37,7 +37,6 @@ export const MessageList: React.FC<MessageListProps> = ({
         <MessageItem
           key={message.id || index}
           message={message}
-          index={index}
           agentLabel={agentLabel}
           providerLabel={providerLabel}
           modelName={modelName}

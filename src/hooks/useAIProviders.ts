@@ -149,7 +149,7 @@ const PROVIDERS: AIProvider[] = [
   {
     id: "custom",
     name: "Custom Provider",
-    type: "local" as const,
+    type: "cloud" as const,
     models: [],
     requiresApiKey: true,
     requiresUrl: true,
