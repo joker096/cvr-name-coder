@@ -5743,7 +5743,8 @@ function registerRoutes(app2) {
     try {
       const body = req.body;
       const { message, config = {}, kernelConfig = {}, agent: bodyAgent } = body;
-      const { aiProvider, localUrl, aiModel, localModelName, apiKey, temperature, maxTokens, systemPrompt: customSystemPrompt, agent: configAgent, maxImageSize } = config;
+      const { aiProvider, localUrl, aiModel, localModelName, apiKey, providerKeys, temperature, maxTokens, systemPrompt: customSystemPrompt, agent: configAgent, maxImageSize } = config;
+      const resolvedApiKey = providerKeys?.[aiProvider || ""] || apiKey;
       if (!aiProvider) {
         res.status(400).json({ error: "AI provider not configured. Please select a provider in Settings." });
         return;
@@ -5801,7 +5802,7 @@ function registerRoutes(app2) {
       const responseText = await generateAIContent(systemPrompt, [
         ...historyContents,
         { role: "user", parts: buildParts(message, processedImages) }
-      ], aiProvider, localUrl, resolvedModel, apiKey, temperature, maxTokens, true);
+      ], aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, true);
       const estimatedInputTokens = Math.ceil((systemPrompt + message).length / 4);
       const estimatedOutputTokens = Math.ceil(responseText.length / 4);
       const userHistoryEntry = { role: "user", content: message, createdAt: /* @__PURE__ */ new Date() };
@@ -5814,7 +5815,8 @@ function registerRoutes(app2) {
       if (updatedHistory.length % 5 === 0) {
         const kConfigTyped = kConfig;
         const dualCfg = buildDualConfig(kConfigTyped);
-        summarizeLongHistory(updatedHistory, kConfigTyped.aiProvider, kConfigTyped.localUrl, kConfigTyped.aiProvider === "local" ? kConfigTyped.localModelName || kConfigTyped.aiModel : kConfigTyped.aiModel, kConfigTyped.apiKey, dualCfg).then(async (summary) => {
+        const summaryKey = kConfigTyped.providerKeys?.[kConfigTyped.aiProvider || ""] || kConfigTyped.apiKey;
+        summarizeLongHistory(updatedHistory, kConfigTyped.aiProvider, kConfigTyped.localUrl, kConfigTyped.aiProvider === "local" ? kConfigTyped.localModelName || kConfigTyped.aiModel : kConfigTyped.aiModel, summaryKey, dualCfg).then(async (summary) => {
           if (summary) {
             const currentMemories = JSON.parse(await (0, import_promises14.readFile)(MEMORY_FILE, "utf-8"));
             await (0, import_promises14.writeFile)(MEMORY_FILE, JSON.stringify([...currentMemories, { content: summary, createdAt: /* @__PURE__ */ new Date() }]));

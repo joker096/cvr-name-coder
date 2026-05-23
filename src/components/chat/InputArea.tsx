@@ -131,7 +131,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
         setSelectedIndex((prev) => (prev - 1 + filteredCommands.length) % filteredCommands.length);
         return;
       }
-      if (e.key === "Tab" || e.key === "Enter") {
+      if ((e.key === "Tab" || e.key === "Enter") && !e.nativeEvent.isComposing) {
         e.preventDefault();
         const selectedCmd = filteredCommands[selectedIndex];
         if (selectedCmd) {
@@ -145,7 +145,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
       }
     }
 
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       onSend(images.length > 0 ? images : undefined);
       setImages([]);

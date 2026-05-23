@@ -272,4 +272,48 @@ describe("useChat", () => {
 
     expect(result.current.messages).toHaveLength(2);
   });
+
+  it("should send providerKeys in request body", async () => {
+    const mockResponse = createMockSSEResponse([
+      "data: {\"content\":\"Response\"}\n\n",
+      "data: [DONE]\n\n",
+    ]);
+
+    (global.fetch as any).mockResolvedValue(mockResponse);
+
+    const configWithProviderKeys: ChatConfig = {
+      aiProvider: "baseten",
+      aiModel: "deepseek-ai/DeepSeek-V4-Pro",
+      localUrl: "",
+      localModelName: "",
+      customKey: "",
+      customUrl: "",
+      providerKeys: {
+        baseten: "bt-key-456",
+        openai: "oa-key-123",
+      },
+    };
+
+    const { result } = renderHook(() => useChat(configWithProviderKeys));
+
+    act(() => {
+      result.current.sendMessage("Hello baseten");
+    });
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    const fetchCall = (global.fetch as any).mock.calls[0];
+    const requestBody = JSON.parse(fetchCall[1].body);
+
+    expect(requestBody.config).toEqual(
+      expect.objectContaining({
+        providerKeys: {
+          baseten: "bt-key-456",
+          openai: "oa-key-123",
+        },
+      })
+    );
+  });
 });
