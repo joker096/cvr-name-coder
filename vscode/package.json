@@ -2,7 +2,7 @@
   "name": "cvr-name-coder",
   "displayName": "cvr.name.coder",
   "description": "Autonomous AI coding agent with persistent memory, streaming responses, local LLM support (Ollama/llama.cpp), multi-session chats, file workspace integration, and MCP tool server. Works offline with local models.",
-  "version": "1.5.25",
+  "version": "1.5.26",
   "publisher": "cvr-name",
   "author": {
     "name": "cvr.name",

@@ -203,8 +203,13 @@ class OpenAICompatibleProvider extends AIProvider {
       },
       body: JSON.stringify(body),
     });
+    if (!response.ok) {
+      const text = await response.text();
+      let message: string;
+      try { const e = JSON.parse(text); message = e.error?.message || `${this.provider} API error: HTTP ${response.status}`; } catch { message = `${this.provider} API error: HTTP ${response.status} — ${text.slice(0, 200)}`; }
+      throw new Error(message);
+    }
     const data = (await response.json()) as OpenAIResponse;
-    if (data.error) throw new Error(data.error.message || `${this.provider} API error`);
     const text = data.choices?.[0]?.message?.content ?? "";
     const inputTokens = data.usage?.prompt_tokens || estimateTokens(prompt + contents.map((c) => c.parts?.[0]?.text || "").join(" "));
     const outputTokens = data.usage?.completion_tokens || estimateTokens(text);

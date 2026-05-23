@@ -4981,8 +4981,18 @@ var OpenAICompatibleProvider = class extends AIProvider {
       },
       body: JSON.stringify(body)
     });
+    if (!response.ok) {
+      const text2 = await response.text();
+      let message;
+      try {
+        const e = JSON.parse(text2);
+        message = e.error?.message || `${this.provider} API error: HTTP ${response.status}`;
+      } catch {
+        message = `${this.provider} API error: HTTP ${response.status} \u2014 ${text2.slice(0, 200)}`;
+      }
+      throw new Error(message);
+    }
     const data = await response.json();
-    if (data.error) throw new Error(data.error.message || `${this.provider} API error`);
     const text = data.choices?.[0]?.message?.content ?? "";
     const inputTokens = data.usage?.prompt_tokens || estimateTokens(prompt + contents.map((c) => c.parts?.[0]?.text || "").join(" "));
     const outputTokens = data.usage?.completion_tokens || estimateTokens(text);

@@ -48,6 +48,34 @@ export let serverPort: number | null = null;
 const completionEngine = new CompletionEngine();
 let diagnosticsProvider: DiagnosticsProvider | null = null;
 
+let geminiClient: any = null;
+function getGemini() {
+  if (!geminiClient) {
+    const { GoogleGenAI } = require('@google/genai');
+    geminiClient = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
+  }
+  return geminiClient;
+}
+
+async function generateEmbeddings(texts: string[]): Promise<number[][]> {
+  try {
+    const result = await getGemini().models.embedContent({
+      model: 'text-embedding-004',
+      contents: texts.map((t) => ({ role: 'user', parts: [{ text: t }] })),
+    });
+    if (Array.isArray(result.embeddings)) {
+      return result.embeddings.map((e: any) => e.values as number[]);
+    }
+    if (result.embeddings && Array.isArray((result.embeddings as any).values)) {
+      return [(result.embeddings as any).values as number[]];
+    }
+    return texts.map(() => []);
+  } catch (e) {
+    console.error('Embedding generation failed:', e);
+    return texts.map(() => []);
+  }
+}
+
 function getCompletionConfig(): CompletionConfig {
   const cfg = vscode.workspace.getConfiguration('cvr');
   return {
@@ -494,15 +522,6 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
   diagnosticsProvider = new DiagnosticsProvider();
   context.subscriptions.push(diagnosticsProvider);
 
-  let geminiClient: any = null;
-  function getGemini() {
-    if (!geminiClient) {
-      const { GoogleGenAI } = require('@google/genai');
-      geminiClient = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
-    }
-    return geminiClient;
-  }
-
   async function generateAIContent(prompt: string, contents: any[] = [], provider?: string, localUrl?: string, modelName?: string, apiKey?: string): Promise<string> {
     let full = '';
     await generateContentStream(prompt, contents, (t) => { full += t; }, provider, localUrl, modelName, apiKey);
@@ -524,7 +543,12 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
       if (maxTokens !== undefined) bodyObj.max_tokens = maxTokens;
       const body = JSON.stringify(bodyObj);
       const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, signal });
-      if (!response.ok) { const e = await response.json(); throw new Error(e.error?.message || 'Local AI Error'); }
+      if (!response.ok) {
+        const text = await response.text();
+        let message: string;
+        try { const e = JSON.parse(text); message = e.error?.message || `Local AI error: HTTP ${response.status}`; } catch { message = `Local AI error: HTTP ${response.status} — ${text.slice(0, 200)}`; }
+        throw new Error(message);
+      }
       const reader = response.body?.getReader();
       if (!reader) throw new Error('No response body');
       const decoder = new TextDecoder();
@@ -574,7 +598,12 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
         body: JSON.stringify(bodyObj),
         signal,
       });
-      if (!response.ok) { const e = await response.json(); throw new Error(e.error?.message || 'AI Error'); }
+      if (!response.ok) {
+        const text = await response.text();
+        let message: string;
+        try { const e = JSON.parse(text); message = e.error?.message || `${provider} API error: HTTP ${response.status}`; } catch { message = `${provider} API error: HTTP ${response.status} — ${text.slice(0, 200)}`; }
+        throw new Error(message);
+      }
       const reader = response.body?.getReader();
       if (!reader) throw new Error('No response body');
       const decoder = new TextDecoder();
@@ -670,25 +699,6 @@ Conversation:
 ${messages.slice(-10).map((m: any) => `${m.role}: ${m.content}`).join('\n')}`;
     try { return await generateAIContent(instruction, [], provider, localUrl, modelName, apiKey); }
     catch (e) { console.error('Summarization failed:', e); return null; }
-  }
-
-  async function generateEmbeddings(texts: string[]): Promise<number[][]> {
-    try {
-      const result = await getGemini().models.embedContent({
-        model: 'text-embedding-004',
-        contents: texts.map((t) => ({ role: 'user', parts: [{ text: t }] })),
-      });
-      if (Array.isArray(result.embeddings)) {
-        return result.embeddings.map((e: any) => e.values as number[]);
-      }
-      if (result.embeddings && Array.isArray((result.embeddings as any).values)) {
-        return [(result.embeddings as any).values as number[]];
-      }
-      return texts.map(() => []);
-    } catch (e) {
-      console.error('Embedding generation failed:', e);
-      return texts.map(() => []);
-    }
   }
 
   setRagEmbedFn(generateEmbeddings);
