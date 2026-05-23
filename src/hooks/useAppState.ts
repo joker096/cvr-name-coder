@@ -52,9 +52,10 @@ export function useAppState() {
   const tt = t as Record<string, string>;
 
   const handleSendMessage = useCallback(async (images?: string[]) => {
-    const currentInput = input;
+    const currentInput = inputRef.current;
     if (!currentInput.trim() && (!images || images.length === 0)) return;
 
+    setInput("");
     const trimmed = currentInput.trim();
     if (trimmed === "/undo") {
       const result = await undo();
@@ -66,7 +67,6 @@ export function useAppState() {
           : `${tt.undoFailed || "Undo failed"}: ${result.error}`,
         timestamp: Date.now(),
       } as Message);
-      setInput("");
       return;
     }
     if (trimmed === "/redo") {
@@ -79,18 +79,15 @@ export function useAppState() {
           : `${tt.redoFailed || "Redo failed"}: ${result.error}`,
         timestamp: Date.now(),
       } as Message);
-      setInput("");
       return;
     }
     const goalParse = parseGoalCommand(currentInput);
     if (goalParse) {
-      setInput("");
       await startGoal(goalParse.goal, goalParse.successCriteria, settings.chat);
       return;
     }
 
     if (trimmed.startsWith("/review")) {
-      setInput("");
       const loadingId = crypto.randomUUID();
       addMessage({
         id: loadingId,
@@ -130,12 +127,11 @@ export function useAppState() {
     }
 
     const result = await sendMessage(currentInput, images);
-    setInput("");
 
     if (result?.continueNeeded && settings.isAutonomous) {
       startLoop(currentInput, settings.chat.aiProvider, settings.chat.aiModel);
     }
-  }, [sendMessage, settings, startLoop, undo, redo, addMessage, deleteMessage, tt, input]);
+  }, [sendMessage, settings, startLoop, undo, redo, addMessage, deleteMessage, tt]);
 
   const handleCancelMessage = useCallback(() => {
     cancelMessage();

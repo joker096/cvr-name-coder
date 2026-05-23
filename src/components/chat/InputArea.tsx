@@ -138,11 +138,6 @@ export const InputArea: React.FC<InputAreaProps> = ({
           const cmdValue = selectedCmd.command + " ";
           onChange(cmdValue);
           setShowCommands(false);
-          const currentImages = images;
-          setImages([]);
-          setTimeout(() => {
-            onSend(currentImages.length > 0 ? currentImages : undefined);
-          }, 100);
         }
         return;
       }

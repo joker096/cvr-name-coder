@@ -1,6 +1,6 @@
-import React from "react";
+import React, { useState, useCallback } from "react";
 import { motion } from "motion/react";
-import { User, Brain } from "lucide-react";
+import { User, Brain, Copy, Check } from "lucide-react";
 import { cn } from "../../utils/cn";
 import type { Message } from "../../types/chat";
 import { ReviewMessage } from "./ReviewMessage";
@@ -22,6 +22,24 @@ export const MessageItem: React.FC<MessageItemProps> = ({
   t,
 }) => {
   const tt = t as Record<string, string>;
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(message.content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      const textarea = document.createElement("textarea");
+      textarea.value = message.content;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textarea);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  }, [message.content]);
   if (message.role === "review") {
     return (
       <motion.div
@@ -91,7 +109,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
     <motion.div
       initial={{ opacity: 0, y: 5 }}
       animate={{ opacity: 1, y: 0 }}
-      className="flex flex-col sm:flex-row gap-0.5 sm:gap-3"
+      className="flex flex-col sm:flex-row gap-0.5 sm:gap-3 group"
     >
       <span
         className={cn(
@@ -118,12 +136,21 @@ export const MessageItem: React.FC<MessageItemProps> = ({
       </span>
       <div
         className={cn(
-          "flex-1 prose prose-invert prose-sm max-w-none text-dash-text-primary text-[12px] leading-relaxed overflow-x-auto",
+          "flex-1 prose prose-invert prose-sm max-w-none text-dash-text-primary text-[12px] leading-relaxed overflow-x-auto relative",
           message.role !== "user" &&
             "p-2 bg-dash-surface/30 rounded border border-dash-border"
         )}
       >
         <MarkdownRenderer content={message.content} />
+        {message.role !== "user" && (
+          <button
+            onClick={handleCopy}
+            className="absolute top-1 right-1 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-dash-hover transition-all text-dash-text-muted hover:text-dash-text-primary"
+            title={copied ? (tt.copied || "Copied!") : (tt.copy || "Copy")}
+          >
+            {copied ? <Check className="w-3 h-3 text-dash-success" /> : <Copy className="w-3 h-3" />}
+          </button>
+        )}
         {message.images && message.images.length > 0 && (
           <div className="flex flex-wrap gap-2 mt-2">
             {message.images.map((img, i) => (
