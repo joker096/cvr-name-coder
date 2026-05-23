@@ -18,6 +18,7 @@ import { loadAgents, setAgentsDir, getAgentById } from '../../src/server/agentLo
 import { randomUUID } from 'crypto';
 import { readMemory, writeMemory, replaceMemorySection, deleteMemorySection, readUser, writeUser, replaceUserSection, deleteUserSection, setMemoryDir } from '../../src/server/memoryStore.js';
 import { createSession, addMessage, getSession, listSessions, searchSessions, deleteSession, setSessionDbPath } from '../../src/server/sessionStore.js';
+import { setGoalStorageDir } from '../../src/server/goalSessionStore.js';
 import { loadSkills, getSkillById, setSkillsDir } from '../../src/server/skillLoader.js';
 import { setSkillCreatorDir } from '../../src/server/skillCreator.js';
 import { ingestDocument, searchRAG, listSources, clearSource, setRagDbPath } from '../../src/server/ragEngine.js';
