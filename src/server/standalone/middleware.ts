@@ -4,6 +4,7 @@ import rateLimit from "express-rate-limit";
 
 interface SecurityMiddlewareOptions {
   contentSecurityPolicy?: boolean;
+  frameguard?: boolean;
 }
 
 export function setupSecurityMiddleware(
@@ -12,6 +13,7 @@ export function setupSecurityMiddleware(
 ): void {
   app.disable("x-powered-by");
   app.use(helmet({
+    ...(options.frameguard === false ? { frameguard: false } : {}),
     ...(options.contentSecurityPolicy === false
       ? { contentSecurityPolicy: false }
       : {
@@ -41,6 +43,7 @@ export function createTrustedLocalOriginMiddleware(
   allowedHosts: string[] = ["127.0.0.1", "localhost"]
 ): express.RequestHandler {
   const trustedHosts = new Set(allowedHosts.map((host) => host.toLowerCase()));
+  const trustedProtocols = new Set(["vscode-webview:", "vscode-file:", "file:"]);
 
   return (req, res, next) => {
     const originHeader = req.headers.origin;
@@ -58,7 +61,10 @@ export function createTrustedLocalOriginMiddleware(
 
     try {
       const parsed = new URL(candidate);
-      if (trustedHosts.has(parsed.hostname.toLowerCase())) {
+      if (
+        trustedHosts.has(parsed.hostname.toLowerCase()) ||
+        trustedProtocols.has(parsed.protocol.toLowerCase())
+      ) {
         next();
         return;
       }

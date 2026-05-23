@@ -5024,6 +5024,7 @@ var import_express_rate_limit = __toESM(require("express-rate-limit"), 1);
 function setupSecurityMiddleware(app2, options = {}) {
   app2.disable("x-powered-by");
   app2.use((0, import_helmet.default)({
+    ...options.frameguard === false ? { frameguard: false } : {},
     ...options.contentSecurityPolicy === false ? { contentSecurityPolicy: false } : {
       contentSecurityPolicy: {
         directives: {

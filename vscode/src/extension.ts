@@ -336,7 +336,7 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
 
   const app = express();
   app.use(express.json({ limit: '10mb' }));
-  setupSecurityMiddleware(app, { contentSecurityPolicy: false });
+  setupSecurityMiddleware(app, { contentSecurityPolicy: false, frameguard: false });
   app.use(createTrustedLocalOriginMiddleware());
 
   let _wsContextCache: string | null = null;
