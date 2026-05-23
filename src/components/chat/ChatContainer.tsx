@@ -47,7 +47,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   visionEnabled,
 }) => {
   return (
-    <div className={cn("flex flex-col h-full", className)}>
+    <div className={cn("flex flex-col h-full min-h-0", className)}>
       <MessageList
         messages={messages}
         agentLabel={agentLabel}

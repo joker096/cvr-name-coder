@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-import { PROVIDER_DEFAULT_MODELS, PROVIDER_BASE_URLS } from "../utils/constants.js";
+import { DEFAULT_MAX_TOKENS, PROVIDER_DEFAULT_MODELS, PROVIDER_BASE_URLS } from "../utils/constants.js";
 import { estimateTokens } from "./costTracker.js";
 import { aiCache } from "./cache.js";
 
@@ -121,7 +121,7 @@ function buildOpenAICompatibleBody(options: AIGenerateOptions, providerName: str
     ],
   };
   if (temperature !== undefined) body.temperature = temperature;
-  if (maxTokens !== undefined) body.max_tokens = maxTokens;
+  body.max_tokens = maxTokens ?? DEFAULT_MAX_TOKENS;
   return body;
 }
 
@@ -140,9 +140,26 @@ function getEnvVarForProvider(provider: string): string {
   return map[provider] || "";
 }
 
+interface OpenAIMessageContentPart {
+  type?: string;
+  text?: string;
+}
+
 interface OpenAIResponse {
   error?: { message?: string };
-  choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
+  choices?: Array<{
+    message?: {
+      content?: string | OpenAIMessageContentPart[];
+      reasoning_content?: string | OpenAIMessageContentPart[];
+      reasoning?: string | OpenAIMessageContentPart[];
+    };
+    delta?: {
+      content?: string | OpenAIMessageContentPart[];
+      reasoning_content?: string | OpenAIMessageContentPart[];
+      reasoning?: string | OpenAIMessageContentPart[];
+    };
+    finish_reason?: string | null;
+  }>;
   usage?: { prompt_tokens?: number; completion_tokens?: number };
 }
 
@@ -214,12 +231,36 @@ class OpenAICompatibleProvider extends AIProvider {
       throw new Error(message);
     }
     const data = (await response.json()) as OpenAIResponse;
-    const msg = data.choices?.[0]?.message;
-    const text = msg ? ((msg.reasoning_content || "") + (msg.content || "")) : "";
+    const choice = data.choices?.[0];
+    const msg = choice?.message || choice?.delta;
+    const text = msg
+      ? [
+          extractOpenAIText(msg.reasoning_content),
+          extractOpenAIText(msg.reasoning),
+          extractOpenAIText(msg.content),
+        ]
+          .filter(Boolean)
+          .join("\n")
+      : "";
     const inputTokens = data.usage?.prompt_tokens || estimateTokens(prompt + contents.map((c) => c.parts?.[0]?.text || "").join(" "));
     const outputTokens = data.usage?.completion_tokens || estimateTokens(text);
     return { text, inputTokens, outputTokens };
   }
+}
+
+function extractOpenAIText(value: string | OpenAIMessageContentPart[] | undefined): string {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (!Array.isArray(value)) return "";
+
+  return value
+    .map((part) => {
+      if (!part || typeof part !== "object") return "";
+      if (typeof part.text === "string") return part.text;
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n");
 }
 
 class AnthropicProvider extends AIProvider {

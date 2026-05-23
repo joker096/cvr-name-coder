@@ -1,15 +1,43 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import type { Message } from "../types/chat";
 import type { ChatConfig } from "../types/settings";
 import type { ToolCall } from "../types/tools";
 import { toMessageId } from "../types/ai";
 import { parseCommand, getCommandPrompt, getCommandAgent } from "../utils/commands";
+import type { HistoryEntry } from "../types/api";
 
 interface ChatState {
   messages: Message[];
   isLoading: boolean;
   error: string | null;
   isStreaming: boolean;
+}
+
+const LOCAL_MESSAGES_KEY = "cvr_chat_messages";
+
+function loadStoredMessages(): Message[] {
+  try {
+    const raw = localStorage.getItem(LOCAL_MESSAGES_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as Message[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function mergeMessages(existing: Message[], incoming: Message[]): Message[] {
+  const seen = new Set<string>();
+  const merged: Message[] = [];
+
+  for (const message of [...incoming, ...existing]) {
+    const key = `${message.role}:${message.timestamp}:${message.content}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(message);
+  }
+
+  return merged.sort((a, b) => a.timestamp - b.timestamp);
 }
 
 function parseToolCalls(content: string): ToolCall[] {
@@ -34,7 +62,7 @@ const SSE_BATCH_MS = 50;
 
 export const useChat = (config: ChatConfig) => {
   const [state, setState] = useState<ChatState>({
-    messages: [],
+    messages: loadStoredMessages(),
     isLoading: false,
     error: null,
     isStreaming: false,
@@ -45,6 +73,52 @@ export const useChat = (config: ChatConfig) => {
   configRef.current = config;
   const messagesRef = useRef(state.messages);
   messagesRef.current = state.messages;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadHistory = async () => {
+      try {
+        const response = await fetch("/api/history");
+        if (!response.ok) return;
+        const data = await response.json() as { history?: HistoryEntry[] };
+        if (cancelled || !Array.isArray(data.history) || data.history.length === 0) {
+          return;
+        }
+
+        const hydratedMessages: Message[] = data.history.map((entry, index) => ({
+          id: toMessageId(`history-${index}-${crypto.randomUUID()}`),
+          role: entry.role,
+          content: entry.content,
+          images: entry.images,
+          timestamp: entry.createdAt ? new Date(entry.createdAt).getTime() : Date.now() + index,
+        }));
+
+        setState((prev) => {
+          const nextMessages = prev.messages.length > 0
+            ? mergeMessages(prev.messages, hydratedMessages)
+            : hydratedMessages;
+          return { ...prev, messages: nextMessages };
+        });
+      } catch {
+        // Keep chat usable even if persisted history fails to load.
+      }
+    };
+
+    void loadHistory();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(LOCAL_MESSAGES_KEY, JSON.stringify(state.messages));
+    } catch {
+      // Ignore storage failures to keep chat interactive.
+    }
+  }, [state.messages]);
 
   const sendMessage = useCallback(async (content: string, images?: string[]): Promise<{ content: string; continueNeeded: boolean } | null> => {
     if (!content.trim() && (!images || images.length === 0)) {

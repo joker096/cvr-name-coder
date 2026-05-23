@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import { MessageItem } from "./MessageItem";
 import type { Message } from "../../types/chat";
 
@@ -21,6 +21,12 @@ export const MessageList: React.FC<MessageListProps> = ({
   isLooming = false,
   loadingText,
 }) => {
+  const endRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: "end" });
+  }, [messages, isLooming]);
+
   if (messages.length === 0 && !isLooming) {
     return (
       <div className="flex-1 flex items-center justify-center text-dash-text-muted text-sm">
@@ -32,7 +38,7 @@ export const MessageList: React.FC<MessageListProps> = ({
   }
 
   return (
-    <div className="flex-1 overflow-y-auto px-3 py-2 space-y-2">
+    <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2 space-y-2">
       {messages.map((message, index) => (
         <MessageItem
           key={message.id || index}
@@ -71,6 +77,7 @@ export const MessageList: React.FC<MessageListProps> = ({
           </div>
         </div>
       )}
+      <div ref={endRef} />
     </div>
   );
 };

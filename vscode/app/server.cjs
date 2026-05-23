@@ -5120,6 +5120,7 @@ var import_genai = require("@google/genai");
 
 // src/utils/constants.ts
 var TIMEOUT_PERMISSION = 5 * 60 * 1e3;
+var DEFAULT_MAX_TOKENS = 4096;
 var RATE_LIMIT_WINDOW_MS = 1 * 60 * 1e3;
 var PROVIDER_DEFAULT_MODELS = {
   gemini: "gemini-2.5-flash",
@@ -5314,7 +5315,7 @@ function buildOpenAICompatibleBody(options, providerName) {
     ]
   };
   if (temperature !== void 0) body.temperature = temperature;
-  if (maxTokens !== void 0) body.max_tokens = maxTokens;
+  body.max_tokens = maxTokens ?? DEFAULT_MAX_TOKENS;
   return body;
 }
 function getEnvVarForProvider(provider) {
@@ -5390,13 +5391,28 @@ var OpenAICompatibleProvider = class extends AIProvider {
       throw new Error(message);
     }
     const data = await response.json();
-    const msg = data.choices?.[0]?.message;
-    const text = msg ? (msg.reasoning_content || "") + (msg.content || "") : "";
+    const choice = data.choices?.[0];
+    const msg = choice?.message || choice?.delta;
+    const text = msg ? [
+      extractOpenAIText(msg.reasoning_content),
+      extractOpenAIText(msg.reasoning),
+      extractOpenAIText(msg.content)
+    ].filter(Boolean).join("\n") : "";
     const inputTokens = data.usage?.prompt_tokens || estimateTokens(prompt + contents.map((c) => c.parts?.[0]?.text || "").join(" "));
     const outputTokens = data.usage?.completion_tokens || estimateTokens(text);
     return { text, inputTokens, outputTokens };
   }
 };
+function extractOpenAIText(value) {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (!Array.isArray(value)) return "";
+  return value.map((part) => {
+    if (!part || typeof part !== "object") return "";
+    if (typeof part.text === "string") return part.text;
+    return "";
+  }).filter(Boolean).join("\n");
+}
 var AnthropicProvider = class extends AIProvider {
   async generate(options) {
     const { prompt, contents, apiKey, modelName, maxTokens } = options;
