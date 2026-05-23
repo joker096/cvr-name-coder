@@ -81,6 +81,7 @@ export class GoalOrchestrator {
 
   abort(): void {
     this._abort = true;
+    this.loop.abort();
   }
 
   async run(): Promise<GoalState> {
@@ -160,6 +161,9 @@ export class GoalOrchestrator {
     this.saveTimeout = setTimeout(() => {
       saveGoalState(this.state).catch(() => {});
     }, 300);
+    if (this.saveTimeout && typeof this.saveTimeout.unref === "function") {
+      this.saveTimeout.unref();
+    }
   }
 
   private async flushSave(): Promise<void> {

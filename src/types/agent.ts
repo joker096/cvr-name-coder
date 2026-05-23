@@ -12,7 +12,7 @@ export interface LoopStep {
 export interface LoopState {
   goal: string;
   steps: LoopStep[];
-  status: "planning" | "executing" | "observing" | "completed" | "error";
+  status: "planning" | "executing" | "observing" | "completed" | "error" | "aborted";
   currentStep: number;
   maxSteps: number;
 }

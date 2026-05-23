@@ -1,9 +1,10 @@
 import type { Application, Request, Response } from "express";
 import { createSession, addMessage, getSession, listSessions, searchSessions, deleteSession } from "../sessionStore.js";
 import { getErrorMessage } from "../../types/errors.js";
+import { validateBody, SessionCreateSchema, SessionMessageSchema, SessionSearchQuerySchema } from "../validation.js";
 
 export function registerRoutes(app: Application) {
-  app.post("/api/sessions", async (req: Request, res: Response) => {
+  app.post("/api/sessions", validateBody(SessionCreateSchema), async (req: Request, res: Response) => {
     try {
       const { title } = req.body as { title?: string };
       const session = createSession(title || "New Session");
@@ -32,23 +33,27 @@ export function registerRoutes(app: Application) {
     }
   });
 
-  app.post("/api/sessions/:id/messages", async (req: Request, res: Response) => {
+  app.post("/api/sessions/:id/messages", validateBody(SessionMessageSchema), async (req: Request, res: Response) => {
     try {
-      const { role, content } = req.body as { role?: string; content?: string };
-      const message = addMessage(req.params.id!, role ?? "user", content ?? "");
+      const { role, content } = req.body as { role: "user" | "assistant" | "system"; content: string };
+      const message = addMessage(req.params.id!, role, content);
       return res.json(message);
-    } catch (e: any) {
-      return res.status(500).json({ error: e.message });
+    } catch (e: unknown) {
+      return res.status(500).json({ error: getErrorMessage(e) });
     }
   });
 
   app.get("/api/sessions/search", async (req: Request, res: Response) => {
     try {
-      const { q, limit } = req.query;
-      const results = searchSessions(String(q || ""), limit ? parseInt(String(limit), 10) : 20);
+      const parsed = SessionSearchQuerySchema.safeParse(req.query);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Validation failed", details: parsed.error.format() });
+      }
+      const { q, limit } = parsed.data;
+      const results = searchSessions(q ?? "", limit ?? 20);
       return res.json({ results });
-    } catch (e: any) {
-      return res.status(500).json({ error: e.message });
+    } catch (e: unknown) {
+      return res.status(500).json({ error: getErrorMessage(e) });
     }
   });
 
@@ -56,8 +61,8 @@ export function registerRoutes(app: Application) {
     try {
       deleteSession(req.params.id!);
       return res.json({ deleted: true });
-    } catch (e: any) {
-      return res.status(500).json({ error: e.message });
+    } catch (e: unknown) {
+      return res.status(500).json({ error: getErrorMessage(e) });
     }
   });
 }

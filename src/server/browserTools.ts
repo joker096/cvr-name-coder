@@ -5,9 +5,12 @@ interface BrowserSession {
   context: any;
   page: any;
   createdAt: number;
+  lastUsedAt: number;
 }
 
 const browserPool = new Map<string, BrowserSession>();
+const SESSION_TTL_MS = 15 * 60 * 1000;
+let cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
 let playwrightChromium: any = null;
 let playwrightError: Error | null = null;
@@ -26,12 +29,28 @@ async function getPlaywright() {
   }
 }
 
+function markSessionUsed(session: BrowserSession): void {
+  session.lastUsedAt = Date.now();
+}
+
+function ensureCleanupTimer(): void {
+  if (cleanupTimer) return;
+  cleanupTimer = setInterval(() => {
+    void cleanupStaleBrowserSessions();
+  }, 60 * 1000);
+  if (typeof cleanupTimer.unref === "function") {
+    cleanupTimer.unref();
+  }
+}
+
 async function getOrCreateSession(sessionId: string, headless = true): Promise<BrowserSession> {
+  ensureCleanupTimer();
   const existing = browserPool.get(sessionId);
   if (existing) {
     // Verify the session is still alive
     try {
       await existing.page.evaluate(() => document.title);
+      markSessionUsed(existing);
       return existing;
     } catch {
       // Session is dead, clean up and recreate
@@ -68,7 +87,8 @@ async function getOrCreateSession(sessionId: string, headless = true): Promise<B
     route.continue();
   });
   const page = await context.newPage();
-  const session: BrowserSession = { browser, context, page, createdAt: Date.now() };
+  const now = Date.now();
+  const session: BrowserSession = { browser, context, page, createdAt: now, lastUsedAt: now };
   browserPool.set(sessionId, session);
   return session;
 }
@@ -83,6 +103,10 @@ export async function closeBrowserSession(sessionId: string): Promise<void> {
     // Ignore cleanup errors
   }
   browserPool.delete(sessionId);
+  if (browserPool.size === 0 && cleanupTimer) {
+    clearInterval(cleanupTimer);
+    cleanupTimer = null;
+  }
 }
 
 export async function closeAllBrowsers(): Promise<void> {
@@ -91,7 +115,7 @@ export async function closeAllBrowsers(): Promise<void> {
   }
 }
 
-function validateBrowserUrl(url: string): string | null {
+export function validateBrowserUrl(url: string): string | null {
   try {
     const parsed = new URL(url);
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
@@ -116,13 +140,27 @@ function validateBrowserUrl(url: string): string | null {
   }
 }
 
+export async function cleanupStaleBrowserSessions(now = Date.now()): Promise<string[]> {
+  const staleSessionIds = Array.from(browserPool.entries())
+    .filter(([, session]) => now - session.lastUsedAt >= SESSION_TTL_MS)
+    .map(([sessionId]) => sessionId);
+
+  for (const sessionId of staleSessionIds) {
+    await closeBrowserSession(sessionId);
+  }
+
+  return staleSessionIds;
+}
+
 export async function browserNavigate(sessionId: string, url: string, headless = true): Promise<{ success: boolean; output: string; error?: string }> {
   const validationError = validateBrowserUrl(url);
   if (validationError) {
     return { success: false, output: "", error: validationError };
   }
   try {
-    const { page } = await getOrCreateSession(sessionId, headless);
+    const session = await getOrCreateSession(sessionId, headless);
+    markSessionUsed(session);
+    const { page } = session;
     await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
     const title = await page.title();
     return { success: true, output: `Navigated to ${url}. Page title: "${title}"` };
@@ -133,7 +171,9 @@ export async function browserNavigate(sessionId: string, url: string, headless =
 
 export async function browserClick(sessionId: string, selector: string, headless = true): Promise<{ success: boolean; output: string; error?: string }> {
   try {
-    const { page } = await getOrCreateSession(sessionId, headless);
+    const session = await getOrCreateSession(sessionId, headless);
+    markSessionUsed(session);
+    const { page } = session;
     await page.locator(selector).click({ timeout: 10000 });
     return { success: true, output: `Clicked element: ${selector}` };
   } catch (err: unknown) {
@@ -143,7 +183,9 @@ export async function browserClick(sessionId: string, selector: string, headless
 
 export async function browserType(sessionId: string, selector: string, text: string, headless = true): Promise<{ success: boolean; output: string; error?: string }> {
   try {
-    const { page } = await getOrCreateSession(sessionId, headless);
+    const session = await getOrCreateSession(sessionId, headless);
+    markSessionUsed(session);
+    const { page } = session;
     await page.locator(selector).fill(text);
     return { success: true, output: `Typed "${text}" into ${selector}` };
   } catch (err: unknown) {
@@ -153,7 +195,9 @@ export async function browserType(sessionId: string, selector: string, text: str
 
 export async function browserScreenshot(sessionId: string, headless = true): Promise<{ success: boolean; output: string; error?: string; base64?: string }> {
   try {
-    const { page } = await getOrCreateSession(sessionId, headless);
+    const session = await getOrCreateSession(sessionId, headless);
+    markSessionUsed(session);
+    const { page } = session;
     const screenshot = await page.screenshot({ type: "png", fullPage: false });
     const base64 = screenshot.toString("base64");
     return { success: true, output: `Screenshot captured (${screenshot.length} bytes)`, base64 };
@@ -164,7 +208,9 @@ export async function browserScreenshot(sessionId: string, headless = true): Pro
 
 export async function browserEvaluate(sessionId: string, script: string, headless = true): Promise<{ success: boolean; output: string; error?: string }> {
   try {
-    const { page } = await getOrCreateSession(sessionId, headless);
+    const session = await getOrCreateSession(sessionId, headless);
+    markSessionUsed(session);
+    const { page } = session;
     // SECURITY: Script is executed in an isolated page context via Playwright's evaluate.
     // We pass it as a string and use a minimal wrapper to return results safely.
     // The page context is separate from Node.js, but we still validate the script.
@@ -195,7 +241,9 @@ export async function browserEvaluate(sessionId: string, script: string, headles
 
 export async function browserGetHtml(sessionId: string, headless = true): Promise<{ success: boolean; output: string; error?: string }> {
   try {
-    const { page } = await getOrCreateSession(sessionId, headless);
+    const session = await getOrCreateSession(sessionId, headless);
+    markSessionUsed(session);
+    const { page } = session;
     const html = await page.content();
     return { success: true, output: html };
   } catch (err: unknown) {

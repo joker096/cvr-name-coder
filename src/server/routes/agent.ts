@@ -3,23 +3,24 @@ import { randomUUID } from "crypto";
 import { AgentLoop } from "../agentLoop.js";
 import { createPlan } from "../planner.js";
 import { generateWithDualModel } from "../providers.js";
-import type { DualModelConfig } from "../providers.js";
 import { permissionEngine, agentLoopMap, subagentManager } from "../serverState.js";
 import { setActiveLoops, incrementError } from "../standalone/health.js";
-import { validateBody, AgentLoopSchema } from "../validation.js";
+import { validateBody, AgentLoopSchema, AgentPlanSchema, PermissionRequestSchema, PermissionResolveSchema, SubagentSpawnSchema } from "../validation.js";
+import { buildDualModelConfig } from "../dualModel.js";
 
 export function registerRoutes(app: Application) {
   app.post("/api/agent/loop", validateBody(AgentLoopSchema), async (req: Request, res: Response) => {
     try {
       const { goal, provider, model, thinkingProvider, thinkingModel, thinkingLocalUrl } = req.body;
       const id = randomUUID();
-      const dualCfg: DualModelConfig = {
-        primaryProvider: provider || "",
-        primaryModel: model,
+      const dualCfg = buildDualModelConfig({
+        aiProvider: provider,
+        aiModel: model,
+        multiModelEnabled: Boolean(thinkingProvider && thinkingModel),
         thinkingProvider,
         thinkingModel,
         thinkingLocalUrl,
-      };
+      });
 
       const loop = new AgentLoop(goal, {
         maxSteps: 20,
@@ -58,16 +59,17 @@ export function registerRoutes(app: Application) {
     return res.json({ aborted: true });
   });
 
-  app.post("/api/agent/plan", async (req: Request, res: Response) => {
+  app.post("/api/agent/plan", validateBody(AgentPlanSchema), async (req: Request, res: Response) => {
     try {
       const { goal, provider, model, thinkingProvider, thinkingModel, thinkingLocalUrl } = req.body;
-      const dualCfg: DualModelConfig = {
-        primaryProvider: provider || "",
-        primaryModel: model,
+      const dualCfg = buildDualModelConfig({
+        aiProvider: provider,
+        aiModel: model,
+        multiModelEnabled: Boolean(thinkingProvider && thinkingModel),
         thinkingProvider,
         thinkingModel,
         thinkingLocalUrl,
-      };
+      });
       const plan = await createPlan(goal, (prompt: string) =>
         generateWithDualModel(prompt, [], dualCfg, 'think')
       );
@@ -77,16 +79,17 @@ export function registerRoutes(app: Application) {
     }
   });
 
-  app.post("/api/subagents/spawn", async (req: Request, res: Response) => {
+  app.post("/api/subagents/spawn", validateBody(SubagentSpawnSchema), async (req: Request, res: Response) => {
     try {
       const { goal, agentConfig, provider, model, thinkingProvider, thinkingModel, thinkingLocalUrl } = req.body;
-      const dualCfg: DualModelConfig = {
-        primaryProvider: provider || "",
-        primaryModel: model,
+      const dualCfg = buildDualModelConfig({
+        aiProvider: provider,
+        aiModel: model,
+        multiModelEnabled: Boolean(thinkingProvider && thinkingModel),
         thinkingProvider,
         thinkingModel,
         thinkingLocalUrl,
-      };
+      });
       const task = await subagentManager.spawn(
         req.body.parentId || "main",
         goal,
@@ -109,13 +112,13 @@ export function registerRoutes(app: Application) {
     res.json({ aborted: true });
   });
 
-  app.post("/api/permissions/check", (req: Request, res: Response) => {
+  app.post("/api/permissions/check", validateBody(PermissionRequestSchema), (req: Request, res: Response) => {
     if (!permissionEngine) return res.status(503).json({ error: "Permission engine not initialized" });
     const result = permissionEngine.check(req.body);
     return res.json(result);
   });
 
-  app.post("/api/permissions/ask", (req: Request, res: Response) => {
+  app.post("/api/permissions/ask", validateBody(PermissionRequestSchema), (req: Request, res: Response) => {
     if (!permissionEngine) return res.status(503).json({ error: "Permission engine not initialized" });
     const request = req.body;
     const check = permissionEngine.check(request);
@@ -141,7 +144,7 @@ export function registerRoutes(app: Application) {
     return res.json(pending);
   });
 
-  app.post("/api/permissions/resolve/:id", (req: Request, res: Response) => {
+  app.post("/api/permissions/resolve/:id", validateBody(PermissionResolveSchema), (req: Request, res: Response) => {
     if (!permissionEngine) return res.status(503).json({ error: "Permission engine not initialized" });
     const { approved } = req.body;
     permissionEngine.resolve(req.params.id!, approved === true);

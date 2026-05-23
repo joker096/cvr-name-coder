@@ -54,9 +54,11 @@ __export(browserTools_exports, {
   browserNavigate: () => browserNavigate,
   browserScreenshot: () => browserScreenshot,
   browserType: () => browserType,
+  cleanupStaleBrowserSessions: () => cleanupStaleBrowserSessions,
   closeAllBrowsers: () => closeAllBrowsers,
   closeBrowserSession: () => closeBrowserSession,
-  getActiveBrowserSessions: () => getActiveBrowserSessions
+  getActiveBrowserSessions: () => getActiveBrowserSessions,
+  validateBrowserUrl: () => validateBrowserUrl
 });
 async function getPlaywright() {
   if (playwrightChromium) return playwrightChromium;
@@ -70,11 +72,25 @@ async function getPlaywright() {
     throw playwrightError;
   }
 }
+function markSessionUsed(session) {
+  session.lastUsedAt = Date.now();
+}
+function ensureCleanupTimer() {
+  if (cleanupTimer) return;
+  cleanupTimer = setInterval(() => {
+    void cleanupStaleBrowserSessions();
+  }, 60 * 1e3);
+  if (typeof cleanupTimer.unref === "function") {
+    cleanupTimer.unref();
+  }
+}
 async function getOrCreateSession(sessionId, headless = true) {
+  ensureCleanupTimer();
   const existing = browserPool.get(sessionId);
   if (existing) {
     try {
       await existing.page.evaluate(() => document.title);
+      markSessionUsed(existing);
       return existing;
     } catch {
       await closeBrowserSession(sessionId);
@@ -103,7 +119,8 @@ async function getOrCreateSession(sessionId, headless = true) {
     route.continue();
   });
   const page = await context.newPage();
-  const session = { browser, context, page, createdAt: Date.now() };
+  const now = Date.now();
+  const session = { browser, context, page, createdAt: now, lastUsedAt: now };
   browserPool.set(sessionId, session);
   return session;
 }
@@ -116,6 +133,10 @@ async function closeBrowserSession(sessionId) {
   } catch {
   }
   browserPool.delete(sessionId);
+  if (browserPool.size === 0 && cleanupTimer) {
+    clearInterval(cleanupTimer);
+    cleanupTimer = null;
+  }
 }
 async function closeAllBrowsers() {
   for (const [sessionId] of browserPool) {
@@ -137,13 +158,22 @@ function validateBrowserUrl(url) {
     return "Invalid URL";
   }
 }
+async function cleanupStaleBrowserSessions(now = Date.now()) {
+  const staleSessionIds = Array.from(browserPool.entries()).filter(([, session]) => now - session.lastUsedAt >= SESSION_TTL_MS).map(([sessionId]) => sessionId);
+  for (const sessionId of staleSessionIds) {
+    await closeBrowserSession(sessionId);
+  }
+  return staleSessionIds;
+}
 async function browserNavigate(sessionId, url, headless = true) {
   const validationError = validateBrowserUrl(url);
   if (validationError) {
     return { success: false, output: "", error: validationError };
   }
   try {
-    const { page } = await getOrCreateSession(sessionId, headless);
+    const session = await getOrCreateSession(sessionId, headless);
+    markSessionUsed(session);
+    const { page } = session;
     await page.goto(url, { waitUntil: "networkidle", timeout: 3e4 });
     const title = await page.title();
     return { success: true, output: `Navigated to ${url}. Page title: "${title}"` };
@@ -153,7 +183,9 @@ async function browserNavigate(sessionId, url, headless = true) {
 }
 async function browserClick(sessionId, selector, headless = true) {
   try {
-    const { page } = await getOrCreateSession(sessionId, headless);
+    const session = await getOrCreateSession(sessionId, headless);
+    markSessionUsed(session);
+    const { page } = session;
     await page.locator(selector).click({ timeout: 1e4 });
     return { success: true, output: `Clicked element: ${selector}` };
   } catch (err) {
@@ -162,7 +194,9 @@ async function browserClick(sessionId, selector, headless = true) {
 }
 async function browserType(sessionId, selector, text, headless = true) {
   try {
-    const { page } = await getOrCreateSession(sessionId, headless);
+    const session = await getOrCreateSession(sessionId, headless);
+    markSessionUsed(session);
+    const { page } = session;
     await page.locator(selector).fill(text);
     return { success: true, output: `Typed "${text}" into ${selector}` };
   } catch (err) {
@@ -171,7 +205,9 @@ async function browserType(sessionId, selector, text, headless = true) {
 }
 async function browserScreenshot(sessionId, headless = true) {
   try {
-    const { page } = await getOrCreateSession(sessionId, headless);
+    const session = await getOrCreateSession(sessionId, headless);
+    markSessionUsed(session);
+    const { page } = session;
     const screenshot = await page.screenshot({ type: "png", fullPage: false });
     const base64 = screenshot.toString("base64");
     return { success: true, output: `Screenshot captured (${screenshot.length} bytes)`, base64 };
@@ -181,7 +217,9 @@ async function browserScreenshot(sessionId, headless = true) {
 }
 async function browserEvaluate(sessionId, script, headless = true) {
   try {
-    const { page } = await getOrCreateSession(sessionId, headless);
+    const session = await getOrCreateSession(sessionId, headless);
+    markSessionUsed(session);
+    const { page } = session;
     if (script.length > 1e5) {
       return { success: false, output: "", error: "Script exceeds maximum length" };
     }
@@ -208,7 +246,9 @@ async function browserEvaluate(sessionId, script, headless = true) {
 }
 async function browserGetHtml(sessionId, headless = true) {
   try {
-    const { page } = await getOrCreateSession(sessionId, headless);
+    const session = await getOrCreateSession(sessionId, headless);
+    markSessionUsed(session);
+    const { page } = session;
     const html = await page.content();
     return { success: true, output: html };
   } catch (err) {
@@ -222,12 +262,14 @@ async function browserClose(sessionId) {
 function getActiveBrowserSessions() {
   return Array.from(browserPool.keys());
 }
-var browserPool, playwrightChromium, playwrightError;
+var browserPool, SESSION_TTL_MS, cleanupTimer, playwrightChromium, playwrightError;
 var init_browserTools = __esm({
   "src/server/browserTools.ts"() {
     "use strict";
     init_errors();
     browserPool = /* @__PURE__ */ new Map();
+    SESSION_TTL_MS = 15 * 60 * 1e3;
+    cleanupTimer = null;
     playwrightChromium = null;
     playwrightError = null;
     process.on("exit", () => {
@@ -2020,7 +2062,7 @@ async function writeMemory(content, section) {
       data.sections.push({ title: "Project Facts", lines: [entry] });
     }
   }
-  const raw = rebuildMarkdown(data.sections);
+  const raw = rebuildMarkdown("Project Memory", data.sections);
   await atomicWriteFile(getMemoryPath(), raw);
   _memCache = null;
   _contextCache = null;
@@ -2033,7 +2075,7 @@ async function replaceMemorySection(section, lines) {
   } else {
     data.sections.push({ title: section, lines: lines.filter((l) => l.trim() !== "") });
   }
-  const raw = rebuildMarkdown(data.sections);
+  const raw = rebuildMarkdown("Project Memory", data.sections);
   await atomicWriteFile(getMemoryPath(), raw);
   _memCache = null;
   _contextCache = null;
@@ -2041,7 +2083,7 @@ async function replaceMemorySection(section, lines) {
 async function deleteMemorySection(section) {
   const data = await readMemory();
   data.sections = data.sections.filter((s) => s.title.toLowerCase() !== section.toLowerCase());
-  const raw = rebuildMarkdown(data.sections);
+  const raw = rebuildMarkdown("Project Memory", data.sections);
   await atomicWriteFile(getMemoryPath(), raw);
   _memCache = null;
   _contextCache = null;
@@ -2108,7 +2150,7 @@ async function writeUser(content, section) {
       data.sections.push({ title: "Coding Style", lines: [entry] });
     }
   }
-  const raw = rebuildMarkdown(data.sections);
+  const raw = rebuildMarkdown("User Preferences", data.sections);
   await atomicWriteFile(getUserPath(), raw);
   _userCache = null;
   _contextCache = null;
@@ -2121,7 +2163,7 @@ async function replaceUserSection(section, lines) {
   } else {
     data.sections.push({ title: section, lines: lines.filter((l) => l.trim() !== "") });
   }
-  const raw = rebuildMarkdown(data.sections);
+  const raw = rebuildMarkdown("User Preferences", data.sections);
   await atomicWriteFile(getUserPath(), raw);
   _userCache = null;
   _contextCache = null;
@@ -2129,7 +2171,7 @@ async function replaceUserSection(section, lines) {
 async function deleteUserSection(section) {
   const data = await readUser();
   data.sections = data.sections.filter((s) => s.title.toLowerCase() !== section.toLowerCase());
-  const raw = rebuildMarkdown(data.sections);
+  const raw = rebuildMarkdown("User Preferences", data.sections);
   await atomicWriteFile(getUserPath(), raw);
   _userCache = null;
   _contextCache = null;
@@ -2139,8 +2181,9 @@ async function atomicWriteFile(filePath, content) {
   await (0, import_promises3.writeFile)(tmp, content, "utf-8");
   await (0, import_promises3.rename)(tmp, filePath);
 }
-function rebuildMarkdown(sections) {
-  const lines = ["# Project Memory\n"];
+function rebuildMarkdown(kind, sections) {
+  const lines = [`# ${kind}
+`];
   for (const section of sections) {
     lines.push(`## ${section.title}`);
     lines.push(...section.lines.filter((l) => l.trim() !== ""));
@@ -4234,14 +4277,11 @@ var AgentLoop = class {
   async run() {
     try {
       await hookRegistry.execute("loop.start", { goal: this.state.goal }, this.sessionId);
-      while (this.state.status !== "completed" && this.state.status !== "error") {
+      while (this.state.status !== "completed" && this.state.status !== "error" && this.state.status !== "aborted") {
         if (this.state.currentStep >= this.state.maxSteps || this._abort) {
           if (this._abort) {
-            this.state.steps.push({
-              id: this.state.currentStep,
-              thought: "Loop aborted by user",
-              timestamp: Date.now()
-            });
+            this.state.status = "aborted";
+            break;
           }
           this.state.status = "error";
           break;
@@ -4251,7 +4291,7 @@ var AgentLoop = class {
           break;
         }
       }
-      if (this.state.status !== "error") {
+      if (this.state.status !== "error" && this.state.status !== "aborted") {
         this.state.status = "completed";
       }
       this.onStatus?.(this.state.status);
@@ -4276,13 +4316,24 @@ var AgentLoop = class {
   }
   abort() {
     this._abort = true;
+    if (this.state.status !== "completed" && this.state.status !== "error") {
+      this.state.status = "aborted";
+    }
   }
   setAdditionalContext(ctx) {
     this.additionalContext = ctx;
   }
   async runSingleStep() {
     if (this._abort) {
-      throw new Error("Loop aborted by user");
+      this.state.status = "aborted";
+      const abortedStep = {
+        id: this.state.currentStep,
+        thought: "Loop aborted by user",
+        timestamp: Date.now()
+      };
+      this.state.steps.push(abortedStep);
+      this.onStep?.(abortedStep);
+      return abortedStep;
     }
     const thought = await this.think();
     const step = {
@@ -4301,6 +4352,11 @@ var AgentLoop = class {
           "build"
         );
         step.observation = JSON.stringify(result);
+        if (this._abort) {
+          this.state.status = "aborted";
+          step.observation = `${step.observation}
+[ABORTED] Loop aborted after tool execution`;
+        }
       } catch (err) {
         step.observation = `Error: ${getErrorMessage(err)}`;
       }
@@ -4309,8 +4365,8 @@ var AgentLoop = class {
     this.onStep?.(step);
     this.state.currentStep++;
     await hookRegistry.execute("loop.step", { step }, this.sessionId);
-    this.state.status = "observing";
-    this.onStatus?.("observing");
+    this.state.status = this._abort ? "aborted" : "observing";
+    this.onStatus?.(this.state.status);
     return step;
   }
   async think() {
@@ -4366,6 +4422,7 @@ var SubagentManager = class {
   tasks = /* @__PURE__ */ new Map();
   queue = [];
   maxConcurrent = 3;
+  activeLoops = /* @__PURE__ */ new Map();
   async spawn(parentId, goal, agentConfig, thinkFn) {
     const id = crypto.randomUUID();
     const task = {
@@ -4395,13 +4452,20 @@ var SubagentManager = class {
         },
         thinkFn
       });
+      this.activeLoops.set(task.id, loop);
       const state = await loop.run();
-      task.status = "completed";
-      task.result = state.steps.map((s) => s.observation || s.thought).join("\n\n");
+      if (state.status === "aborted") {
+        task.status = "failed";
+        task.error = "Aborted by user";
+      } else {
+        task.status = "completed";
+        task.result = state.steps.map((s) => s.observation || s.thought).join("\n\n");
+      }
     } catch (err) {
       task.status = "failed";
       task.error = getErrorMessage(err);
     } finally {
+      this.activeLoops.delete(task.id);
       task.endTime = Date.now();
       this.processQueue(thinkFn);
     }
@@ -4431,6 +4495,7 @@ var SubagentManager = class {
   async abort(id) {
     const task = this.tasks.get(id);
     if (task && task.status === "running") {
+      this.activeLoops.get(id)?.abort();
       task.status = "failed";
       task.error = "Aborted by user";
       task.endTime = Date.now();
@@ -4956,15 +5021,18 @@ async function resolveConflictsManually(resolutions) {
 // src/server/standalone/middleware.ts
 var import_helmet = __toESM(require("helmet"), 1);
 var import_express_rate_limit = __toESM(require("express-rate-limit"), 1);
-function setupSecurityMiddleware(app2) {
+function setupSecurityMiddleware(app2, options = {}) {
+  app2.disable("x-powered-by");
   app2.use((0, import_helmet.default)({
-    contentSecurityPolicy: {
-      directives: {
-        defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
-        imgSrc: ["'self'", "data:", "blob:"],
-        connectSrc: ["'self'", "ws:", "wss:"]
+    ...options.contentSecurityPolicy === false ? { contentSecurityPolicy: false } : {
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          scriptSrc: ["'self'", "'unsafe-inline'"],
+          styleSrc: ["'self'", "'unsafe-inline'"],
+          imgSrc: ["'self'", "data:", "blob:"],
+          connectSrc: ["'self'", "ws:", "wss:"]
+        }
       }
     }
   }));
@@ -5637,7 +5705,39 @@ var ReviewRequestSchema = import_zod.z.object({
 var AgentLoopSchema = import_zod.z.object({
   goal: import_zod.z.string().min(1),
   provider: import_zod.z.string().optional(),
-  model: import_zod.z.string().optional()
+  model: import_zod.z.string().optional(),
+  thinkingProvider: import_zod.z.string().optional(),
+  thinkingModel: import_zod.z.string().optional(),
+  thinkingLocalUrl: import_zod.z.string().optional()
+});
+var AgentPlanSchema = AgentLoopSchema;
+var SubagentSpawnSchema = import_zod.z.object({
+  parentId: import_zod.z.string().max(200).optional(),
+  goal: import_zod.z.string().min(1).max(2e4),
+  agentConfig: import_zod.z.object({
+    id: import_zod.z.string(),
+    name: import_zod.z.string(),
+    description: import_zod.z.string(),
+    systemPrompt: import_zod.z.string(),
+    tools: import_zod.z.array(import_zod.z.string()),
+    maxSteps: import_zod.z.number().int().min(1).max(100),
+    model: import_zod.z.string(),
+    provider: import_zod.z.string()
+  }),
+  provider: import_zod.z.string().optional(),
+  model: import_zod.z.string().optional(),
+  thinkingProvider: import_zod.z.string().optional(),
+  thinkingModel: import_zod.z.string().optional(),
+  thinkingLocalUrl: import_zod.z.string().optional()
+});
+var PermissionRequestSchema = import_zod.z.object({
+  tool: import_zod.z.string().min(1).max(200),
+  params: import_zod.z.record(import_zod.z.string(), import_zod.z.union([import_zod.z.string(), import_zod.z.number(), import_zod.z.boolean(), import_zod.z.null()])).optional(),
+  filePath: import_zod.z.string().max(2e3).optional(),
+  command: import_zod.z.string().max(2e4).optional()
+});
+var PermissionResolveSchema = import_zod.z.object({
+  approved: import_zod.z.boolean()
 });
 var CronTaskSchema = import_zod.z.object({
   name: import_zod.z.string().min(1),
@@ -5648,6 +5748,66 @@ var CronTaskSchema = import_zod.z.object({
 var GitCommitSchema = import_zod.z.object({
   message: import_zod.z.string().min(1)
 });
+var SectionWriteSchema = import_zod.z.object({
+  content: import_zod.z.string().max(1e5),
+  section: import_zod.z.string().min(1).max(200).optional()
+});
+var SectionReplaceSchema = import_zod.z.object({
+  content: import_zod.z.string().max(1e5),
+  section: import_zod.z.string().min(1).max(200)
+});
+var SectionDeleteSchema = import_zod.z.object({
+  section: import_zod.z.string().min(1).max(200)
+});
+var SessionCreateSchema = import_zod.z.object({
+  title: import_zod.z.string().min(1).max(200).optional()
+});
+var SessionMessageSchema = import_zod.z.object({
+  role: import_zod.z.enum(["user", "assistant", "system"]).default("user"),
+  content: import_zod.z.string().min(1).max(1e5)
+});
+var SessionSearchQuerySchema = import_zod.z.object({
+  q: import_zod.z.string().max(500).optional(),
+  limit: import_zod.z.coerce.number().int().min(1).max(100).optional()
+});
+var ReviewDecisionSchema = import_zod.z.object({
+  commentId: import_zod.z.string().min(1).max(200)
+});
+var GoalConfigSchema = import_zod.z.object({
+  goal: import_zod.z.string().min(1).max(2e4),
+  successCriteria: import_zod.z.string().max(2e4).optional(),
+  maxIterations: import_zod.z.number().int().min(1).max(100).optional(),
+  maxTokens: import_zod.z.number().int().min(1).max(1e6).optional(),
+  maxDurationMinutes: import_zod.z.number().int().min(1).max(24 * 60).optional(),
+  provider: import_zod.z.string().min(1).max(100),
+  model: import_zod.z.string().min(1).max(200),
+  apiKey: import_zod.z.string().max(1e3).optional(),
+  agent: import_zod.z.string().max(100).optional()
+});
+var GitBranchSchema = import_zod.z.object({
+  name: import_zod.z.string().min(1).max(200).regex(/^[A-Za-z0-9._/-]+$/, "Invalid branch name")
+});
+var GitLogQuerySchema = import_zod.z.object({
+  limit: import_zod.z.coerce.number().int().min(1).max(100).optional()
+});
+var GitDiffQuerySchema = import_zod.z.object({
+  staged: import_zod.z.enum(["true", "false"]).optional()
+});
+var GitPullRequestSchema = import_zod.z.object({
+  draft: import_zod.z.boolean().optional(),
+  config: import_zod.z.object({
+    aiProvider: import_zod.z.string().optional(),
+    localUrl: import_zod.z.string().optional(),
+    aiModel: import_zod.z.string().optional(),
+    apiKey: import_zod.z.string().optional(),
+    temperature: import_zod.z.number().optional(),
+    maxTokens: import_zod.z.number().optional(),
+    multiModelEnabled: import_zod.z.boolean().optional(),
+    thinkingProvider: import_zod.z.string().optional(),
+    thinkingModel: import_zod.z.string().optional(),
+    thinkingLocalUrl: import_zod.z.string().optional()
+  }).optional()
+});
 var BrowserNavigateSchema = import_zod.z.object({
   url: import_zod.z.string().url(),
   headless: import_zod.z.boolean().optional(),
@@ -5657,6 +5817,14 @@ var BrowserActionSchema = import_zod.z.object({
   selector: import_zod.z.string().min(1),
   text: import_zod.z.string().optional(),
   headless: import_zod.z.boolean().optional(),
+  sessionId: import_zod.z.string().optional()
+});
+var BrowserEvaluateSchema = import_zod.z.object({
+  script: import_zod.z.string().min(1).max(1e5),
+  headless: import_zod.z.boolean().optional(),
+  sessionId: import_zod.z.string().optional()
+});
+var BrowserCloseSchema = import_zod.z.object({
   sessionId: import_zod.z.string().optional()
 });
 var SettingsSchema = import_zod.z.object({
@@ -5989,7 +6157,9 @@ async function processImages(base64Images, options = {}) {
 
 // src/server/routes/chat.ts
 init_errors();
-function buildDualConfig(cfg) {
+
+// src/server/dualModel.ts
+function buildDualModelConfig(cfg) {
   const result = {
     primaryProvider: cfg.aiProvider || ""
   };
@@ -6004,6 +6174,8 @@ function buildDualConfig(cfg) {
   if (cfg.maxTokens !== void 0) result.maxTokens = cfg.maxTokens;
   return result;
 }
+
+// src/server/routes/chat.ts
 var STORAGE_DIR2 = path19.join(process.cwd(), ".opencode-infinite");
 var HISTORY_FILE = path19.join(STORAGE_DIR2, "history.json");
 var MEMORY_FILE = path19.join(STORAGE_DIR2, "memory.json");
@@ -6079,7 +6251,7 @@ async function summarizeLongHistory(messages, provider, localUrl, modelName, api
   }
 }
 function registerRoutes(app2) {
-  app2.post("/api/chat", async (req, res) => {
+  app2.post("/api/chat", validateBody(ChatRequestSchema), async (req, res) => {
     incrementRequestCount();
     try {
       const body = req.body;
@@ -6155,7 +6327,7 @@ function registerRoutes(app2) {
       invalidateHistoryCache();
       if (updatedHistory.length % 5 === 0) {
         const kConfigTyped = kConfig;
-        const dualCfg = buildDualConfig(kConfigTyped);
+        const dualCfg = buildDualModelConfig(kConfigTyped);
         const summaryKey = kConfigTyped.providerKeys?.[kConfigTyped.aiProvider || ""] || kConfigTyped.apiKey;
         summarizeLongHistory(updatedHistory, kConfigTyped.aiProvider, kConfigTyped.localUrl, kConfigTyped.aiProvider === "local" ? kConfigTyped.localModelName || kConfigTyped.aiModel : kConfigTyped.aiModel, summaryKey, dualCfg).then(async (summary) => {
           if (summary) {
@@ -6302,7 +6474,7 @@ function registerRoutes2(app2) {
       res.status(500).json({ error: getErrorMessage(e) });
     }
   });
-  app2.post("/api/memory", async (req, res) => {
+  app2.post("/api/memory", validateBody(SectionWriteSchema), async (req, res) => {
     try {
       const { content, section } = req.body;
       await writeMemory(content ?? "", section);
@@ -6311,7 +6483,7 @@ function registerRoutes2(app2) {
       res.status(500).json({ error: getErrorMessage(e) });
     }
   });
-  app2.put("/api/memory", async (req, res) => {
+  app2.put("/api/memory", validateBody(SectionReplaceSchema), async (req, res) => {
     try {
       const { content, section } = req.body;
       await replaceMemorySection(section, content.split("\n"));
@@ -6320,7 +6492,7 @@ function registerRoutes2(app2) {
       res.status(500).json({ error: getErrorMessage(e) });
     }
   });
-  app2.delete("/api/memory", async (req, res) => {
+  app2.delete("/api/memory", validateBody(SectionDeleteSchema), async (req, res) => {
     try {
       const { section } = req.body;
       await deleteMemorySection(section);
@@ -6337,7 +6509,7 @@ function registerRoutes2(app2) {
       res.status(500).json({ error: getErrorMessage(e) });
     }
   });
-  app2.post("/api/user", async (req, res) => {
+  app2.post("/api/user", validateBody(SectionWriteSchema), async (req, res) => {
     try {
       const { content, section } = req.body;
       await writeUser(content ?? "", section);
@@ -6346,7 +6518,7 @@ function registerRoutes2(app2) {
       res.status(500).json({ error: getErrorMessage(e) });
     }
   });
-  app2.put("/api/user", async (req, res) => {
+  app2.put("/api/user", validateBody(SectionReplaceSchema), async (req, res) => {
     try {
       const { content, section } = req.body;
       await replaceUserSection(section, content.split("\n"));
@@ -6355,7 +6527,7 @@ function registerRoutes2(app2) {
       res.status(500).json({ error: getErrorMessage(e) });
     }
   });
-  app2.delete("/api/user", async (req, res) => {
+  app2.delete("/api/user", validateBody(SectionDeleteSchema), async (req, res) => {
     try {
       const { section } = req.body;
       await deleteUserSection(section);
@@ -6370,7 +6542,7 @@ function registerRoutes2(app2) {
 init_sessionStore();
 init_errors();
 function registerRoutes3(app2) {
-  app2.post("/api/sessions", async (req, res) => {
+  app2.post("/api/sessions", validateBody(SessionCreateSchema), async (req, res) => {
     try {
       const { title } = req.body;
       const session = createSession(title || "New Session");
@@ -6396,22 +6568,26 @@ function registerRoutes3(app2) {
       return res.status(500).json({ error: getErrorMessage(e) });
     }
   });
-  app2.post("/api/sessions/:id/messages", async (req, res) => {
+  app2.post("/api/sessions/:id/messages", validateBody(SessionMessageSchema), async (req, res) => {
     try {
       const { role, content } = req.body;
-      const message = addMessage(req.params.id, role ?? "user", content ?? "");
+      const message = addMessage(req.params.id, role, content);
       return res.json(message);
     } catch (e) {
-      return res.status(500).json({ error: e.message });
+      return res.status(500).json({ error: getErrorMessage(e) });
     }
   });
   app2.get("/api/sessions/search", async (req, res) => {
     try {
-      const { q, limit } = req.query;
-      const results = searchSessions(String(q || ""), limit ? parseInt(String(limit), 10) : 20);
+      const parsed = SessionSearchQuerySchema.safeParse(req.query);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Validation failed", details: parsed.error.format() });
+      }
+      const { q, limit } = parsed.data;
+      const results = searchSessions(q ?? "", limit ?? 20);
       return res.json({ results });
     } catch (e) {
-      return res.status(500).json({ error: e.message });
+      return res.status(500).json({ error: getErrorMessage(e) });
     }
   });
   app2.delete("/api/sessions/:id", async (req, res) => {
@@ -6419,7 +6595,7 @@ function registerRoutes3(app2) {
       deleteSession(req.params.id);
       return res.json({ deleted: true });
     } catch (e) {
-      return res.status(500).json({ error: e.message });
+      return res.status(500).json({ error: getErrorMessage(e) });
     }
   });
 }
@@ -6560,7 +6736,12 @@ function parseSchedule(schedule) {
 var CronScheduler = class {
   tasks = /* @__PURE__ */ new Map();
   timers = /* @__PURE__ */ new Map();
+  runCallbacks = /* @__PURE__ */ new Map();
   addTask(task) {
+    const interval = parseSchedule(task.schedule);
+    if (!interval) {
+      throw new Error(`Invalid schedule: ${task.schedule}`);
+    }
     const id = (0, import_crypto7.randomUUID)();
     const fullTask = { ...task, id };
     this.tasks.set(id, fullTask);
@@ -6594,12 +6775,16 @@ var CronScheduler = class {
   startTask(id) {
     const task = this.tasks.get(id);
     if (!task || !task.enabled) return;
+    this.stopTask(id);
     const interval = parseSchedule(task.schedule);
     if (!interval) return;
     task.nextRun = Date.now() + interval;
     const timer = setInterval(() => {
-      this.runTask(id);
+      void this.runTask(id);
     }, interval);
+    if (typeof timer.unref === "function") {
+      timer.unref();
+    }
     this.timers.set(id, timer);
   }
   stopTask(id) {
@@ -6609,30 +6794,38 @@ var CronScheduler = class {
       this.timers.delete(id);
     }
   }
-  runTask(id) {
+  async runTask(id) {
     const task = this.tasks.get(id);
     if (!task) return;
+    if (task.isRunning) return;
+    const interval = parseSchedule(task.schedule) || 0;
+    task.isRunning = true;
     task.lastRun = Date.now();
-    task.nextRun = Date.now() + (parseSchedule(task.schedule) || 0);
-    console.log(`[CRON] Running task ${task.name}: ${task.command}`);
+    task.nextRun = Date.now() + interval;
+    try {
+      console.log(`[CRON] Running task ${task.name}: ${task.command}`);
+      const callback = this.runCallbacks.get(id);
+      if (callback) {
+        await callback(task);
+      }
+    } finally {
+      task.isRunning = false;
+      task.nextRun = Date.now() + interval;
+    }
   }
   onTaskRun(id, callback) {
     const task = this.tasks.get(id);
     if (!task) return;
-    this.stopTask(id);
-    const interval = parseSchedule(task.schedule);
-    if (!interval) return;
-    const timer = setInterval(() => {
-      task.lastRun = Date.now();
-      task.nextRun = Date.now() + interval;
-      callback(task);
-    }, interval);
-    this.timers.set(id, timer);
+    this.runCallbacks.set(id, callback);
+    if (task.enabled) {
+      this.startTask(id);
+    }
   }
   dispose() {
     for (const [id] of this.timers) {
       this.stopTask(id);
     }
+    this.runCallbacks.clear();
     this.tasks.clear();
   }
 };
@@ -7048,20 +7241,6 @@ async function getChangeState() {
 }
 
 // src/server/routes/git.ts
-function buildDualConfig2(cfg) {
-  const result = {
-    primaryProvider: cfg.aiProvider || ""
-  };
-  if (cfg.aiModel !== void 0) result.primaryModel = cfg.aiModel;
-  if (cfg.localUrl !== void 0) result.primaryLocalUrl = cfg.localUrl;
-  if (cfg.multiModelEnabled && cfg.thinkingProvider !== void 0) result.thinkingProvider = cfg.thinkingProvider;
-  if (cfg.multiModelEnabled && cfg.thinkingModel !== void 0) result.thinkingModel = cfg.thinkingModel;
-  if (cfg.thinkingLocalUrl !== void 0) result.thinkingLocalUrl = cfg.thinkingLocalUrl;
-  if (cfg.apiKey !== void 0) result.apiKey = cfg.apiKey;
-  if (cfg.temperature !== void 0) result.temperature = cfg.temperature;
-  if (cfg.maxTokens !== void 0) result.maxTokens = cfg.maxTokens;
-  return result;
-}
 function registerRoutes6(app2) {
   app2.get("/api/git/status", async (_req, res) => {
     try {
@@ -7073,7 +7252,11 @@ function registerRoutes6(app2) {
   });
   app2.get("/api/git/diff", async (req, res) => {
     try {
-      const staged = req.query.staged === "true";
+      const parsed = GitDiffQuerySchema.safeParse(req.query);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Validation failed", details: parsed.error.format() });
+      }
+      const staged = parsed.data.staged === "true";
       const diffs = await getGitDiff(staged);
       return res.json({ diffs });
     } catch (e) {
@@ -7102,14 +7285,18 @@ function registerRoutes6(app2) {
   });
   app2.get("/api/git/log", async (req, res) => {
     try {
-      const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : 10;
+      const parsed = GitLogQuerySchema.safeParse(req.query);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Validation failed", details: parsed.error.format() });
+      }
+      const limit = parsed.data.limit ?? 10;
       const commits = await getGitLog(limit);
       return res.json({ commits });
     } catch (e) {
       return res.status(500).json({ error: e.message });
     }
   });
-  app2.post("/api/git/pr", async (req, res) => {
+  app2.post("/api/git/pr", validateBody(GitPullRequestSchema), async (req, res) => {
     try {
       const { draft, config = {} } = req.body || {};
       const {
@@ -7124,7 +7311,7 @@ function registerRoutes6(app2) {
         thinkingModel,
         thinkingLocalUrl
       } = config;
-      const dualCfg = buildDualConfig2({
+      const dualCfg = buildDualModelConfig({
         aiProvider,
         aiModel,
         localUrl,
@@ -7161,13 +7348,9 @@ function registerRoutes6(app2) {
       res.status(500).json({ error: e.message });
     }
   });
-  app2.post("/api/git/branch", async (req, res) => {
+  app2.post("/api/git/branch", validateBody(GitBranchSchema), async (req, res) => {
     try {
       const { name } = req.body;
-      if (!name) {
-        res.status(400).json({ error: "Branch name required" });
-        return;
-      }
       const result = await createBranch(name);
       res.json({ branch: result });
     } catch (e) {
@@ -7234,13 +7417,14 @@ function registerRoutes7(app2) {
     try {
       const { goal, provider, model, thinkingProvider, thinkingModel, thinkingLocalUrl } = req.body;
       const id = (0, import_crypto8.randomUUID)();
-      const dualCfg = {
-        primaryProvider: provider || "",
-        primaryModel: model,
+      const dualCfg = buildDualModelConfig({
+        aiProvider: provider,
+        aiModel: model,
+        multiModelEnabled: Boolean(thinkingProvider && thinkingModel),
         thinkingProvider,
         thinkingModel,
         thinkingLocalUrl
-      };
+      });
       const loop = new AgentLoop(goal, {
         maxSteps: 20,
         permissionEngine,
@@ -7274,16 +7458,17 @@ function registerRoutes7(app2) {
     loop.abort();
     return res.json({ aborted: true });
   });
-  app2.post("/api/agent/plan", async (req, res) => {
+  app2.post("/api/agent/plan", validateBody(AgentPlanSchema), async (req, res) => {
     try {
       const { goal, provider, model, thinkingProvider, thinkingModel, thinkingLocalUrl } = req.body;
-      const dualCfg = {
-        primaryProvider: provider || "",
-        primaryModel: model,
+      const dualCfg = buildDualModelConfig({
+        aiProvider: provider,
+        aiModel: model,
+        multiModelEnabled: Boolean(thinkingProvider && thinkingModel),
         thinkingProvider,
         thinkingModel,
         thinkingLocalUrl
-      };
+      });
       const plan = await createPlan(
         goal,
         (prompt) => generateWithDualModel(prompt, [], dualCfg, "think")
@@ -7293,16 +7478,17 @@ function registerRoutes7(app2) {
       res.status(500).json({ error: error.message });
     }
   });
-  app2.post("/api/subagents/spawn", async (req, res) => {
+  app2.post("/api/subagents/spawn", validateBody(SubagentSpawnSchema), async (req, res) => {
     try {
       const { goal, agentConfig, provider, model, thinkingProvider, thinkingModel, thinkingLocalUrl } = req.body;
-      const dualCfg = {
-        primaryProvider: provider || "",
-        primaryModel: model,
+      const dualCfg = buildDualModelConfig({
+        aiProvider: provider,
+        aiModel: model,
+        multiModelEnabled: Boolean(thinkingProvider && thinkingModel),
         thinkingProvider,
         thinkingModel,
         thinkingLocalUrl
-      };
+      });
       const task = await subagentManager.spawn(
         req.body.parentId || "main",
         goal,
@@ -7322,12 +7508,12 @@ function registerRoutes7(app2) {
     await subagentManager.abort(req.params.id);
     res.json({ aborted: true });
   });
-  app2.post("/api/permissions/check", (req, res) => {
+  app2.post("/api/permissions/check", validateBody(PermissionRequestSchema), (req, res) => {
     if (!permissionEngine) return res.status(503).json({ error: "Permission engine not initialized" });
     const result = permissionEngine.check(req.body);
     return res.json(result);
   });
-  app2.post("/api/permissions/ask", (req, res) => {
+  app2.post("/api/permissions/ask", validateBody(PermissionRequestSchema), (req, res) => {
     if (!permissionEngine) return res.status(503).json({ error: "Permission engine not initialized" });
     const request = req.body;
     const check = permissionEngine.check(request);
@@ -7350,7 +7536,7 @@ function registerRoutes7(app2) {
     if (!pending) return res.status(404).json({ error: "Not found" });
     return res.json(pending);
   });
-  app2.post("/api/permissions/resolve/:id", (req, res) => {
+  app2.post("/api/permissions/resolve/:id", validateBody(PermissionResolveSchema), (req, res) => {
     if (!permissionEngine) return res.status(503).json({ error: "Permission engine not initialized" });
     const { approved } = req.body;
     permissionEngine.resolve(req.params.id, approved === true);
@@ -7525,25 +7711,11 @@ async function analyzeDiff(generateFn, providedDiff) {
 }
 
 // src/server/routes/review.ts
-function buildDualConfig3(cfg) {
-  const result = {
-    primaryProvider: cfg.aiProvider || ""
-  };
-  if (cfg.aiModel !== void 0) result.primaryModel = cfg.aiModel;
-  if (cfg.localUrl !== void 0) result.primaryLocalUrl = cfg.localUrl;
-  if (cfg.multiModelEnabled && cfg.thinkingProvider !== void 0) result.thinkingProvider = cfg.thinkingProvider;
-  if (cfg.multiModelEnabled && cfg.thinkingModel !== void 0) result.thinkingModel = cfg.thinkingModel;
-  if (cfg.thinkingLocalUrl !== void 0) result.thinkingLocalUrl = cfg.thinkingLocalUrl;
-  if (cfg.apiKey !== void 0) result.apiKey = cfg.apiKey;
-  if (cfg.temperature !== void 0) result.temperature = cfg.temperature;
-  if (cfg.maxTokens !== void 0) result.maxTokens = cfg.maxTokens;
-  return result;
-}
 function registerRoutes8(app2) {
   app2.post("/api/review", validateBody(ReviewRequestSchema), async (req, res) => {
     try {
       const { diff, config = {} } = req.body;
-      const dualCfg = buildDualConfig3(config);
+      const dualCfg = buildDualModelConfig(config);
       const result = await analyzeDiff(
         (prompt) => generateWithDualModel(prompt, [], dualCfg, "think"),
         diff
@@ -7561,12 +7733,12 @@ function registerRoutes8(app2) {
       return res.status(500).json({ error: e.message });
     }
   });
-  app2.post("/api/review/:id/accept", (req, res) => {
+  app2.post("/api/review/:id/accept", validateBody(ReviewDecisionSchema), (req, res) => {
     const { commentId } = req.body;
     const success = acceptComment(req.params.id, commentId);
     return res.json({ success });
   });
-  app2.post("/api/review/:id/reject", (req, res) => {
+  app2.post("/api/review/:id/reject", validateBody(ReviewDecisionSchema), (req, res) => {
     const { commentId } = req.body;
     const success = rejectComment(req.params.id, commentId);
     return res.json({ success });
@@ -7643,7 +7815,7 @@ function registerRoutes9(app2) {
       return res.status(500).json({ success: false, output: "", error: e.message });
     }
   });
-  app2.post("/api/browser/evaluate", async (req, res) => {
+  app2.post("/api/browser/evaluate", validateBody(BrowserEvaluateSchema), async (req, res) => {
     try {
       const bt = await getBrowserTools2();
       if (!bt) return res.status(503).json({ success: false, output: "", error: "playwright-core not installed" });
@@ -7669,7 +7841,7 @@ function registerRoutes9(app2) {
       return res.status(500).json({ success: false, output: "", error: e.message });
     }
   });
-  app2.post("/api/browser/close", async (req, res) => {
+  app2.post("/api/browser/close", validateBody(BrowserCloseSchema), async (req, res) => {
     try {
       const bt = await getBrowserTools2();
       if (!bt) return res.status(503).json({ success: false, output: "", error: "playwright-core not installed" });
@@ -8250,6 +8422,7 @@ var GoalOrchestrator = class {
   }
   abort() {
     this._abort = true;
+    this.loop.abort();
   }
   async run() {
     this.broadcaster.broadcast(this.state.id, "goal.started", { goal: this.state.goal });
@@ -8318,6 +8491,9 @@ var GoalOrchestrator = class {
       saveGoalState(this.state).catch(() => {
       });
     }, 300);
+    if (this.saveTimeout && typeof this.saveTimeout.unref === "function") {
+      this.saveTimeout.unref();
+    }
   }
   async flushSave() {
     if (this.saveTimeout) {
@@ -8364,7 +8540,7 @@ var GoalOrchestrator = class {
 function registerRoutes13(app2, options) {
   const { generateFn: generateAIContent2, permissionEngine: permissionEngine2 } = options;
   const activeGoals = /* @__PURE__ */ new Map();
-  app2.post("/api/goal", async (req, res) => {
+  app2.post("/api/goal", validateBody(GoalConfigSchema), async (req, res) => {
     try {
       const config = req.body;
       if (!config.provider) {

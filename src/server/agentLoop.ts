@@ -53,14 +53,15 @@ export class AgentLoop {
     try {
       await hookRegistry.execute("loop.start", { goal: this.state.goal }, this.sessionId);
 
-      while (this.state.status !== "completed" && this.state.status !== "error") {
+      while (
+        this.state.status !== "completed" &&
+        this.state.status !== "error" &&
+        this.state.status !== "aborted"
+      ) {
         if (this.state.currentStep >= this.state.maxSteps || this._abort) {
           if (this._abort) {
-            this.state.steps.push({
-              id: this.state.currentStep,
-              thought: "Loop aborted by user",
-              timestamp: Date.now(),
-            });
+            this.state.status = "aborted";
+            break;
           }
           this.state.status = "error";
           break;
@@ -72,7 +73,7 @@ export class AgentLoop {
         }
       }
 
-      if (this.state.status !== "error") {
+      if (this.state.status !== "error" && this.state.status !== "aborted") {
         this.state.status = "completed";
       }
       this.onStatus?.(this.state.status);
@@ -101,6 +102,9 @@ export class AgentLoop {
 
   abort(): void {
     this._abort = true;
+    if (this.state.status !== "completed" && this.state.status !== "error") {
+      this.state.status = "aborted";
+    }
   }
 
   setAdditionalContext(ctx: string): void {
@@ -109,7 +113,15 @@ export class AgentLoop {
 
   async runSingleStep(): Promise<LoopStep> {
     if (this._abort) {
-      throw new Error("Loop aborted by user");
+      this.state.status = "aborted";
+      const abortedStep: LoopStep = {
+        id: this.state.currentStep,
+        thought: "Loop aborted by user",
+        timestamp: Date.now(),
+      };
+      this.state.steps.push(abortedStep);
+      this.onStep?.(abortedStep);
+      return abortedStep;
     }
     const thought = await this.think();
     const step: LoopStep = {
@@ -130,6 +142,10 @@ export class AgentLoop {
           "build"
         );
         step.observation = JSON.stringify(result);
+        if (this._abort) {
+          this.state.status = "aborted";
+          step.observation = `${step.observation}\n[ABORTED] Loop aborted after tool execution`;
+        }
       } catch (err: unknown) {
         step.observation = `Error: ${getErrorMessage(err)}`;
       }
@@ -141,8 +157,8 @@ export class AgentLoop {
 
     await hookRegistry.execute("loop.step", { step }, this.sessionId);
 
-    this.state.status = "observing";
-    this.onStatus?.("observing");
+    this.state.status = this._abort ? "aborted" : "observing";
+    this.onStatus?.(this.state.status);
 
     return step;
   }

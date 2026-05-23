@@ -28,6 +28,8 @@ export interface MemoryData {
   raw: string;
 }
 
+type MemoryDocumentKind = "Project Memory" | "User Preferences";
+
 function parseMemoryMarkdown(raw: string): MemoryData {
   const sections: MemorySection[] = [];
   const lines = raw.split("\n");
@@ -146,7 +148,7 @@ export async function writeMemory(content: string, section?: string): Promise<vo
     }
   }
 
-  const raw = rebuildMarkdown(data.sections);
+  const raw = rebuildMarkdown("Project Memory", data.sections);
   await atomicWriteFile(getMemoryPath(), raw);
   _memCache = null;
   _contextCache = null;
@@ -160,7 +162,7 @@ export async function replaceMemorySection(section: string, lines: string[]): Pr
   } else {
     data.sections.push({ title: section, lines: lines.filter((l) => l.trim() !== "") });
   }
-  const raw = rebuildMarkdown(data.sections);
+  const raw = rebuildMarkdown("Project Memory", data.sections);
   await atomicWriteFile(getMemoryPath(), raw);
   _memCache = null;
   _contextCache = null;
@@ -169,7 +171,7 @@ export async function replaceMemorySection(section: string, lines: string[]): Pr
 export async function deleteMemorySection(section: string): Promise<void> {
   const data = await readMemory();
   data.sections = data.sections.filter((s) => s.title.toLowerCase() !== section.toLowerCase());
-  const raw = rebuildMarkdown(data.sections);
+  const raw = rebuildMarkdown("Project Memory", data.sections);
   await atomicWriteFile(getMemoryPath(), raw);
   _memCache = null;
   _contextCache = null;
@@ -243,7 +245,7 @@ export async function writeUser(content: string, section?: string): Promise<void
     }
   }
 
-  const raw = rebuildMarkdown(data.sections);
+  const raw = rebuildMarkdown("User Preferences", data.sections);
   await atomicWriteFile(getUserPath(), raw);
   _userCache = null;
   _contextCache = null;
@@ -257,7 +259,7 @@ export async function replaceUserSection(section: string, lines: string[]): Prom
   } else {
     data.sections.push({ title: section, lines: lines.filter((l) => l.trim() !== "") });
   }
-  const raw = rebuildMarkdown(data.sections);
+  const raw = rebuildMarkdown("User Preferences", data.sections);
   await atomicWriteFile(getUserPath(), raw);
   _userCache = null;
   _contextCache = null;
@@ -266,7 +268,7 @@ export async function replaceUserSection(section: string, lines: string[]): Prom
 export async function deleteUserSection(section: string): Promise<void> {
   const data = await readUser();
   data.sections = data.sections.filter((s) => s.title.toLowerCase() !== section.toLowerCase());
-  const raw = rebuildMarkdown(data.sections);
+  const raw = rebuildMarkdown("User Preferences", data.sections);
   await atomicWriteFile(getUserPath(), raw);
   _userCache = null;
   _contextCache = null;
@@ -278,8 +280,8 @@ async function atomicWriteFile(filePath: string, content: string): Promise<void>
   await rename(tmp, filePath);
 }
 
-function rebuildMarkdown(sections: MemorySection[]): string {
-  const lines: string[] = ["# Project Memory\n"];
+function rebuildMarkdown(kind: MemoryDocumentKind, sections: MemorySection[]): string {
+  const lines: string[] = [`# ${kind}\n`];
   for (const section of sections) {
     lines.push(`## ${section.title}`);
     lines.push(...section.lines.filter((l) => l.trim() !== ""));

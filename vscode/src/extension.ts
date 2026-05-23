@@ -3,7 +3,6 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { spawn, ChildProcess } from 'child_process';
 import express from 'express';
-import rateLimit from 'express-rate-limit';
 import { CompletionEngine } from './completion/completionEngine.js';
 import { CvrInlineCompletionProvider } from './providers/InlineCompletionProvider.js';
 import type { CompletionConfig } from './types/completion.js';
@@ -39,6 +38,8 @@ import { registerRoutes as registerBrowserRoutes } from '../../src/server/routes
 import { trackCost } from '../../src/server/costTracker.js';
 import { setGoalStorageDir } from '../../src/server/goalSessionStore.js';
 import { registerRoutes as registerGoalRoutes } from '../../src/server/routes/goal.js';
+import { setupSecurityMiddleware, createTrustedLocalOriginMiddleware } from '../../src/server/standalone/middleware.js';
+import { SettingsSchema } from '../../src/server/validation.js';
 
 const $fetch = (globalThis as any).fetch as (url: string, init?: any) => Promise<{ json(): Promise<any>; status: number }>;
 
@@ -325,14 +326,9 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
   dotenv.config();
 
   const app = express();
-  app.use(express.json());
-  app.use(rateLimit({
-    windowMs: 1 * 60 * 1000,
-    max: 600,
-    message: { error: "Too many requests, please try again later." },
-    standardHeaders: true,
-    legacyHeaders: false,
-  }));
+  app.use(express.json({ limit: '10mb' }));
+  setupSecurityMiddleware(app, { contentSecurityPolicy: false });
+  app.use(createTrustedLocalOriginMiddleware());
 
   let _wsContextCache: string | null = null;
   let _wsContextTime = 0;
@@ -359,8 +355,15 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
 
   app.post('/api/settings', (req: any, res: any) => {
     try {
-      context.globalState.update('cvr_settings', req.body);
-      res.json({ saved: true });
+      const parsed = SettingsSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ error: 'Invalid settings', details: parsed.error.format() });
+        return;
+      }
+      void context.globalState.update('cvr_settings', parsed.data).then(
+        () => res.json({ saved: true }),
+        () => res.status(500).json({ error: 'Failed to save settings' })
+      );
     } catch (e) {
       res.status(500).json({ error: 'Failed to save settings' });
     }
@@ -430,20 +433,6 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
     } catch (e: any) {
       return res.json({ valid: false, error: e.message || 'Network error' });
     }
-  });
-
-  // Security: Origin validation middleware
-  app.use((req: any, res: any, next: any) => {
-    const origin = req.headers.origin || req.headers.referer || '';
-    // Allow requests from localhost/127.0.0.1 (VS Code webview) and same-origin
-    if (origin && !origin.includes('127.0.0.1') && !origin.includes('localhost')) {
-      // If no origin header (same-origin or direct curl), allow
-      if (req.headers.origin === undefined && req.headers.referer === undefined) {
-        return next();
-      }
-      return res.status(403).json({ error: 'Forbidden origin' });
-    }
-    next();
   });
 
   const storagePath = path.join(context.globalStorageUri.fsPath, '.opencode-infinite');
@@ -1864,7 +1853,7 @@ function getWebviewContent(url: string) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src http://127.0.0.1:*; frame-src http://127.0.0.1:*; script-src http://127.0.0.1:* 'unsafe-inline' 'unsafe-eval'; style-src http://127.0.0.1:* 'unsafe-inline'; img-src http://127.0.0.1:* https: data:; connect-src http://127.0.0.1:* https:; font-src http://127.0.0.1:*;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; frame-src http://127.0.0.1:*; style-src 'unsafe-inline';">
   <title>cvr.name</title>
   <style>
     body,html{margin:0;padding:0;height:100vh;width:100vw;overflow:hidden;background:#000}
@@ -1872,7 +1861,7 @@ function getWebviewContent(url: string) {
   </style>
 </head>
 <body>
-  <iframe src="${url}" allow="clipboard-read;clipboard-write;camera;microphone;geolocation" referrerpolicy="no-referrer"></iframe>
+  <iframe src="${url}" allow="clipboard-read;clipboard-write" referrerpolicy="no-referrer"></iframe>
 </body>
 </html>`;
 }

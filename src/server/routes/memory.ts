@@ -1,6 +1,7 @@
 import type { Application, Request, Response } from "express";
 import { readMemory, writeMemory, replaceMemorySection, deleteMemorySection, readUser, writeUser, replaceUserSection, deleteUserSection } from "../memoryStore.js";
 import { getErrorMessage } from "../../types/errors.js";
+import { validateBody, SectionDeleteSchema, SectionReplaceSchema, SectionWriteSchema } from "../validation.js";
 
 export function registerRoutes(app: Application) {
   app.get("/api/memory", async (_req: Request, res: Response) => {
@@ -12,7 +13,7 @@ export function registerRoutes(app: Application) {
     }
   });
 
-  app.post("/api/memory", async (req: Request, res: Response) => {
+  app.post("/api/memory", validateBody(SectionWriteSchema), async (req: Request, res: Response) => {
     try {
       const { content, section } = req.body as { content?: string; section?: string };
       await writeMemory(content ?? "", section);
@@ -22,7 +23,7 @@ export function registerRoutes(app: Application) {
     }
   });
 
-  app.put("/api/memory", async (req: Request, res: Response) => {
+  app.put("/api/memory", validateBody(SectionReplaceSchema), async (req: Request, res: Response) => {
     try {
       const { content, section } = req.body as { content: string; section: string };
       await replaceMemorySection(section, content.split("\n"));
@@ -32,7 +33,7 @@ export function registerRoutes(app: Application) {
     }
   });
 
-  app.delete("/api/memory", async (req: Request, res: Response) => {
+  app.delete("/api/memory", validateBody(SectionDeleteSchema), async (req: Request, res: Response) => {
     try {
       const { section } = req.body as { section: string };
       await deleteMemorySection(section);
@@ -51,7 +52,7 @@ export function registerRoutes(app: Application) {
     }
   });
 
-  app.post("/api/user", async (req: Request, res: Response) => {
+  app.post("/api/user", validateBody(SectionWriteSchema), async (req: Request, res: Response) => {
     try {
       const { content, section } = req.body as { content?: string; section?: string };
       await writeUser(content ?? "", section);
@@ -61,7 +62,7 @@ export function registerRoutes(app: Application) {
     }
   });
 
-  app.put("/api/user", async (req: Request, res: Response) => {
+  app.put("/api/user", validateBody(SectionReplaceSchema), async (req: Request, res: Response) => {
     try {
       const { content, section } = req.body as { content: string; section: string };
       await replaceUserSection(section, content.split("\n"));
@@ -71,7 +72,7 @@ export function registerRoutes(app: Application) {
     }
   });
 
-  app.delete("/api/user", async (req: Request, res: Response) => {
+  app.delete("/api/user", validateBody(SectionDeleteSchema), async (req: Request, res: Response) => {
     try {
       const { section } = req.body as { section: string };
       await deleteUserSection(section);

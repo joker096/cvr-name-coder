@@ -3,6 +3,7 @@ import { GoalOrchestrator } from "../goalOrchestrator.js";
 import { loadGoalState, listGoalStates } from "../goalSessionStore.js";
 import type { PermissionEngine } from "../permissions.js";
 import type { GoalConfig } from "../../types/goal.js";
+import { validateBody, GoalConfigSchema } from "../validation.js";
 
 export interface GoalRoutesOptions {
   generateFn: (prompt: string, contents?: unknown[], provider?: string, localUrl?: string, modelName?: string, apiKey?: string, temperature?: number, maxTokens?: number, useCache?: boolean) => Promise<string>;
@@ -13,7 +14,7 @@ export function registerRoutes(app: Application, options: GoalRoutesOptions): vo
   const { generateFn: generateAIContent, permissionEngine } = options;
   const activeGoals = new Map<string, GoalOrchestrator>();
 
-  app.post("/api/goal", async (req: Request, res: Response) => {
+  app.post("/api/goal", validateBody(GoalConfigSchema), async (req: Request, res: Response) => {
     try {
       const config: GoalConfig = req.body;
       if (!config.provider) {

@@ -1,5 +1,5 @@
 import type { Application, Request, Response } from "express";
-import { validateBody, BrowserNavigateSchema, BrowserActionSchema } from "../validation.js";
+import { validateBody, BrowserNavigateSchema, BrowserActionSchema, BrowserCloseSchema, BrowserEvaluateSchema } from "../validation.js";
 
 interface BrowserToolsModule {
   browserNavigate: (sessionId: string, url: string, headless: boolean) => Promise<{ success: boolean; output?: string; error?: string }>;
@@ -87,7 +87,7 @@ export function registerRoutes(app: Application) {
     }
   });
 
-  app.post("/api/browser/evaluate", async (req: Request, res: Response) => {
+  app.post("/api/browser/evaluate", validateBody(BrowserEvaluateSchema), async (req: Request, res: Response) => {
     try {
       const bt = await getBrowserTools();
       if (!bt) return res.status(503).json({ success: false, output: "", error: "playwright-core not installed" });
@@ -115,7 +115,7 @@ export function registerRoutes(app: Application) {
     }
   });
 
-  app.post("/api/browser/close", async (req: Request, res: Response) => {
+  app.post("/api/browser/close", validateBody(BrowserCloseSchema), async (req: Request, res: Response) => {
     try {
       const bt = await getBrowserTools();
       if (!bt) return res.status(503).json({ success: false, output: "", error: "playwright-core not installed" });

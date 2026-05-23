@@ -2,17 +2,29 @@ import express from "express";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 
-export function setupSecurityMiddleware(app: express.Application): void {
+interface SecurityMiddlewareOptions {
+  contentSecurityPolicy?: boolean;
+}
+
+export function setupSecurityMiddleware(
+  app: express.Application,
+  options: SecurityMiddlewareOptions = {}
+): void {
+  app.disable("x-powered-by");
   app.use(helmet({
-    contentSecurityPolicy: {
-      directives: {
-        defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
-        imgSrc: ["'self'", "data:", "blob:"],
-        connectSrc: ["'self'", "ws:", "wss:"],
-      },
-    },
+    ...(options.contentSecurityPolicy === false
+      ? { contentSecurityPolicy: false }
+      : {
+          contentSecurityPolicy: {
+            directives: {
+              defaultSrc: ["'self'"],
+              scriptSrc: ["'self'", "'unsafe-inline'"],
+              styleSrc: ["'self'", "'unsafe-inline'"],
+              imgSrc: ["'self'", "data:", "blob:"],
+              connectSrc: ["'self'", "ws:", "wss:"],
+            },
+          },
+        }),
   }));
 
   const limiter = rateLimit({
@@ -23,6 +35,39 @@ export function setupSecurityMiddleware(app: express.Application): void {
     legacyHeaders: false,
   });
   app.use(limiter);
+}
+
+export function createTrustedLocalOriginMiddleware(
+  allowedHosts: string[] = ["127.0.0.1", "localhost"]
+): express.RequestHandler {
+  const trustedHosts = new Set(allowedHosts.map((host) => host.toLowerCase()));
+
+  return (req, res, next) => {
+    const originHeader = req.headers.origin;
+    const refererHeader = req.headers.referer;
+    const candidate = typeof originHeader === "string" && originHeader.length > 0
+      ? originHeader
+      : typeof refererHeader === "string" && refererHeader.length > 0
+        ? refererHeader
+        : null;
+
+    if (!candidate) {
+      next();
+      return;
+    }
+
+    try {
+      const parsed = new URL(candidate);
+      if (trustedHosts.has(parsed.hostname.toLowerCase())) {
+        next();
+        return;
+      }
+    } catch {
+      // Reject malformed origin/referer values.
+    }
+
+    res.status(403).json({ error: "Forbidden origin" });
+  };
 }
 
 export function createApiKeyMiddleware(): express.RequestHandler {

@@ -8,10 +8,11 @@ export interface CronTask {
   enabled: boolean;
   lastRun?: number;
   nextRun?: number;
+  isRunning?: boolean;
 }
 
 // Simple cron parser supporting: "* * * * *" (min hour day month dow) or "every N minutes"
-function parseSchedule(schedule: string): number | null {
+export function parseSchedule(schedule: string): number | null {
   if (schedule.startsWith("every ")) {
     const match = schedule.match(/every (\d+) (minute|minutes|hour|hours|day|days)/);
     if (!match || match[1] === undefined || match[2] === undefined) return null;
@@ -32,8 +33,13 @@ function parseSchedule(schedule: string): number | null {
 class CronScheduler {
   private tasks = new Map<string, CronTask>();
   private timers = new Map<string, ReturnType<typeof setInterval>>();
+  private runCallbacks = new Map<string, (task: CronTask) => void | Promise<void>>();
 
   addTask(task: Omit<CronTask, "id">): CronTask {
+    const interval = parseSchedule(task.schedule);
+    if (!interval) {
+      throw new Error(`Invalid schedule: ${task.schedule}`);
+    }
     const id = randomUUID();
     const fullTask: CronTask = { ...task, id };
     this.tasks.set(id, fullTask);
@@ -73,6 +79,7 @@ class CronScheduler {
   private startTask(id: string): void {
     const task = this.tasks.get(id);
     if (!task || !task.enabled) return;
+    this.stopTask(id);
 
     const interval = parseSchedule(task.schedule);
     if (!interval) return;
@@ -80,8 +87,11 @@ class CronScheduler {
     task.nextRun = Date.now() + interval;
 
     const timer = setInterval(() => {
-      this.runTask(id);
+      void this.runTask(id);
     }, interval);
+    if (typeof timer.unref === "function") {
+      timer.unref();
+    }
     this.timers.set(id, timer);
   }
 
@@ -93,34 +103,40 @@ class CronScheduler {
     }
   }
 
-  private runTask(id: string): void {
+  private async runTask(id: string): Promise<void> {
     const task = this.tasks.get(id);
     if (!task) return;
+    if (task.isRunning) return;
+    const interval = parseSchedule(task.schedule) || 0;
+    task.isRunning = true;
     task.lastRun = Date.now();
-    task.nextRun = Date.now() + (parseSchedule(task.schedule) || 0);
-    console.log(`[CRON] Running task ${task.name}: ${task.command}`);
-    // The actual execution is handled by the caller via onRun callback
+    task.nextRun = Date.now() + interval;
+    try {
+      console.log(`[CRON] Running task ${task.name}: ${task.command}`);
+      const callback = this.runCallbacks.get(id);
+      if (callback) {
+        await callback(task);
+      }
+    } finally {
+      task.isRunning = false;
+      task.nextRun = Date.now() + interval;
+    }
   }
 
   onTaskRun(id: string, callback: (task: CronTask) => void): void {
     const task = this.tasks.get(id);
     if (!task) return;
-    // Replace the interval with one that calls the callback
-    this.stopTask(id);
-    const interval = parseSchedule(task.schedule);
-    if (!interval) return;
-    const timer = setInterval(() => {
-      task.lastRun = Date.now();
-      task.nextRun = Date.now() + interval;
-      callback(task);
-    }, interval);
-    this.timers.set(id, timer);
+    this.runCallbacks.set(id, callback);
+    if (task.enabled) {
+      this.startTask(id);
+    }
   }
 
   dispose(): void {
     for (const [id] of this.timers) {
       this.stopTask(id);
     }
+    this.runCallbacks.clear();
     this.tasks.clear();
   }
 }

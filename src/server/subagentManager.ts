@@ -18,6 +18,7 @@ export class SubagentManager {
   private tasks = new Map<string, SubagentTask>();
   private queue: string[] = [];
   private maxConcurrent = 3;
+  private activeLoops = new Map<string, AgentLoop>();
 
   async spawn(
     parentId: string,
@@ -62,14 +63,21 @@ export class SubagentManager {
         },
         thinkFn,
       });
+      this.activeLoops.set(task.id, loop);
 
       const state = await loop.run();
-      task.status = "completed";
-      task.result = state.steps.map((s) => s.observation || s.thought).join("\n\n");
+      if (state.status === "aborted") {
+        task.status = "failed";
+        task.error = "Aborted by user";
+      } else {
+        task.status = "completed";
+        task.result = state.steps.map((s) => s.observation || s.thought).join("\n\n");
+      }
     } catch (err: unknown) {
       task.status = "failed";
       task.error = getErrorMessage(err);
     } finally {
+      this.activeLoops.delete(task.id);
       task.endTime = Date.now();
       this.processQueue(thinkFn);
     }
@@ -106,7 +114,7 @@ export class SubagentManager {
   async abort(id: string): Promise<void> {
     const task = this.tasks.get(id);
     if (task && task.status === "running") {
-      // In a full implementation, we'd abort the AgentLoop
+      this.activeLoops.get(id)?.abort();
       task.status = "failed";
       task.error = "Aborted by user";
       task.endTime = Date.now();

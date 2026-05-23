@@ -10,6 +10,8 @@ import type { HistoryEntry, MemoryEntry } from "../../types/api.js";
 import { getErrorMessage } from "../../types/errors.js";
 import { incrementRequestCount } from "../standalone/health.js";
 import { trackCost } from "../costTracker.js";
+import { buildDualModelConfig } from "../dualModel.js";
+import { validateBody, ChatRequestSchema } from "../validation.js";
 
 interface ChatConfig {
   aiProvider?: string;
@@ -34,22 +36,6 @@ interface ChatConfig {
 interface KernelConfig {
   aiProvider?: string;
   [key: string]: unknown;
-}
-
-function buildDualConfig(cfg: ChatConfig): DualModelConfig {
-  const result: DualModelConfig = {
-    primaryProvider: cfg.aiProvider || "",
-  };
-  if (cfg.aiModel !== undefined) result.primaryModel = cfg.aiModel;
-  if (cfg.localUrl !== undefined) result.primaryLocalUrl = cfg.localUrl;
-  if (cfg.multiModelEnabled && cfg.thinkingProvider !== undefined) result.thinkingProvider = cfg.thinkingProvider;
-  if (cfg.multiModelEnabled && cfg.thinkingModel !== undefined) result.thinkingModel = cfg.thinkingModel;
-  if (cfg.thinkingLocalUrl !== undefined) result.thinkingLocalUrl = cfg.thinkingLocalUrl;
-  const providerKey = cfg.providerKeys?.[cfg.aiProvider || ""] || cfg.apiKey;
-  if (providerKey !== undefined) result.apiKey = providerKey;
-  if (cfg.temperature !== undefined) result.temperature = cfg.temperature;
-  if (cfg.maxTokens !== undefined) result.maxTokens = cfg.maxTokens;
-  return result;
 }
 
 interface ChatRequestBody {
@@ -137,7 +123,7 @@ export async function summarizeLongHistory(messages: HistoryEntry[], provider?: 
 }
 
 export function registerRoutes(app: Application) {
-  app.post("/api/chat", async (req: Request, res: Response) => {
+  app.post("/api/chat", validateBody(ChatRequestSchema), async (req: Request, res: Response) => {
     incrementRequestCount();
     try {
       const body = req.body as ChatRequestBody;
@@ -227,7 +213,7 @@ export function registerRoutes(app: Application) {
 
       if (updatedHistory.length % 5 === 0) {
         const kConfigTyped = kConfig as ChatConfig;
-        const dualCfg = buildDualConfig(kConfigTyped);
+        const dualCfg: DualModelConfig = buildDualModelConfig(kConfigTyped);
         const summaryKey = kConfigTyped.providerKeys?.[kConfigTyped.aiProvider || ""] || kConfigTyped.apiKey;
         summarizeLongHistory(updatedHistory, kConfigTyped.aiProvider, kConfigTyped.localUrl, kConfigTyped.aiProvider === "local" ? (kConfigTyped.localModelName || kConfigTyped.aiModel) : kConfigTyped.aiModel, summaryKey, dualCfg).then(async (summary) => {
           if (summary) {
