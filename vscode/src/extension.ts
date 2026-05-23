@@ -1426,8 +1426,7 @@ export async function activate(context: vscode.ExtensionContext) {
           console.error('Project Oracle indexing failed:', err);
         });
       });
-    } else if (!hasLoggedMissingGeminiKey) {
-      hasLoggedMissingGeminiKey = true;
+    } else {
       console.warn('[cvr.name] Project Oracle disabled: GEMINI_API_KEY not configured');
     }
   }
