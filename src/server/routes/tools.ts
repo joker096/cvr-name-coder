@@ -7,6 +7,7 @@ import { recordChange } from "../changes.js";
 import { permissionEngine } from "../serverState.js";
 import { incrementToolCall } from "../standalone/health.js";
 import { validateBody, ToolExecuteSchema } from "../validation.js";
+import { log } from "../logger.js";
 
 export function registerRoutes(app: Application) {
   app.post("/api/tools/execute", validateBody(ToolExecuteSchema), async (req: Request, res: Response) => {
@@ -33,9 +34,9 @@ export function registerRoutes(app: Application) {
       }
 
       res.json(result);
-    } catch (error: any) {
-      console.error("Tool execution error:", error);
-      res.status(500).json({ success: false, output: "", error: error.message });
+    } catch (error: unknown) {
+      log.error("Tool execution error", error instanceof Error ? error : undefined);
+      res.status(500).json({ success: false, output: "", error: error instanceof Error ? error.message : "Unknown error" });
     }
   });
 }

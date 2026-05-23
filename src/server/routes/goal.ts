@@ -4,9 +4,11 @@ import { loadGoalState, listGoalStates } from "../goalSessionStore.js";
 import type { PermissionEngine } from "../permissions.js";
 import type { GoalConfig } from "../../types/goal.js";
 import { validateBody, GoalConfigSchema } from "../validation.js";
+import { log } from "../logger.js";
+import type { Content } from "../providers.js";
 
 export interface GoalRoutesOptions {
-  generateFn: (prompt: string, contents?: unknown[], provider?: string, localUrl?: string, modelName?: string, apiKey?: string, temperature?: number, maxTokens?: number, useCache?: boolean) => Promise<string>;
+  generateFn: (prompt: string, contents?: Content[], provider?: string, localUrl?: string, modelName?: string, apiKey?: string, temperature?: number, maxTokens?: number, useCache?: boolean) => Promise<string>;
   permissionEngine?: PermissionEngine;
 }
 
@@ -40,7 +42,7 @@ export function registerRoutes(app: Application, options: GoalRoutesOptions): vo
         }
       };
       orchestrator.getBroadcaster().on("event", cleanup);
-      orchestrator.run().catch((err: any) => console.error("Goal orchestrator error:", err));
+      orchestrator.run().catch((err: unknown) => log.error("Goal orchestrator error", err instanceof Error ? err : undefined));
       res.json({ id: goalId });
     } catch (error: any) {
       res.status(500).json({ error: error.message });

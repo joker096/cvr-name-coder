@@ -4,6 +4,7 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "crypto";
 import { getErrorMessage } from "../types/errors";
+import { log } from "./logger.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -379,7 +380,7 @@ export function restartAutoSync(): void {
   const intervalMs = _config.interval * 1000;
   _intervalId = setInterval(() => {
     exportSync().catch((err: unknown) => {
-      console.error("Auto-sync export failed:", getErrorMessage(err));
+      log.error("Auto-sync export failed", err instanceof Error ? err : undefined);
     });
   }, intervalMs);
 }

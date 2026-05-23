@@ -21,6 +21,7 @@ import { readFile, readdir } from "fs/promises";
 import * as path from "path";
 import { getErrorMessage } from "../types/errors.js";
 import { permissionEngine } from "./serverState.js";
+import { log } from "./logger.js";
 
 const PROJECT_ROOT = process.cwd();
 
@@ -90,7 +91,7 @@ export async function createMcpServer() {
         });
       }
     } catch (e) {
-      console.error("Failed to load custom tools for MCP:", e);
+      log.error("Failed to load custom tools for MCP", e instanceof Error ? e : undefined);
     }
 
     return { tools };
@@ -220,7 +221,7 @@ export async function startMcpStdio(): Promise<void> {
   const server = await createMcpServer();
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("MCP Server running on stdio");
+  log.info("MCP Server running on stdio");
 }
 
 const sseTransports = new Map<string, SSEServerTransport>();

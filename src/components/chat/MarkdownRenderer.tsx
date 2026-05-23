@@ -19,7 +19,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) =
 
             if (!isBlock) {
               return (
-                <code className="px-1 py-0.5 bg-dash-bg border border-dash-border rounded text-[11px] font-mono text-dash-accent">
+                <code className="px-1 py-0.5 bg-dash-bg border border-dash-border rounded text-[11px] font-mono text-dash-accent break-all">
                   {children}
                 </code>
               );
@@ -40,11 +40,14 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) =
                     {copied ? "copied!" : "copy"}
                   </button>
                 </div>
-                <pre className="bg-[#1A1A1E] p-3 overflow-x-auto text-[11px] font-mono text-dash-text-primary rounded-b border border-t-0 border-dash-border">
+                <pre className="bg-[#1A1A1E] p-3 overflow-x-auto text-[11px] font-mono text-dash-text-primary rounded-b border border-t-0 border-dash-border whitespace-pre-wrap break-all">
                   {codeText}
                 </pre>
               </div>
             );
+          },
+          p({ children }: any) {
+            return <p className="break-words overflow-wrap-anywhere">{children}</p>;
           },
         }}
       >

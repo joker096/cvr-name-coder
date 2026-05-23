@@ -1,5 +1,6 @@
 import React from "react";
 import { motion } from "motion/react";
+import { User, Brain } from "lucide-react";
 import { cn } from "../../utils/cn";
 import type { Message } from "../../types/chat";
 import { ReviewMessage } from "./ReviewMessage";
@@ -15,7 +16,7 @@ interface MessageItemProps {
 
 export const MessageItem: React.FC<MessageItemProps> = ({
   message,
-  agentLabel,
+  agentLabel: _agentLabel,
   providerLabel,
   modelName,
   t,
@@ -94,15 +95,15 @@ export const MessageItem: React.FC<MessageItemProps> = ({
     >
       <span
         className={cn(
-          "shrink-0 font-bold uppercase text-[10px] sm:text-[11px] sm:w-14 sm:text-right pt-0.5",
+          "shrink-0 font-bold uppercase text-[10px] sm:text-[11px] sm:w-14 sm:text-right pt-0.5 flex items-center justify-end gap-1",
           message.role === "user" ? "text-dash-text-muted" : "text-dash-accent"
         )}
       >
-        [
-        {message.role === "user"
-          ? t.input
-          : agentLabel?.toUpperCase() || t.agent}
-        ]
+        {message.role === "user" ? (
+          <User className="w-3 h-3" />
+        ) : (
+          <Brain className="w-3 h-3" />
+        )}
         {message.role !== "user" && providerLabel && (
           <div className="text-[8px] text-dash-text-muted font-normal normal-case mt-0.5 leading-tight">
             {providerLabel}
@@ -117,7 +118,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
       </span>
       <div
         className={cn(
-          "flex-1 prose prose-invert prose-sm max-w-none text-dash-text-primary text-[12px] leading-relaxed",
+          "flex-1 prose prose-invert prose-sm max-w-none text-dash-text-primary text-[12px] leading-relaxed overflow-x-auto",
           message.role !== "user" &&
             "p-2 bg-dash-surface/30 rounded border border-dash-border"
         )}

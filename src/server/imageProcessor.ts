@@ -1,5 +1,6 @@
 import sharp from "sharp";
 import { getErrorMessage } from "../types/errors";
+import { log } from "./logger.js";
 
 const DEFAULT_MAX_DIMENSION = 1024;
 const MAX_FILE_SIZE_MB = 5;
@@ -120,14 +121,14 @@ export async function processImages(base64Images: string[], options: ProcessImag
   for (const img of base64Images) {
     const validation = validateImage(img);
     if (!validation.valid) {
-      console.warn("Image validation failed:", validation.error);
+      log.warn("Image validation failed", { error: validation.error });
       continue;
     }
     try {
       const processed = await processImage(img, options);
       results.push(processed);
     } catch (e: unknown) {
-      console.warn("Image processing failed:", getErrorMessage(e));
+      log.warn("Image processing failed", { error: getErrorMessage(e) });
     }
   }
   return results;

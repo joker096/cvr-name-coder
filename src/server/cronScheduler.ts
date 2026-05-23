@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import { log } from "./logger.js";
 
 export interface CronTask {
   id: string;
@@ -112,7 +113,7 @@ class CronScheduler {
     task.lastRun = Date.now();
     task.nextRun = Date.now() + interval;
     try {
-      console.log(`[CRON] Running task ${task.name}: ${task.command}`);
+      log.info(`Running task`, { name: task.name, command: task.command });
       const callback = this.runCallbacks.get(id);
       if (callback) {
         await callback(task);

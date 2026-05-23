@@ -1,5 +1,5 @@
 import React from "react";
-import { Settings as SettingsIcon, Undo2, Redo2, PanelLeft, Loader2, Square, Trash2 } from "lucide-react";
+import { Settings as SettingsIcon, Undo2, Redo2, PanelLeft, Loader2, Square, Trash2, Plus } from "lucide-react";
 import type { AgentId } from "../../types/settings";
 import { AgentSelector } from "./AgentSelector";
 
@@ -110,6 +110,14 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           </button>
         </div>
       )}
+
+      <button
+        onClick={onClearChat}
+        className="p-1 hover:bg-neutral-800 rounded transition-colors text-dash-text-muted hover:text-dash-accent"
+        title={t.newChat || "New chat"}
+      >
+        <Plus className="w-3.5 h-3.5" />
+      </button>
 
       <button
         onClick={onClearChat}

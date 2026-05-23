@@ -1,4 +1,5 @@
 import React from "react";
+import { AlertCircle } from "lucide-react";
 import { MessageList } from "./MessageList";
 import { InputArea } from "./InputArea";
 import type { Message } from "../../types/chat";
@@ -10,6 +11,7 @@ interface ChatContainerProps {
   onSendMessage: (images?: string[]) => void;
   onCancelMessage?: (() => void) | undefined;
   isLooming?: boolean;
+  error?: string | null;
   agentLabel?: string | undefined;
   providerLabel?: string | undefined;
   modelName?: string | undefined;
@@ -32,6 +34,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
   onSendMessage,
   onCancelMessage,
   isLooming = false,
+  error,
   agentLabel,
   providerLabel,
   modelName,
@@ -57,6 +60,12 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         isLooming={isLooming}
         loadingText={loadingText}
       />
+      {error && (
+        <div className="mx-2 mb-1 px-2 py-1.5 bg-red-500/10 border border-red-500/30 rounded text-[11px] text-red-400 flex items-center gap-1.5">
+          <AlertCircle className="w-3 h-3 shrink-0" />
+          <span className="truncate">{error}</span>
+        </div>
+      )}
       <div className="border-t border-dash-border p-1.5 bg-dash-bg">
         <InputArea
           value={input}

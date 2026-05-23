@@ -323,7 +323,7 @@ const providers: Record<string, AIProvider> = {
 
 export async function generateAIContent(
   prompt: string,
-  contents: any[] = [],
+  contents: Content[] = [],
   provider?: string,
   localUrl?: string,
   modelName?: string,
@@ -367,7 +367,7 @@ export interface DualModelConfig {
 
 export async function generateWithDualModel(
   prompt: string,
-  contents: any[] = [],
+  contents: Content[] = [],
   config: DualModelConfig,
   purpose: 'think' | 'code' | 'auto' = 'auto'
 ): Promise<string> {

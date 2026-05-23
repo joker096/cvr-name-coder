@@ -1,5 +1,5 @@
 import { HookPoint, HookContext, HookRegistration, HookDataMap } from "../types/hooks";
-import { getErrorMessage } from "../types/errors";
+import { log } from "./logger.js";
 
 class HookRegistry {
   private hooks = new Map<HookPoint, HookRegistration[]>();
@@ -32,7 +32,7 @@ class HookRegistry {
       try {
         await (reg.handler as (ctx: HookContext<P>) => Promise<void> | void)(ctx);
       } catch (err: unknown) {
-        console.error(`Hook ${reg.id} failed at ${hookPoint}:`, getErrorMessage(err));
+        log.error(`Hook failed at ${hookPoint}`, err instanceof Error ? err : undefined, { hookId: reg.id });
       }
     }
   }
@@ -51,12 +51,7 @@ export function registerBuiltinHooks(): void {
     hookPoint: "tool.after",
     priority: 0,
     handler: (ctx) => {
-      console.log(
-        `[HOOK] Tool executed:`,
-        ctx.data.tool,
-        "Result:",
-        ctx.data.result?.substring?.(0, 100)
-      );
+      log.debug("Tool executed", { tool: ctx.data.tool, result: ctx.data.result?.substring?.(0, 100) });
     },
   });
 
@@ -65,7 +60,7 @@ export function registerBuiltinHooks(): void {
     hookPoint: "file.write.after",
     priority: 0,
     handler: (ctx) => {
-      console.log(`[HOOK] File written:`, ctx.data.path);
+      log.debug("File written", { path: ctx.data.path });
     },
   });
 }

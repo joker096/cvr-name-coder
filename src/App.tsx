@@ -65,6 +65,7 @@ export default function App() {
                 onSendMessage={s.handleSendMessage}
                 onCancelMessage={s.handleCancelMessage}
                 isLooming={s.isLoading}
+                error={s.chatError}
                 agentLabel="BUILD"
                 providerLabel={s.settings.chat.aiProvider}
                 modelName={s.settings.chat.aiModel}

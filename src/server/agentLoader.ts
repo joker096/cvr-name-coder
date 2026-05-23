@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import type { AgentConfig } from "../types/agentConfig";
+import { log } from "./logger.js";
 
 let cachedAgents: AgentConfig[] = [];
 let agentsDir = ".cvr/agents";
@@ -39,7 +40,7 @@ export async function loadAgents(dir?: string): Promise<AgentConfig[]> {
       if (agent) agents.push(agent);
     }
   } catch (e) {
-    console.error("Failed to load agents:", e);
+    log.error("Failed to load agents", e instanceof Error ? e : undefined);
   }
 
   cachedAgents = agents;

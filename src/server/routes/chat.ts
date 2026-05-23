@@ -12,6 +12,7 @@ import { incrementRequestCount } from "../standalone/health.js";
 import { trackCost } from "../costTracker.js";
 import { buildDualModelConfig } from "../dualModel.js";
 import { validateBody, ChatRequestSchema } from "../validation.js";
+import { log } from "../logger.js";
 
 interface ChatConfig {
   aiProvider?: string;
@@ -56,7 +57,7 @@ export async function ensureStorage() {
     try { await access(HISTORY_FILE); } catch { await writeFile(HISTORY_FILE, JSON.stringify([])); }
     try { await access(MEMORY_FILE); } catch { await writeFile(MEMORY_FILE, JSON.stringify([])); }
   } catch (e) {
-    console.error("Storage init error:", e);
+    log.error("Storage init error", e instanceof Error ? e : undefined);
   }
 }
 
@@ -117,7 +118,7 @@ export async function summarizeLongHistory(messages: HistoryEntry[], provider?: 
     }
     return await generateAIContent(instruction, [], provider, localUrl, modelName, apiKey);
   } catch (error) {
-    console.error("Summarization failed:", error);
+    log.error("Summarization failed", error instanceof Error ? error : undefined);
     return null;
   }
 }
@@ -234,7 +235,7 @@ export function registerRoutes(app: Application) {
       trackCost(aiProvider, resolvedModel || 'unknown', estimatedInputTokens, estimatedOutputTokens).catch(() => {});
 
     } catch (error: unknown) {
-      console.error("API Error:", getErrorMessage(error));
+      log.error("API Error", error instanceof Error ? error : undefined);
       res.status(500).json({ error: getErrorMessage(error) });
     }
   });

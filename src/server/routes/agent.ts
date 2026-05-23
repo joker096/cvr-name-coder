@@ -7,6 +7,7 @@ import { permissionEngine, agentLoopMap, subagentManager } from "../serverState.
 import { setActiveLoops, incrementError } from "../standalone/health.js";
 import { validateBody, AgentLoopSchema, AgentPlanSchema, PermissionRequestSchema, PermissionResolveSchema, SubagentSpawnSchema } from "../validation.js";
 import { buildDualModelConfig } from "../dualModel.js";
+import { log } from "../logger.js";
 
 export function registerRoutes(app: Application) {
   app.post("/api/agent/loop", validateBody(AgentLoopSchema), async (req: Request, res: Response) => {
@@ -34,7 +35,7 @@ export function registerRoutes(app: Application) {
       loop.run()
         .then(() => { agentLoopMap.delete(id); setActiveLoops(agentLoopMap.size); })
         .catch((err) => {
-          console.error(`Agent loop ${id} error:`, err);
+          log.error(`Agent loop error`, err instanceof Error ? err : undefined, { id });
           agentLoopMap.delete(id);
           setActiveLoops(agentLoopMap.size);
           incrementError();

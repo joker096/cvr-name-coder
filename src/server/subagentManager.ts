@@ -1,6 +1,7 @@
 import { AgentLoop } from "./agentLoop.js";
 import type { AgentConfig } from "../types/agent.js";
 import { getErrorMessage } from "../types/errors.js";
+import { log } from "./logger.js";
 
 export interface SubagentTask {
   id: string;
@@ -59,7 +60,7 @@ export class SubagentManager {
       const loop = new AgentLoop(task.goal, {
         maxSteps: task.agentConfig.maxSteps || 10,
         onStep: (step) => {
-          console.log(`[Subagent ${task.id}] Step ${step.id}: ${step.thought.substring(0, 100)}`);
+          log.debug(`Step ${step.id}`, { thought: step.thought.substring(0, 100) });
         },
         thinkFn,
       });
@@ -93,7 +94,7 @@ export class SubagentManager {
     const nextTask = this.tasks.get(nextId);
     if (nextTask) {
       this.executeTask(nextTask, thinkFn).catch((err: unknown) => {
-        console.error(`Queued subagent ${nextId} failed:`, getErrorMessage(err));
+        log.error(`Queued subagent failed`, err instanceof Error ? err : undefined, { nextId });
       });
     }
   }

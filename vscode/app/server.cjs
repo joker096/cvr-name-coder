@@ -29,6 +29,66 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
+// src/server/logger.ts
+var Logger, createLogger, log;
+var init_logger = __esm({
+  "src/server/logger.ts"() {
+    "use strict";
+    Logger = class {
+      context;
+      level;
+      constructor(context, level = "info") {
+        this.context = context;
+        this.level = level;
+      }
+      shouldLog(level) {
+        const levels = ["debug", "info", "warn", "error"];
+        return levels.indexOf(level) >= levels.indexOf(this.level);
+      }
+      format(entry) {
+        const ctx = entry.context ? ` ${JSON.stringify(entry.context)}` : "";
+        const dur = entry.duration ? ` [${entry.duration}ms]` : "";
+        return `[${entry.timestamp}] [${entry.level.toUpperCase()}] [${this.context}] ${entry.message}${ctx}${dur}`;
+      }
+      debug(message, context) {
+        if (!this.shouldLog("debug")) return;
+        const entry = { timestamp: (/* @__PURE__ */ new Date()).toISOString(), level: "debug", message, context };
+        console.debug(this.format(entry));
+      }
+      info(message, context) {
+        if (!this.shouldLog("info")) return;
+        const entry = { timestamp: (/* @__PURE__ */ new Date()).toISOString(), level: "info", message, context };
+        console.info(this.format(entry));
+      }
+      warn(message, context) {
+        if (!this.shouldLog("warn")) return;
+        const entry = { timestamp: (/* @__PURE__ */ new Date()).toISOString(), level: "warn", message, context };
+        console.warn(this.format(entry));
+      }
+      error(message, error, context) {
+        if (!this.shouldLog("error")) return;
+        const entry = {
+          timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+          level: "error",
+          message,
+          context: { ...context, error: error?.message, stack: error?.stack }
+        };
+        console.error(this.format(entry));
+      }
+      time(label) {
+        const start = Date.now();
+        return () => {
+          const duration = Date.now() - start;
+          this.debug(`${label} completed`, { duration });
+          return duration;
+        };
+      }
+    };
+    createLogger = (context, level) => new Logger(context, level);
+    log = createLogger("cvr", process.env.LOG_LEVEL || "info");
+  }
+});
+
 // src/types/errors.ts
 function isError(e) {
   return e instanceof Error;
@@ -58,8 +118,16 @@ __export(browserTools_exports, {
   closeAllBrowsers: () => closeAllBrowsers,
   closeBrowserSession: () => closeBrowserSession,
   getActiveBrowserSessions: () => getActiveBrowserSessions,
+  getBrowserConfig: () => getBrowserConfig,
+  setBrowserConfig: () => setBrowserConfig,
   validateBrowserUrl: () => validateBrowserUrl
 });
+function setBrowserConfig(config) {
+  _config = { ..._config, ...config };
+}
+function getBrowserConfig() {
+  return { ..._config };
+}
 async function getPlaywright() {
   if (playwrightChromium) return playwrightChromium;
   if (playwrightError) throw playwrightError;
@@ -79,7 +147,7 @@ function ensureCleanupTimer() {
   if (cleanupTimer) return;
   cleanupTimer = setInterval(() => {
     void cleanupStaleBrowserSessions();
-  }, 60 * 1e3);
+  }, _config.cleanupIntervalMs);
   if (typeof cleanupTimer.unref === "function") {
     cleanupTimer.unref();
   }
@@ -93,13 +161,14 @@ async function getOrCreateSession(sessionId, headless = true) {
       markSessionUsed(existing);
       return existing;
     } catch {
+      log.debug("Session is dead, cleaning up and recreating");
       await closeBrowserSession(sessionId);
     }
   }
   const chromium = await getPlaywright();
   const browser = await chromium.launch({ headless });
   const context = await browser.newContext({
-    viewport: { width: 1280, height: 720 },
+    viewport: { width: _config.viewportWidth, height: _config.viewportHeight },
     userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     permissions: [],
     bypassCSP: false,
@@ -115,6 +184,7 @@ async function getOrCreateSession(sessionId, headless = true) {
         return;
       }
     } catch {
+      log.debug("Invalid URL for route blocking");
     }
     route.continue();
   });
@@ -131,6 +201,7 @@ async function closeBrowserSession(sessionId) {
     await session.context.close();
     await session.browser.close();
   } catch {
+    log.debug("Ignoring cleanup errors");
   }
   browserPool.delete(sessionId);
   if (browserPool.size === 0 && cleanupTimer) {
@@ -155,11 +226,12 @@ function validateBrowserUrl(url) {
     }
     return null;
   } catch {
+    log.debug("Invalid URL");
     return "Invalid URL";
   }
 }
 async function cleanupStaleBrowserSessions(now = Date.now()) {
-  const staleSessionIds = Array.from(browserPool.entries()).filter(([, session]) => now - session.lastUsedAt >= SESSION_TTL_MS).map(([sessionId]) => sessionId);
+  const staleSessionIds = Array.from(browserPool.entries()).filter(([, session]) => now - session.lastUsedAt >= _config.sessionTtlMs).map(([sessionId]) => sessionId);
   for (const sessionId of staleSessionIds) {
     await closeBrowserSession(sessionId);
   }
@@ -174,7 +246,7 @@ async function browserNavigate(sessionId, url, headless = true) {
     const session = await getOrCreateSession(sessionId, headless);
     markSessionUsed(session);
     const { page } = session;
-    await page.goto(url, { waitUntil: "networkidle", timeout: 3e4 });
+    await page.goto(url, { waitUntil: "networkidle", timeout: _config.navigateTimeout });
     const title = await page.title();
     return { success: true, output: `Navigated to ${url}. Page title: "${title}"` };
   } catch (err) {
@@ -186,7 +258,7 @@ async function browserClick(sessionId, selector, headless = true) {
     const session = await getOrCreateSession(sessionId, headless);
     markSessionUsed(session);
     const { page } = session;
-    await page.locator(selector).click({ timeout: 1e4 });
+    await page.locator(selector).click({ timeout: _config.clickTimeout });
     return { success: true, output: `Clicked element: ${selector}` };
   } catch (err) {
     return { success: false, output: "", error: getErrorMessage(err) };
@@ -220,7 +292,7 @@ async function browserEvaluate(sessionId, script, headless = true) {
     const session = await getOrCreateSession(sessionId, headless);
     markSessionUsed(session);
     const { page } = session;
-    if (script.length > 1e5) {
+    if (script.length > _config.scriptMaxLength) {
       return { success: false, output: "", error: "Script exceeds maximum length" };
     }
     const result = await page.evaluate((code) => {
@@ -262,13 +334,23 @@ async function browserClose(sessionId) {
 function getActiveBrowserSessions() {
   return Array.from(browserPool.keys());
 }
-var browserPool, SESSION_TTL_MS, cleanupTimer, playwrightChromium, playwrightError;
+var _config, browserPool, cleanupTimer, playwrightChromium, playwrightError;
 var init_browserTools = __esm({
   "src/server/browserTools.ts"() {
     "use strict";
     init_errors();
+    init_logger();
+    _config = {
+      sessionTtlMs: 15 * 60 * 1e3,
+      viewportWidth: 1280,
+      viewportHeight: 720,
+      navigateTimeout: 3e4,
+      clickTimeout: 1e4,
+      typeTimeout: 1e4,
+      scriptMaxLength: 1e5,
+      cleanupIntervalMs: 60 * 1e3
+    };
     browserPool = /* @__PURE__ */ new Map();
-    SESSION_TTL_MS = 15 * 60 * 1e3;
     cleanupTimer = null;
     playwrightChromium = null;
     playwrightError = null;
@@ -851,9 +933,19 @@ var PermissionEngine = class {
   config;
   pending = /* @__PURE__ */ new Map();
   emitter = new import_events.EventEmitter();
+  /**
+   * Creates a new PermissionEngine instance.
+   * @param config - Permission configuration with rules and default action
+   */
   constructor(config) {
     this.config = config;
   }
+  /**
+   * Checks a permission request against configured rules.
+   * Rules are evaluated in order, with the last matching rule winning.
+   * @param request - The permission request to check
+   * @returns The check result with action and matching rule (if any)
+   */
   check(request) {
     let lastMatch = null;
     for (const rule of this.config.rules) {
@@ -873,6 +965,12 @@ var PermissionEngine = class {
     );
     return regex.test(text);
   }
+  /**
+   * Creates a pending permission request for user approval.
+   * Used when action is 'ask' and user confirmation is needed.
+   * @param request - The permission request
+   * @returns The created pending permission with unique ID
+   */
   createPending(request) {
     const id = (0, import_crypto.randomUUID)();
     const pending = {
@@ -884,6 +982,11 @@ var PermissionEngine = class {
     this.pending.set(id, pending);
     return pending;
   }
+  /**
+   * Resolves a pending permission request.
+   * @param id - The pending permission ID
+   * @param approved - Whether the request was approved
+   */
   resolve(id, approved) {
     const pending = this.pending.get(id);
     if (pending) {
@@ -1379,7 +1482,7 @@ var READ_ONLY_TOOLS = new Set(
 var ALL_TOOL_NAMES = TOOL_DEFINITIONS.map((t) => t.name);
 
 // src/server/hooks.ts
-init_errors();
+init_logger();
 var HookRegistry = class {
   hooks = /* @__PURE__ */ new Map();
   register(reg) {
@@ -1403,7 +1506,7 @@ var HookRegistry = class {
       try {
         await reg.handler(ctx);
       } catch (err) {
-        console.error(`Hook ${reg.id} failed at ${hookPoint}:`, getErrorMessage(err));
+        log.error(`Hook failed at ${hookPoint}`, err instanceof Error ? err : void 0, { hookId: reg.id });
       }
     }
   }
@@ -1419,12 +1522,7 @@ function registerBuiltinHooks() {
     hookPoint: "tool.after",
     priority: 0,
     handler: (ctx) => {
-      console.log(
-        `[HOOK] Tool executed:`,
-        ctx.data.tool,
-        "Result:",
-        ctx.data.result?.substring?.(0, 100)
-      );
+      log.debug("Tool executed", { tool: ctx.data.tool, result: ctx.data.result?.substring?.(0, 100) });
     }
   });
   hookRegistry.register({
@@ -1432,7 +1530,7 @@ function registerBuiltinHooks() {
     hookPoint: "file.write.after",
     priority: 0,
     handler: (ctx) => {
-      console.log(`[HOOK] File written:`, ctx.data.path);
+      log.debug("File written", { path: ctx.data.path });
     }
   });
 }
@@ -1443,6 +1541,7 @@ var path = __toESM(require("path"), 1);
 var import_child_process = require("child_process");
 var import_util = require("util");
 init_errors();
+init_logger();
 var execFileAsync = (0, import_util.promisify)(import_child_process.execFile);
 var TOOLS_DIR = path.resolve(process.cwd(), ".cvr", "tools");
 var _toolsDir = TOOLS_DIR;
@@ -1465,9 +1564,7 @@ async function loadCustomTools() {
       const parsed = JSON.parse(raw);
       if (parsed.id && parsed.name && parsed.handler) {
         if (parsed.handler.type === "node") {
-          console.warn(
-            `Custom tool ${parsed.id}: "node" handler type is disabled for security. Use "command" only.`
-          );
+          log.warn(`Custom tool ${parsed.id}: "node" handler type is disabled for security. Use "command" only.`);
           continue;
         }
         tools.push(parsed);
@@ -1779,6 +1876,7 @@ init_errors();
 // src/server/tools/file.ts
 var import_promises2 = require("fs/promises");
 var path2 = __toESM(require("path"), 1);
+init_logger();
 var PROJECT_ROOT = process.cwd();
 function resolveProjectPath(requestedPath) {
   const resolved = path2.resolve(PROJECT_ROOT, requestedPath);
@@ -1806,6 +1904,7 @@ async function searchDir(dir, query) {
             results.push(`[MATCH] ${relPath} (content)`);
           }
         } catch {
+          log.debug("Skipping unreadable file", { path: fullPath });
         }
       }
     }
@@ -3392,6 +3491,7 @@ async function executeTool(toolCall, mode = "build", permissionEngine2, sessionI
 // src/server/agentLoader.ts
 var fs2 = __toESM(require("fs"), 1);
 var path7 = __toESM(require("path"), 1);
+init_logger();
 var cachedAgents = [];
 var agentsDir = ".cvr/agents";
 async function loadAgents(dir) {
@@ -3406,7 +3506,7 @@ async function loadAgents(dir) {
       if (agent) agents.push(agent);
     }
   } catch (e) {
-    console.error("Failed to load agents:", e);
+    log.error("Failed to load agents", e instanceof Error ? e : void 0);
   }
   cachedAgents = agents;
   return agents;
@@ -3588,62 +3688,7 @@ async function listGoalStates() {
 var import_crypto3 = require("crypto");
 var path10 = __toESM(require("path"), 1);
 var fs4 = __toESM(require("fs"), 1);
-
-// src/server/logger.ts
-var Logger = class {
-  context;
-  level;
-  constructor(context, level = "info") {
-    this.context = context;
-    this.level = level;
-  }
-  shouldLog(level) {
-    const levels = ["debug", "info", "warn", "error"];
-    return levels.indexOf(level) >= levels.indexOf(this.level);
-  }
-  format(entry) {
-    const ctx = entry.context ? ` ${JSON.stringify(entry.context)}` : "";
-    const dur = entry.duration ? ` [${entry.duration}ms]` : "";
-    return `[${entry.timestamp}] [${entry.level.toUpperCase()}] [${this.context}] ${entry.message}${ctx}${dur}`;
-  }
-  debug(message, context) {
-    if (!this.shouldLog("debug")) return;
-    const entry = { timestamp: (/* @__PURE__ */ new Date()).toISOString(), level: "debug", message, context };
-    console.debug(this.format(entry));
-  }
-  info(message, context) {
-    if (!this.shouldLog("info")) return;
-    const entry = { timestamp: (/* @__PURE__ */ new Date()).toISOString(), level: "info", message, context };
-    console.info(this.format(entry));
-  }
-  warn(message, context) {
-    if (!this.shouldLog("warn")) return;
-    const entry = { timestamp: (/* @__PURE__ */ new Date()).toISOString(), level: "warn", message, context };
-    console.warn(this.format(entry));
-  }
-  error(message, error, context) {
-    if (!this.shouldLog("error")) return;
-    const entry = {
-      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-      level: "error",
-      message,
-      context: { ...context, error: error?.message, stack: error?.stack }
-    };
-    console.error(this.format(entry));
-  }
-  time(label) {
-    const start = Date.now();
-    return () => {
-      const duration = Date.now() - start;
-      this.debug(`${label} completed`, { duration });
-      return duration;
-    };
-  }
-};
-var createLogger = (context, level) => new Logger(context, level);
-var log = createLogger("cvr", process.env.LOG_LEVEL || "info");
-
-// src/server/cache.ts
+init_logger();
 var _dbPath3 = path10.resolve(process.cwd(), ".opencode-infinite", "cache.db");
 var _db3 = null;
 var _useFallback3 = false;
@@ -3987,6 +4032,7 @@ var aiCache = new AIResponseCache();
 // src/server/projectOracle.ts
 var fs5 = __toESM(require("fs"), 1);
 var path11 = __toESM(require("path"), 1);
+init_logger();
 var MAX_FILE_SIZE = 100 * 1024;
 var ORACLE_SOURCE_PREFIX = "oracle:";
 var SKIP_DIRS = /* @__PURE__ */ new Set([
@@ -4181,6 +4227,7 @@ async function deleteInstruction(name) {
 // src/server/pluginManager.ts
 var import_promises9 = require("fs/promises");
 var path13 = __toESM(require("path"), 1);
+init_logger();
 var PLUGINS_DIR = path13.resolve(process.cwd(), ".cvr", "plugins");
 var _pluginsDir = PLUGINS_DIR;
 var _plugins = [];
@@ -4221,9 +4268,7 @@ async function registerPlugins() {
 }
 async function registerPlugin(plugin) {
   if (plugin.manifest.hooks) {
-    console.warn(
-      `Plugin ${plugin.manifest.id}: hooks declared in manifest.json are ignored for security. Use a signed JS module instead.`
-    );
+    log.warn(`Plugin ${plugin.manifest.id}: hooks declared in manifest.json are ignored for security. Use a signed JS module instead.`);
   }
 }
 function getPlugins() {
@@ -4418,6 +4463,7 @@ Your thought:`;
 
 // src/server/subagentManager.ts
 init_errors();
+init_logger();
 var SubagentManager = class {
   tasks = /* @__PURE__ */ new Map();
   queue = [];
@@ -4448,7 +4494,7 @@ var SubagentManager = class {
       const loop = new AgentLoop(task.goal, {
         maxSteps: task.agentConfig.maxSteps || 10,
         onStep: (step) => {
-          console.log(`[Subagent ${task.id}] Step ${step.id}: ${step.thought.substring(0, 100)}`);
+          log.debug(`Step ${step.id}`, { thought: step.thought.substring(0, 100) });
         },
         thinkFn
       });
@@ -4478,7 +4524,7 @@ var SubagentManager = class {
     const nextTask = this.tasks.get(nextId);
     if (nextTask) {
       this.executeTask(nextTask, thinkFn).catch((err) => {
-        console.error(`Queued subagent ${nextId} failed:`, getErrorMessage(err));
+        log.error(`Queued subagent failed`, err instanceof Error ? err : void 0, { nextId });
       });
     }
   }
@@ -4516,6 +4562,7 @@ function setPermissionEngine(pe) {
 }
 
 // src/server/mcpServer.ts
+init_logger();
 var PROJECT_ROOT5 = process.cwd();
 async function loadMcpConfig() {
   try {
@@ -4571,7 +4618,7 @@ async function createMcpServer() {
         });
       }
     } catch (e) {
-      console.error("Failed to load custom tools for MCP:", e);
+      log.error("Failed to load custom tools for MCP", e instanceof Error ? e : void 0);
     }
     return { tools };
   });
@@ -4686,7 +4733,7 @@ async function startMcpStdio() {
   const server = await createMcpServer();
   const transport = new import_stdio.StdioServerTransport();
   await server.connect(transport);
-  console.error("MCP Server running on stdio");
+  log.info("MCP Server running on stdio");
 }
 var sseTransports = /* @__PURE__ */ new Map();
 function mountMcpSseRoutes(app2, basePath = "/mcp") {
@@ -4721,8 +4768,9 @@ var import_child_process5 = require("child_process");
 var import_util4 = require("util");
 var import_crypto4 = require("crypto");
 init_errors();
+init_logger();
 var execFileAsync4 = (0, import_util4.promisify)(import_child_process5.execFile);
-var _config = null;
+var _config2 = null;
 var _status = {
   lastSyncAt: null,
   status: "idle",
@@ -4735,16 +4783,16 @@ var CONFIG_PATH = path15.join(SYNC_DIR, "sync.json");
 var SYNC_STORAGE_DIR = path15.join(process.cwd(), ".opencode-infinite");
 var SYNC_FILES = ["MEMORY.md", "USER.md", "history.json", "memory.json", "sessions.db"];
 function getSyncDir() {
-  if (_config?.provider === "git" && _config.repo) {
+  if (_config2?.provider === "git" && _config2.repo) {
     return path15.join(process.cwd(), ".sync-clone");
   }
-  if (_config?.provider === "file" && _config.path) {
-    return _config.path;
+  if (_config2?.provider === "file" && _config2.path) {
+    return _config2.path;
   }
   return path15.join(SYNC_DIR, "sync-data");
 }
 function getKey() {
-  const keyStr = _config?.encryptionKey || process.env.SYNC_ENCRYPTION_KEY;
+  const keyStr = _config2?.encryptionKey || process.env.SYNC_ENCRYPTION_KEY;
   if (!keyStr) {
     throw new Error("Sync encryption key is not configured. Set encryptionKey in .cvr/sync.json or SYNC_ENCRYPTION_KEY env var.");
   }
@@ -4753,7 +4801,7 @@ function getKey() {
 function encrypt(data) {
   const iv = (0, import_crypto4.randomBytes)(16);
   const salt = (0, import_crypto4.randomBytes)(16);
-  const key = (0, import_crypto4.scryptSync)(_config?.encryptionKey || process.env.SYNC_ENCRYPTION_KEY || "", salt, 32);
+  const key = (0, import_crypto4.scryptSync)(_config2?.encryptionKey || process.env.SYNC_ENCRYPTION_KEY || "", salt, 32);
   const cipher = (0, import_crypto4.createCipheriv)("aes-256-gcm", key, iv);
   const encrypted = Buffer.concat([cipher.update(data), cipher.final()]);
   const tag = cipher.getAuthTag();
@@ -4764,7 +4812,7 @@ function decrypt(data) {
   const iv = data.subarray(16, 32);
   const tag = data.subarray(32, 48);
   const encrypted = data.subarray(48);
-  const key = (0, import_crypto4.scryptSync)(_config?.encryptionKey || process.env.SYNC_ENCRYPTION_KEY || "", salt, 32);
+  const key = (0, import_crypto4.scryptSync)(_config2?.encryptionKey || process.env.SYNC_ENCRYPTION_KEY || "", salt, 32);
   const decipher = (0, import_crypto4.createDecipheriv)("aes-256-gcm", key, iv);
   decipher.setAuthTag(tag);
   return Buffer.concat([decipher.update(encrypted), decipher.final()]);
@@ -4786,23 +4834,23 @@ async function loadSyncConfig() {
   try {
     await (0, import_promises11.access)(CONFIG_PATH);
     const raw = await (0, import_promises11.readFile)(CONFIG_PATH, "utf-8");
-    _config = JSON.parse(raw);
-    _status.provider = _config.provider;
-    return _config;
+    _config2 = JSON.parse(raw);
+    _status.provider = _config2.provider;
+    return _config2;
   } catch {
-    _config = null;
+    _config2 = null;
     return null;
   }
 }
 function getSyncConfig() {
-  return _config;
+  return _config2;
 }
 async function saveSyncConfig(config) {
   await (0, import_promises11.mkdir)(SYNC_DIR, { recursive: true });
   const safeConfig = { ...config };
   delete safeConfig.encryptionKey;
   await (0, import_promises11.writeFile)(CONFIG_PATH, JSON.stringify(safeConfig, null, 2), "utf-8");
-  _config = config;
+  _config2 = config;
   _status.provider = config.provider;
   restartAutoSync();
 }
@@ -4845,7 +4893,7 @@ async function gitCommitAndPush(syncDir) {
   }
 }
 function resolveSyncPath(fileName, syncDir) {
-  if (_config?.encrypt) {
+  if (_config2?.encrypt) {
     return path15.join(syncDir, `${fileName}.enc`);
   }
   return path15.join(syncDir, fileName);
@@ -4859,7 +4907,7 @@ async function exportFile(fileName, syncDir) {
     return;
   }
   const destPath = resolveSyncPath(fileName, syncDir);
-  if (_config?.encrypt) {
+  if (_config2?.encrypt) {
     data = encrypt(data);
   }
   await (0, import_promises11.writeFile)(destPath, data);
@@ -4872,7 +4920,7 @@ async function importFile(fileName, syncDir) {
   } catch {
     return;
   }
-  if (_config?.encrypt) {
+  if (_config2?.encrypt) {
     try {
       data = tryDecrypt(data);
     } catch {
@@ -4889,7 +4937,7 @@ async function exportAll(syncDir) {
   }
 }
 async function resolveConflict(sourcePath, destPath) {
-  if (_config?.conflictResolution === "manual") {
+  if (_config2?.conflictResolution === "manual") {
     return false;
   }
   try {
@@ -4923,27 +4971,27 @@ async function importWithConflictCheck(syncDir) {
   return conflicts;
 }
 async function exportSync() {
-  if (!_config?.enabled) {
+  if (!_config2?.enabled) {
     return { success: false, message: "Sync is not enabled" };
   }
   _status = { ..._status, status: "syncing", message: "Exporting..." };
   try {
     const syncDir = getSyncDir();
-    if (_config.provider === "git") {
-      if (!_config.repo) throw new Error("Git repo URL not configured");
+    if (_config2.provider === "git") {
+      if (!_config2.repo) throw new Error("Git repo URL not configured");
       await gitInit(syncDir);
-      await gitSetRemote(syncDir, _config.repo);
+      await gitSetRemote(syncDir, _config2.repo);
       await gitPull(syncDir);
     }
     await exportAll(syncDir);
-    if (_config.provider === "git") {
+    if (_config2.provider === "git") {
       await gitCommitAndPush(syncDir);
     }
     _status = {
       lastSyncAt: Date.now(),
       status: "idle",
       message: "Export successful",
-      provider: _config.provider
+      provider: _config2.provider
     };
     return { success: true, message: "Export successful" };
   } catch (e) {
@@ -4952,16 +5000,16 @@ async function exportSync() {
   }
 }
 async function importSync() {
-  if (!_config?.enabled) {
+  if (!_config2?.enabled) {
     return { success: false, message: "Sync is not enabled" };
   }
   _status = { ..._status, status: "syncing", message: "Importing..." };
   try {
     const syncDir = getSyncDir();
-    if (_config.provider === "git") {
-      if (!_config.repo) throw new Error("Git repo URL not configured");
+    if (_config2.provider === "git") {
+      if (!_config2.repo) throw new Error("Git repo URL not configured");
       await gitInit(syncDir);
-      await gitSetRemote(syncDir, _config.repo);
+      await gitSetRemote(syncDir, _config2.repo);
       await gitPull(syncDir);
     }
     const conflicts = await importWithConflictCheck(syncDir);
@@ -4970,7 +5018,7 @@ async function importSync() {
         lastSyncAt: Date.now(),
         status: "conflict",
         message: `Conflicts: ${conflicts.join(", ")}`,
-        provider: _config.provider
+        provider: _config2.provider
       };
       return { success: true, message: `Imported with conflicts: ${conflicts.join(", ")}`, conflicts };
     }
@@ -4978,7 +5026,7 @@ async function importSync() {
       lastSyncAt: Date.now(),
       status: "idle",
       message: "Import successful",
-      provider: _config.provider
+      provider: _config2.provider
     };
     return { success: true, message: "Import successful" };
   } catch (e) {
@@ -4994,22 +5042,22 @@ function restartAutoSync() {
     clearInterval(_intervalId);
     _intervalId = null;
   }
-  if (!_config?.enabled || !_config.interval) return;
-  const intervalMs = _config.interval * 1e3;
+  if (!_config2?.enabled || !_config2.interval) return;
+  const intervalMs = _config2.interval * 1e3;
   _intervalId = setInterval(() => {
     exportSync().catch((err) => {
-      console.error("Auto-sync export failed:", getErrorMessage(err));
+      log.error("Auto-sync export failed", err instanceof Error ? err : void 0);
     });
   }, intervalMs);
 }
 async function initSync() {
   await loadSyncConfig();
-  if (_config?.enabled) {
+  if (_config2?.enabled) {
     restartAutoSync();
   }
 }
 async function resolveConflictsManually(resolutions) {
-  if (!_config) throw new Error("Sync not configured");
+  if (!_config2) throw new Error("Sync not configured");
   const syncDir = getSyncDir();
   for (const [file, choice] of Object.entries(resolutions)) {
     if (choice === "remote") {
@@ -6004,6 +6052,7 @@ ${persistentContext}${instructionsContext ? "\n" + instructionsContext : ""}`;
 }
 
 // src/server/contextWindow.ts
+init_logger();
 var ContextWindow = class {
   messages = [];
   maxTokens;
@@ -6084,6 +6133,7 @@ var globalContextWindow = new ContextWindow();
 // src/server/imageProcessor.ts
 var import_sharp = __toESM(require("sharp"), 1);
 init_errors();
+init_logger();
 var DEFAULT_MAX_DIMENSION = 1024;
 var MAX_FILE_SIZE_MB = 5;
 var MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
@@ -6159,14 +6209,14 @@ async function processImages(base64Images, options = {}) {
   for (const img of base64Images) {
     const validation = validateImage(img);
     if (!validation.valid) {
-      console.warn("Image validation failed:", validation.error);
+      log.warn("Image validation failed", { error: validation.error });
       continue;
     }
     try {
       const processed = await processImage(img, options);
       results.push(processed);
     } catch (e) {
-      console.warn("Image processing failed:", getErrorMessage(e));
+      log.warn("Image processing failed", { error: getErrorMessage(e) });
     }
   }
   return results;
@@ -6193,6 +6243,7 @@ function buildDualModelConfig(cfg) {
 }
 
 // src/server/routes/chat.ts
+init_logger();
 var STORAGE_DIR2 = path19.join(process.cwd(), ".opencode-infinite");
 var HISTORY_FILE = path19.join(STORAGE_DIR2, "history.json");
 var MEMORY_FILE = path19.join(STORAGE_DIR2, "memory.json");
@@ -6210,7 +6261,7 @@ async function ensureStorage() {
       await (0, import_promises16.writeFile)(MEMORY_FILE, JSON.stringify([]));
     }
   } catch (e) {
-    console.error("Storage init error:", e);
+    log.error("Storage init error", e instanceof Error ? e : void 0);
   }
 }
 var _historyCache = null;
@@ -6263,7 +6314,7 @@ async function summarizeLongHistory(messages, provider, localUrl, modelName, api
     }
     return await generateAIContent(instruction, [], provider, localUrl, modelName, apiKey);
   } catch (error) {
-    console.error("Summarization failed:", error);
+    log.error("Summarization failed", error instanceof Error ? error : void 0);
     return null;
   }
 }
@@ -6362,7 +6413,7 @@ function registerRoutes(app2) {
       trackCost(aiProvider, resolvedModel || "unknown", estimatedInputTokens, estimatedOutputTokens).catch(() => {
       });
     } catch (error) {
-      console.error("API Error:", getErrorMessage(error));
+      log.error("API Error", error instanceof Error ? error : void 0);
       res.status(500).json({ error: getErrorMessage(error) });
     }
   });
@@ -6734,6 +6785,7 @@ function registerRoutes4(app2) {
 
 // src/server/cronScheduler.ts
 var import_crypto7 = require("crypto");
+init_logger();
 function parseSchedule(schedule) {
   if (schedule.startsWith("every ")) {
     const match = schedule.match(/every (\d+) (minute|minutes|hour|hours|day|days)/);
@@ -6820,7 +6872,7 @@ var CronScheduler = class {
     task.lastRun = Date.now();
     task.nextRun = Date.now() + interval;
     try {
-      console.log(`[CRON] Running task ${task.name}: ${task.command}`);
+      log.info(`Running task`, { name: task.name, command: task.command });
       const callback = this.runCallbacks.get(id);
       if (callback) {
         await callback(task);
@@ -7154,6 +7206,7 @@ function registerRoutes5(app2) {
 // src/server/changes.ts
 var import_promises17 = require("fs/promises");
 var path20 = __toESM(require("path"), 1);
+init_logger();
 var STORAGE_DIR3 = path20.join(process.cwd(), ".opencode-infinite");
 var CHANGES_FILE = path20.join(STORAGE_DIR3, "changes.json");
 var MAX_CHANGES = 50;
@@ -7182,6 +7235,7 @@ async function recordChange(filePath, operation, afterContent, description) {
       beforeContent = "[FILE_TOO_LARGE_FOR_SNAPSHOT]";
     }
   } catch {
+    log.debug("File doesn't exist yet \u2014 beforeContent stays null");
   }
   const change = {
     id: crypto.randomUUID(),
@@ -7220,6 +7274,7 @@ async function undoChange() {
     try {
       await (0, import_promises17.unlink)(fullPath);
     } catch {
+      log.debug("File already deleted");
     }
   } else if (change.beforeContent === "[FILE_TOO_LARGE_FOR_SNAPSHOT]") {
     await saveHistory(history);
@@ -7429,6 +7484,7 @@ Tasks:`;
 }
 
 // src/server/routes/agent.ts
+init_logger();
 function registerRoutes7(app2) {
   app2.post("/api/agent/loop", validateBody(AgentLoopSchema), async (req, res) => {
     try {
@@ -7454,7 +7510,7 @@ function registerRoutes7(app2) {
         agentLoopMap.delete(id);
         setActiveLoops(agentLoopMap.size);
       }).catch((err) => {
-        console.error(`Agent loop ${id} error:`, err);
+        log.error(`Agent loop error`, err instanceof Error ? err : void 0, { id });
         agentLoopMap.delete(id);
         setActiveLoops(agentLoopMap.size);
         incrementError();
@@ -8285,6 +8341,7 @@ function registerRoutes11(app2) {
 var path22 = __toESM(require("path"), 1);
 var import_promises19 = require("fs/promises");
 var import_crypto9 = require("crypto");
+init_logger();
 function registerRoutes12(app2) {
   app2.post("/api/tools/execute", validateBody(ToolExecuteSchema), async (req, res) => {
     try {
@@ -8303,8 +8360,8 @@ function registerRoutes12(app2) {
       }
       res.json(result);
     } catch (error) {
-      console.error("Tool execution error:", error);
-      res.status(500).json({ success: false, output: "", error: error.message });
+      log.error("Tool execution error", error instanceof Error ? error : void 0);
+      res.status(500).json({ success: false, output: "", error: error instanceof Error ? error.message : "Unknown error" });
     }
   });
 }
@@ -8554,6 +8611,7 @@ var GoalOrchestrator = class {
 };
 
 // src/server/routes/goal.ts
+init_logger();
 function registerRoutes13(app2, options) {
   const { generateFn: generateAIContent2, permissionEngine: permissionEngine2 } = options;
   const activeGoals = /* @__PURE__ */ new Map();
@@ -8578,7 +8636,7 @@ function registerRoutes13(app2, options) {
         }
       };
       orchestrator.getBroadcaster().on("event", cleanup);
-      orchestrator.run().catch((err) => console.error("Goal orchestrator error:", err));
+      orchestrator.run().catch((err) => log.error("Goal orchestrator error", err instanceof Error ? err : void 0));
       res.json({ id: goalId });
     } catch (error) {
       res.status(500).json({ error: error.message });

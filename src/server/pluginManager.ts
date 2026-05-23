@@ -1,6 +1,7 @@
 import { readdir, readFile, access } from "fs/promises";
 import * as path from "path";
 import type { PluginManifest, PluginInstance } from "../types/plugin";
+import { log } from "./logger.js";
 
 const PLUGINS_DIR = path.resolve(process.cwd(), ".cvr", "plugins");
 let _pluginsDir = PLUGINS_DIR;
@@ -54,10 +55,7 @@ async function registerPlugin(plugin: PluginInstance): Promise<void> {
   // To add runtime behavior, load a companion JS module via require/import
   // after manifest validation and signature verification (future feature).
   if (plugin.manifest.hooks) {
-    console.warn(
-      `Plugin ${plugin.manifest.id}: hooks declared in manifest.json are ignored for security. ` +
-      `Use a signed JS module instead.`
-    );
+    log.warn(`Plugin ${plugin.manifest.id}: hooks declared in manifest.json are ignored for security. Use a signed JS module instead.`);
   }
 }
 

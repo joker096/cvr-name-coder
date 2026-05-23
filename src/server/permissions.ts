@@ -7,15 +7,46 @@ import {
 import { randomUUID } from "crypto";
 import { EventEmitter } from "events";
 
+/**
+ * Permission engine for controlling tool execution access.
+ * 
+ * Evaluates permission rules against tool requests to determine
+ * whether to allow, deny, or ask for user confirmation.
+ * 
+ * @example
+ * ```ts
+ * const engine = new PermissionEngine({
+ *   rules: [
+ *     { pattern: 'read_file', action: 'allow' },
+ *     { pattern: 'write_file', action: 'ask' },
+ *     { pattern: '*.env*', action: 'deny' },
+ *   ],
+ *   defaultAction: 'ask'
+ * });
+ * 
+ * const result = engine.check({ tool: 'write_file', filePath: 'src/index.ts' });
+ * // result.action === 'ask'
+ * ```
+ */
 export class PermissionEngine {
   private config: PermissionConfig;
   private pending = new Map<string, PendingPermission>();
   private emitter = new EventEmitter();
 
+  /**
+   * Creates a new PermissionEngine instance.
+   * @param config - Permission configuration with rules and default action
+   */
   constructor(config: PermissionConfig) {
     this.config = config;
   }
 
+  /**
+   * Checks a permission request against configured rules.
+   * Rules are evaluated in order, with the last matching rule winning.
+   * @param request - The permission request to check
+   * @returns The check result with action and matching rule (if any)
+   */
   check(request: PermissionRequest): PermissionCheckResult {
     // Check rules in order, last match wins
     let lastMatch: PermissionCheckResult | null = null;
@@ -53,6 +84,12 @@ export class PermissionEngine {
     return regex.test(text);
   }
 
+  /**
+   * Creates a pending permission request for user approval.
+   * Used when action is 'ask' and user confirmation is needed.
+   * @param request - The permission request
+   * @returns The created pending permission with unique ID
+   */
   createPending(request: PermissionRequest): PendingPermission {
     const id = randomUUID();
     const pending: PendingPermission = {
@@ -65,6 +102,11 @@ export class PermissionEngine {
     return pending;
   }
 
+  /**
+   * Resolves a pending permission request.
+   * @param id - The pending permission ID
+   * @param approved - Whether the request was approved
+   */
   resolve(id: string, approved: boolean): void {
     const pending = this.pending.get(id);
     if (pending) {

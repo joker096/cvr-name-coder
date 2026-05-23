@@ -2,6 +2,7 @@ import { readFile, readdir, writeFile, mkdir } from "fs/promises";
 import * as path from "path";
 import type { ToolResult } from "../../types/tools";
 import { hookRegistry } from "../hooks.js";
+import { log } from "../logger.js";
 
 const PROJECT_ROOT = process.cwd();
 
@@ -32,7 +33,7 @@ async function searchDir(dir: string, query: string): Promise<string[]> {
             results.push(`[MATCH] ${relPath} (content)`);
           }
         } catch {
-          // skip unreadable files
+          log.debug("Skipping unreadable file", { path: fullPath });
         }
       }
     }

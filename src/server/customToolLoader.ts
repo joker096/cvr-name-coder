@@ -4,6 +4,7 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import type { CustomToolDefinition, CustomToolResult } from "../types/customTool";
 import { getErrorMessage } from "../types/errors";
+import { log } from "./logger.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -38,9 +39,7 @@ export async function loadCustomTools(): Promise<CustomToolDefinition[]> {
       const parsed: ParsedToolJson = JSON.parse(raw) as ParsedToolJson;
       if (parsed.id && parsed.name && parsed.handler) {
         if (parsed.handler.type === "node") {
-          console.warn(
-            `Custom tool ${parsed.id}: "node" handler type is disabled for security. Use "command" only.`
-          );
+          log.warn(`Custom tool ${parsed.id}: "node" handler type is disabled for security. Use "command" only.`);
           continue;
         }
         tools.push(parsed as CustomToolDefinition);

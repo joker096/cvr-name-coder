@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import { spawn, ChildProcess } from 'child_process';
 import express from 'express';
 import { CompletionEngine } from './completion/completionEngine.js';
 import { CvrInlineCompletionProvider } from './providers/InlineCompletionProvider.js';
@@ -35,64 +34,19 @@ import { initSync } from '../../src/server/teamSync.js';
 import { registerRoutes as registerGitRoutes } from '../../src/server/routes/git.js';
 import { registerRoutes as registerEcosystemRoutes } from '../../src/server/routes/ecosystem.js';
 import { registerRoutes as registerBrowserRoutes } from '../../src/server/routes/browser.js';
-import { trackCost } from '../../src/server/costTracker.js';
-import { setGoalStorageDir } from '../../src/server/goalSessionStore.js';
+import { registerRoutes as registerToolsRoutes } from '../../src/server/routes/tools.js';
 import { registerRoutes as registerGoalRoutes } from '../../src/server/routes/goal.js';
 import { setupSecurityMiddleware, createTrustedLocalOriginMiddleware } from '../../src/server/standalone/middleware.js';
 import { SettingsSchema } from '../../src/server/validation.js';
+import { McpManager } from './mcp/McpManager.js';
+import { generateEmbeddings, hasGeminiEmbeddingsConfigured } from './embeddings/geminiEmbeddings.js';
 
-const $fetch = (globalThis as any).fetch as (url: string, init?: any) => Promise<{ json(): Promise<any>; status: number }>;
+const $fetch = (globalThis as { fetch: (url: string, init?: RequestInit) => Promise<Response> }).fetch;
 
 export let serverPort: number | null = null;
 
 const completionEngine = new CompletionEngine();
 let diagnosticsProvider: DiagnosticsProvider | null = null;
-
-let geminiClient: any = null;
-let hasLoggedMissingGeminiKey = false;
-
-function hasGeminiEmbeddingsConfigured(): boolean {
-  return Boolean(process.env.GEMINI_API_KEY);
-}
-
-function getGemini() {
-  if (!geminiClient) {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      throw new Error('GEMINI_API_KEY not set. Set it to enable RAG embeddings, or disable Project Oracle with CVR_ORACLE_ENABLED=false');
-    }
-    const { GoogleGenAI } = require('@google/genai');
-    geminiClient = new GoogleGenAI({ apiKey });
-  }
-  return geminiClient;
-}
-
-async function generateEmbeddings(texts: string[]): Promise<number[][]> {
-  try {
-    const result = await getGemini().models.embedContent({
-      model: 'text-embedding-004',
-      contents: texts.map((t) => ({ role: 'user', parts: [{ text: t }] })),
-    });
-    if (Array.isArray(result.embeddings)) {
-      return result.embeddings.map((e: any) => e.values as number[]);
-    }
-    if (result.embeddings && Array.isArray((result.embeddings as any).values)) {
-      return [(result.embeddings as any).values as number[]];
-    }
-    return texts.map(() => []);
-  } catch (e: any) {
-    // Graceful fallback: log once, return empty embeddings so RAG features degrade without crashing
-    if (e.message?.includes('GEMINI_API_KEY not set')) {
-      if (!hasLoggedMissingGeminiKey) {
-        hasLoggedMissingGeminiKey = true;
-        console.warn('[cvr.name] RAG embeddings disabled: GEMINI_API_KEY not configured');
-      }
-    } else {
-      console.error('[cvr.name] Embedding generation failed:', e.message || e);
-    }
-    return texts.map(() => []);
-  }
-}
 
 function getCompletionConfig(): CompletionConfig {
   const cfg = vscode.workspace.getConfiguration('cvr');
@@ -104,211 +58,6 @@ function getCompletionConfig(): CompletionConfig {
     maxSuffixLines: cfg.get<number>('maxSuffixLines', 10),
     enabled: cfg.get<boolean>('enabled', true),
   };
-}
-
-// MCP Server Management
-interface McpServerConfig {
-  name: string;
-  command: string;
-  args: string[];
-  env?: Record<string, string>;
-}
-
-interface McpToolInfo {
-  serverName: string;
-  name: string;
-  description: string;
-  inputSchema: any;
-}
-
-class McpManager {
-  private processes: Map<string, ChildProcess> = new Map();
-  private tools: McpToolInfo[] = [];
-  private storagePath: string;
-  private nextId = 1;
-
-  constructor(storagePath: string) {
-    this.storagePath = storagePath;
-  }
-
-  getConfigPath(): string {
-    return path.join(this.storagePath, 'mcp-servers.json');
-  }
-
-  async loadConfig(): Promise<McpServerConfig[]> {
-    try {
-      const data = await fs.promises.readFile(this.getConfigPath(), 'utf-8');
-      return JSON.parse(data);
-    } catch { return []; }
-  }
-
-  async saveConfig(servers: McpServerConfig[]): Promise<void> {
-    await fs.promises.writeFile(this.getConfigPath(), JSON.stringify(servers, null, 2));
-  }
-
-  async startServers(): Promise<void> {
-    const configs = await this.loadConfig();
-    for (const cfg of configs) {
-      await this.startServer(cfg);
-    }
-  }
-
-  private async startServer(cfg: McpServerConfig): Promise<void> {
-    try {
-      const proc = spawn(cfg.command, cfg.args, {
-        stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env, ...cfg.env },
-      });
-
-      this.processes.set(cfg.name, proc);
-
-      const encoder = new TextEncoder();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      proc.stdout?.on('data', (data: Buffer) => {
-        buffer += decoder.decode(data, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-        for (const line of lines) {
-          if (line.trim()) this.handleMessage(cfg.name, line.trim());
-        }
-      });
-
-      proc.on('exit', (code) => {
-        console.log(`MCP server ${cfg.name} exited with code ${code}`);
-        this.processes.delete(cfg.name);
-      });
-
-      // Initialize session
-      this.sendMessage(cfg.name, {
-        jsonrpc: '2.0',
-        id: this.nextId++,
-        method: 'initialize',
-        params: {
-          protocolVersion: '2024-11-05',
-          capabilities: {},
-          clientInfo: { name: 'cvr-name', version: '1.0.0' },
-        },
-      });
-
-      // List tools
-      this.sendMessage(cfg.name, {
-        jsonrpc: '2.0',
-        id: this.nextId++,
-        method: 'tools/list',
-      });
-    } catch (e) {
-      console.error(`Failed to start MCP server ${cfg.name}:`, e);
-    }
-  }
-
-  private sendMessage(serverName: string, msg: any): void {
-    const proc = this.processes.get(serverName);
-    if (!proc?.stdin?.writable) return;
-    const data = JSON.stringify(msg) + '\n';
-    proc.stdin.write(data);
-  }
-
-  private handleMessage(serverName: string, line: string): void {
-    try {
-      const msg = JSON.parse(line);
-      if (msg.id && msg.result) {
-        // tools/list response
-        if (msg.result.tools) {
-          for (const tool of msg.result.tools) {
-            this.tools.push({
-              serverName,
-              name: tool.name,
-              description: tool.description || '',
-              inputSchema: tool.inputSchema || {},
-            });
-          }
-          console.log(`MCP: ${msg.result.tools.length} tools loaded from ${serverName}`);
-        }
-      }
-    } catch (e) {
-      // ignore parse errors
-    }
-  }
-
-  getTools(): McpToolInfo[] {
-    return this.tools;
-  }
-
-  getToolsContext(): string {
-    if (this.tools.length === 0) return '';
-    let ctx = '\n\nAVAILABLE MCP TOOLS:\n';
-    for (const t of this.tools) {
-      ctx += `- ${t.serverName}/${t.name}: ${t.description}\n`;
-      if (t.inputSchema && t.inputSchema.properties) {
-        ctx += `  Args: ${Object.keys(t.inputSchema.properties).join(', ')}\n`;
-      }
-    }
-    ctx += '\nTo use an MCP tool, respond with:\n';
-    ctx += '```tool_call\n{"server":"serverName","tool":"toolName","arguments":{...}}\n```\n';
-    ctx += 'The tool will be executed and the result will be returned.\n';
-    return ctx;
-  }
-
-  async callTool(serverName: string, toolName: string, args: any): Promise<any> {
-    return new Promise((resolve, reject) => {
-      const proc = this.processes.get(serverName);
-      if (!proc) return reject(new Error(`MCP server "${serverName}" not running`));
-
-      const id = this.nextId++;
-      let buffer = '';
-      let resolved = false;
-
-      const handler = (data: Buffer) => {
-        if (resolved) return;
-        buffer += data.toString();
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try {
-            const msg = JSON.parse(line);
-            if (msg.id === id && msg.result) {
-              resolved = true;
-              proc.stdout?.removeListener('data', handler);
-              resolve(msg.result);
-            } else if (msg.id === id && msg.error) {
-              resolved = true;
-              proc.stdout?.removeListener('data', handler);
-              reject(new Error(msg.error.message || 'MCP error'));
-            }
-          } catch {}
-        }
-      };
-
-      proc.stdout?.on('data', handler);
-
-      this.sendMessage(serverName, {
-        jsonrpc: '2.0',
-        id,
-        method: 'tools/call',
-        params: { name: toolName, arguments: args },
-      });
-
-      setTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          proc.stdout?.removeListener('data', handler);
-          reject(new Error('MCP tool call timed out'));
-        }
-      }, 30000);
-    });
-  }
-
-  stopAll(): void {
-    for (const [name, proc] of this.processes) {
-      proc.kill();
-      console.log(`MCP server ${name} stopped`);
-    }
-    this.processes.clear();
-    this.tools = [];
-  }
 }
 
 function getServerDir(context: vscode.ExtensionContext): string {
@@ -343,7 +92,7 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
   let _wsContextTime = 0;
 
   // Health check endpoint
-  app.get('/api/health', (_req: any, res: any) => {
+  app.get('/api/health', (_req, res) => {
     res.json({
       status: 'ok',
       uptime: process.uptime(),
@@ -353,7 +102,7 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
   });
 
   // Settings persistence — survives extension reinstall via globalState
-  app.get('/api/settings', (_req: any, res: any) => {
+  app.get('/api/settings', (_req, res) => {
     try {
       const settings = context.globalState.get('cvr_settings', {});
       res.json(settings);
@@ -362,7 +111,7 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
     }
   });
 
-  app.post('/api/settings', (req: any, res: any) => {
+  app.post('/api/settings', (req, res) => {
     try {
       const parsed = SettingsSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -389,7 +138,7 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
     mistral: 'https://api.mistral.ai/v1/models',
   };
 
-  app.post('/api/validate-key', async (req: any, res: any) => {
+  app.post('/api/validate-key', async (req, res) => {
     const { provider, apiKey } = req.body;
     if (!provider || !apiKey) {
       return res.status(400).json({ valid: false, error: 'provider and apiKey required' });
@@ -479,7 +228,7 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
   setRulesDir(resolveCvrDir('rules'));
   setCustomToolsDir(resolveCvrDir('tools'));
   setPluginsDir(resolveCvrDir('plugins'));
-  setDesignSystemsDir(path.resolve(process.cwd(), '.cvr', 'design-systems'));
+  setDesignSystemsDir(resolveCvrDir('design-systems'));
   setAgentsDir(resolveCvrDir('agents'));
 
   // Initialize Permission Engine
@@ -1592,6 +1341,7 @@ Complete the code at the cursor position:`;
   registerEcosystemRoutes(app);
   registerGitRoutes(app);
   registerBrowserRoutes(app);
+  registerToolsRoutes(app);
 
   // Initialize team sync
   initSync().catch((e) => console.error('Team sync init failed:', e));

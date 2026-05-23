@@ -1,7 +1,7 @@
 import { readFile, writeFile, mkdir, unlink, stat } from "fs/promises";
-// @ts-ignore unused imports for completeness
 import * as path from "path";
 import type { FileChange, ChangeHistory, ChangeState } from "../types/changes";
+import { log } from "./logger.js";
 
 const STORAGE_DIR = path.join(process.cwd(), ".opencode-infinite");
 const CHANGES_FILE = path.join(STORAGE_DIR, "changes.json");
@@ -41,7 +41,7 @@ export async function recordChange(
       beforeContent = "[FILE_TOO_LARGE_FOR_SNAPSHOT]";
     }
   } catch {
-    // File doesn't exist yet — beforeContent stays null
+    log.debug("File doesn't exist yet — beforeContent stays null");
   }
 
   const change: FileChange = {
@@ -94,7 +94,7 @@ export async function undoChange(): Promise<{ success: boolean; restored?: FileC
     try {
       await unlink(fullPath);
     } catch {
-      // ignore if already deleted
+      log.debug("File already deleted");
     }
   } else if (change.beforeContent === "[FILE_TOO_LARGE_FOR_SNAPSHOT]") {
     await saveHistory(history);

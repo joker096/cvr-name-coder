@@ -28,7 +28,7 @@ export function useAppState() {
 
   const { settings, isLoading: settingsLoading, updateChatConfig, toggleAutonomous, updateAutoLoopDelay, toggleAutoCommit, toggleVoiceEnabled, setVoiceLanguage, toggleVoiceAutoSend, setLanguage } = useSettings();
   const { state: agentState, isRunning: isAgentRunning, startLoop, abortLoop } = useAgentLoop();
-  const { messages, isLoading, sendMessage, cancelMessage, addMessage, deleteMessage, clearHistory } = useChat(settings.chat);
+  const { messages, isLoading, error: chatError, sendMessage, cancelMessage, addMessage, deleteMessage, clearHistory } = useChat(settings.chat);
   const { memories } = useMemory();
   const { undo, redo, canUndo, canRedo } = useChanges();
   const { pending, approve, deny } = usePermissions();
@@ -52,7 +52,7 @@ export function useAppState() {
   const tt = t as Record<string, string>;
 
   const handleSendMessage = useCallback(async (images?: string[]) => {
-    const currentInput = inputRef.current;
+    const currentInput = input;
     if (!currentInput.trim() && (!images || images.length === 0)) return;
 
     const trimmed = currentInput.trim();
@@ -135,7 +135,7 @@ export function useAppState() {
     if (result?.continueNeeded && settings.isAutonomous) {
       startLoop(currentInput, settings.chat.aiProvider, settings.chat.aiModel);
     }
-  }, [sendMessage, settings, startLoop, undo, redo, addMessage, deleteMessage, tt]);
+  }, [sendMessage, settings, startLoop, undo, redo, addMessage, deleteMessage, tt, input]);
 
   const handleCancelMessage = useCallback(() => {
     cancelMessage();
@@ -219,6 +219,7 @@ export function useAppState() {
     abortLoop,
     messages,
     isLoading,
+    chatError,
     sendMessage,
     cancelMessage,
     clearHistory,
