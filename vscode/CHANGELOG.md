@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.5.29 — Feature Description Refresh
+
+### Added
+- **Marketplace metadata refresh** — Extension description and keywords now reflect the current product surface in VS Code Marketplace
+- **README refresh** — VS Code README now highlights Goal Loop, Project Oracle RAG, design systems, code review, browser automation, vision, cron tasks, Agent Marketplace, team sync, and MCP server support
+
+### Changed
+- **Feature positioning** — Store-facing copy is now aligned with the functionality already shipped in the extension
+- **Architecture overview** — README endpoint summary now includes goal, review, browser, cron, and marketplace APIs
+
+### Fixed
+- **Outdated listing copy** — The extension no longer looks limited to the older chat + local LLM + MCP subset in Marketplace materials
+
 ## 1.5.0 — Phase 2+3: Intelligence & Ecosystem 🎉
 
 ### Added

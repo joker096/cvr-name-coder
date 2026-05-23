@@ -1,6 +1,8 @@
 # cvr.name.coder
 
-Autonomous AI coding agent with persistent memory, streaming responses, and local LLM support. Runs fully inside VS Code.
+Autonomous AI coding agent for VS Code with persistent memory, Goal Loop, Project Oracle RAG, design systems, code review, browser automation, vision, cron tasks, Agent Marketplace, team sync, MCP tools/server, and local or cloud LLM support.
+
+Autonomous coding workspace for VS Code with chat, tools, memory, automation, and design workflows in one extension.
 
 ## Features
 
@@ -12,8 +14,19 @@ Autonomous AI coding agent with persistent memory, streaming responses, and loca
 - **Cloud AI** — Gemini, OpenAI, Anthropic, DeepSeek, Groq
 - **Auto-detection** — Finds Ollama/llama.cpp automatically
 - **MCP tools** — Connect external tool servers
+- **MCP server** — Expose cvr.name.coder as an MCP endpoint for external clients
 - **Persistent memory** — Long-term knowledge with auto-compression
 - **Autonomous loop** — Agent triggers itself for multi-step tasks
+- **Goal Loop** — Run autonomous goals with judge-based success checks
+- **Project Oracle RAG** — Auto-index the workspace for semantic search and retrieval
+- **Code review** — Review diffs with categorized AI findings
+- **Undo / Redo** — Revert and restore agent-applied changes
+- **Browser automation** — Playwright-powered browser navigation, clicks, screenshots, and evaluation
+- **Vision** — Upload images to supported multimodal models
+- **Design systems** — Manage reusable design tokens and system presets from the app
+- **Cron tasks** — Schedule recurring tasks and agent runs
+- **Agent Marketplace** — Publish, browse, rate, and reuse agents, skills, plugins, and rules
+- **Team sync** — Share and sync memory and project context
 - **Syntax highlighting** — Prism.js code blocks with copy button
 
 ## Quick Start
@@ -39,6 +52,8 @@ Click the **⚙️** gear icon in the top right to configure:
 - API key for cloud providers
 - Language (EN / RU / ES / ZH)
 - Auto-loop delay
+- Vision support
+- Design systems
 - MCP servers
 
 ## Architecture
@@ -49,6 +64,11 @@ VS Code Extension Host
      ├─ /api/chat (SSE streaming)
      ├─ /api/workspace (file tree, read, write)
      ├─ /api/sessions (save/load conversations)
+     ├─ /api/goal (autonomous Goal Loop)
+     ├─ /api/review (AI code review)
+     ├─ /api/browser (browser automation)
+     ├─ /api/cron (scheduled tasks)
+     ├─ /api/marketplace (agents/skills/plugins/rules)
      ├─ /api/mcp-* (MCP tool server)
      └─ Static React SPA
 ```

@@ -1,6 +1,8 @@
 # cvr.name.coder
 
-> Advanced autonomous AI coding agent with persistent memory, streaming responses, and local LLM support. Runs inside VS Code as a fully self-contained extension.
+> Autonomous AI coding agent for VS Code with persistent memory, Goal Loop, Project Oracle RAG, design systems, code review, browser automation, vision, cron tasks, Agent Marketplace, team sync, MCP tools/server, and local or cloud LLM support.
+
+Autonomous coding workspace for VS Code with chat, tools, memory, automation, and design workflows in one extension.
 
 ## 🚀 What Is This?
 
@@ -74,12 +76,14 @@ To update to a new version, just install the new `.vsix` — old versions are au
 - **Local AI** — Works offline with Ollama, llama.cpp, LM Studio
 - **Cloud AI** — Gemini, OpenAI, Anthropic, DeepSeek, Groq, OpenRouter, Together, Mistral, BaseTen
 - **MCP tools** — Connect external tool servers
+- **MCP server** — Expose cvr as an MCP endpoint for external clients
 - **Persistent memory** — Agent-written MEMORY.md + USER.md with markdown sections
 - **Autonomous loop** — REACT cycle with true multi-step agent execution
+- **Goal Loop** — Launch autonomous goals with judge-based success checks
 - **Permission system** — allow/ask/deny with glob matching for tool safety
 - **Subagent delegation** — Spawn child agents for parallel tasks
 - **Learning loop** — Auto-create skills from completed agent loops
-- **RAG memory** — Semantic search over documents with embeddings
+- **Project Oracle RAG** — Auto-index the workspace for semantic retrieval and semantic search
 - **Skills system** — Markdown-defined skills with YAML frontmatter
 - **Cron tasks** — Scheduled agent runs with interval/cron expressions
 - **Plugin system** — Hook-based extensibility via manifest.json
@@ -89,10 +93,11 @@ To update to a new version, just install the new `.vsix` — old versions are au
 - **Git automation** — Auto-commit/push, diff viewer, status panel
 - **Cost tracking** — Per-provider token/cost monitoring with budgets
 - **Voice input** — Web Speech API for hands-free chatting
-- **MCP server** — Expose cvr as MCP server for Claude/Cursor
 - **Code review mode** — AI reviews diffs with inline comments
 - **Vision support** — Upload images to Gemini/OpenAI/Anthropic
 - **Browser use** — Playwright automation for web testing/scraping
+- **Design systems** — Manage reusable design tokens and system presets
+- **Agent Marketplace** — Publish, browse, rate, and reuse agents, skills, plugins, and rules
 - **Team sync** — Sync MEMORY.md across team via git/cloud
 - **Health check** — `/api/health` endpoint for monitoring
 - **Response caching** — Reduces API costs for repeated queries

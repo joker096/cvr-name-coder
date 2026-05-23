@@ -1,9 +1,9 @@
 {
   "name": "cvr-name-coder",
   "private": true,
-  "version": "1.4.0",
+  "version": "1.5.29",
   "type": "module",
-  "description": "Advanced autonomous AI coding agent with persistent memory and local LLM support",
+  "description": "Autonomous AI coding agent for VS Code with persistent memory, Goal Loop, Project Oracle RAG, design systems, code review, browser automation, vision, cron tasks, Agent Marketplace, team sync, MCP tools/server, and local or cloud LLM support",
   "icon": "public/app-icon.png",
   "scripts": {
     "verify-build": "npm run lint && npm run type-check && npm run build && npm test",

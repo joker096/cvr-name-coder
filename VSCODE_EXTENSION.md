@@ -1,6 +1,6 @@
 # VS Code Extension — cvr.name.coder
 
-Run an **autonomous AI coding agent** directly inside VS Code. Fully self-contained, works offline with local models, streams responses in real time, and integrates with your workspace.
+Run an **autonomous AI coding agent** directly inside VS Code with Goal Loop, Project Oracle RAG, design systems, code review, browser automation, vision, cron tasks, Agent Marketplace, team sync, MCP tools/server, and local or cloud LLM support.
 
 
 Скрипт готов: release.ps1
@@ -34,8 +34,19 @@ Run an **autonomous AI coding agent** directly inside VS Code. Fully self-contai
 | **Cloud AI** | Gemini, OpenAI, Anthropic, DeepSeek, Groq |
 | **Auto-detection** | Automatically finds Ollama/llama.cpp on startup |
 | **MCP tools** | Connect external MCP servers (web search, file ops, etc.) |
+| **MCP server** | Expose the extension as an MCP endpoint for external clients |
 | **Persistent memory** | Long-term memory with Dreamer compression engine |
 | **Autonomous loop** | Agent can trigger itself for multi-step tasks |
+| **Goal Loop** | Launch autonomous goals with judge-based success checks |
+| **Project Oracle RAG** | Auto-index the workspace for semantic retrieval |
+| **Code review** | Review git diffs with categorized AI findings |
+| **Undo / Redo** | Revert and restore agent-applied changes |
+| **Browser automation** | Playwright-powered navigation, screenshots, and evaluation |
+| **Vision** | Upload images to supported multimodal models |
+| **Design systems** | Manage reusable design tokens and system presets |
+| **Cron tasks** | Schedule recurring jobs and agent runs |
+| **Agent Marketplace** | Publish and reuse agents, skills, plugins, and rules |
+| **Team sync** | Share and sync memory/project context |
 
 ---
 
@@ -100,6 +111,8 @@ Click the **⚙️** gear icon in the top right to configure:
 - **API Key** — For cloud providers
 - **Language** — EN / RU / ES / ZH
 - **Auto-loop delay** — Time between autonomous steps
+- **Vision** — Enable image upload for multimodal models
+- **Design systems** — Configure reusable design presets
 - **MCP Servers** — Configure external tool servers
 
 ---
@@ -113,6 +126,11 @@ VS Code Extension Host
      ├─ /api/history, /api/clear
      ├─ /api/workspace (file tree, read, write)
      ├─ /api/sessions (save, load)
+     ├─ /api/goal (autonomous Goal Loop)
+     ├─ /api/review (AI code review)
+     ├─ /api/browser (browser automation)
+     ├─ /api/cron (scheduled tasks)
+     ├─ /api/marketplace (agents/skills/plugins/rules)
      ├─ /api/mcp-* (MCP tool server)
      └─ Static files: bundled React SPA
         └─ Webview iframe loads localhost:<port>

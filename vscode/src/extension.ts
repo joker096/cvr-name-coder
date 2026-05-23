@@ -49,6 +49,12 @@ const completionEngine = new CompletionEngine();
 let diagnosticsProvider: DiagnosticsProvider | null = null;
 
 let geminiClient: any = null;
+let hasLoggedMissingGeminiKey = false;
+
+function hasGeminiEmbeddingsConfigured(): boolean {
+  return Boolean(process.env.GEMINI_API_KEY);
+}
+
 function getGemini() {
   if (!geminiClient) {
     const apiKey = process.env.GEMINI_API_KEY;
@@ -77,7 +83,10 @@ async function generateEmbeddings(texts: string[]): Promise<number[][]> {
   } catch (e: any) {
     // Graceful fallback: log once, return empty embeddings so RAG features degrade without crashing
     if (e.message?.includes('GEMINI_API_KEY not set')) {
-      console.warn('[cvr.name] RAG embeddings disabled: GEMINI_API_KEY not configured');
+      if (!hasLoggedMissingGeminiKey) {
+        hasLoggedMissingGeminiKey = true;
+        console.warn('[cvr.name] RAG embeddings disabled: GEMINI_API_KEY not configured');
+      }
     } else {
       console.error('[cvr.name] Embedding generation failed:', e.message || e);
     }
@@ -1661,11 +1670,16 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Project Oracle: auto-index workspace into RAG (background, non-blocking)
   if (workspaceRoot && process.env.CVR_ORACLE_ENABLED !== 'false') {
-    setImmediate(() => {
-      indexProject(workspaceRoot, generateEmbeddings).catch((err) => {
-        console.error('Project Oracle indexing failed:', err);
+    if (hasGeminiEmbeddingsConfigured()) {
+      setImmediate(() => {
+        indexProject(workspaceRoot, generateEmbeddings).catch((err) => {
+          console.error('Project Oracle indexing failed:', err);
+        });
       });
-    });
+    } else if (!hasLoggedMissingGeminiKey) {
+      hasLoggedMissingGeminiKey = true;
+      console.warn('[cvr.name] Project Oracle disabled: GEMINI_API_KEY not configured');
+    }
   }
 
   // Status bar
