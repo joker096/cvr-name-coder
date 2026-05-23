@@ -327,6 +327,8 @@ export const TRANSLATIONS = {
     pluginGithub: "GitHub API integration",
     pluginPuppeteer: "Browser automation",
     pluginBraveSearch: "Web search via Brave API",
+    clearChat: "Clear chat",
+    newChat: "New chat",
   },
   ru: {
     title: "cvr.name.coder",
@@ -630,6 +632,8 @@ export const TRANSLATIONS = {
     pluginGithub: "Интеграция с GitHub API",
     pluginPuppeteer: "Автоматизация браузера",
     pluginBraveSearch: "Веб-поиск через Brave API",
+    clearChat: "Очистить чат",
+    newChat: "Новый чат",
   },
   es: {
     title: "cvr.name.coder",

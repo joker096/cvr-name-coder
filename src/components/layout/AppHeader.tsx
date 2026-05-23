@@ -1,8 +1,7 @@
 import React from "react";
-import { Settings as SettingsIcon, Undo2, Redo2, PanelLeft, Loader2, Square } from "lucide-react";
+import { Settings as SettingsIcon, Undo2, Redo2, PanelLeft, Loader2, Square, Trash2 } from "lucide-react";
 import type { AgentId } from "../../types/settings";
 import { AgentSelector } from "./AgentSelector";
-import { ModeToggle } from "./ModeToggle";
 
 interface AppHeaderProps {
   activeAgent: AgentId;
@@ -21,12 +20,13 @@ interface AppHeaderProps {
   onToggleSidebar: () => void;
   onOpenSettings: () => void;
   onAbortLoop: () => void;
+  onClearChat: () => void;
   t: Record<string, string>;
 }
 
 export const AppHeader: React.FC<AppHeaderProps> = ({
   activeAgent,
-  mode,
+  mode: _mode,
   isAutonomous,
   isAgentRunning,
   isBrowserActive,
@@ -35,12 +35,13 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   sidebarOpen: _sidebarOpen,
   agentStep,
   onAgentChange,
-  onModeToggle,
+  onModeToggle: _onModeToggle,
   onUndo,
   onRedo,
   onToggleSidebar,
   onOpenSettings,
   onAbortLoop,
+  onClearChat,
   t,
 }) => (
   <header className="flex items-center justify-between px-3 py-1 bg-dash-elevated border-b border-dash-border shrink-0">
@@ -56,7 +57,6 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         onChange={onAgentChange}
         title={t.agentSelect || "Select Agent"}
       />
-      <ModeToggle mode={mode} onToggle={onModeToggle} t={t} />
 
       <div className="hidden md:flex items-center gap-0.5">
         <button
@@ -110,6 +110,14 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           </button>
         </div>
       )}
+
+      <button
+        onClick={onClearChat}
+        className="p-1 hover:bg-neutral-800 rounded transition-colors text-dash-text-muted hover:text-red-400"
+        title={t.clearChat || "Clear chat"}
+      >
+        <Trash2 className="w-3.5 h-3.5" />
+      </button>
 
       <button
         onClick={onOpenSettings}

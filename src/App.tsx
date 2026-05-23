@@ -32,6 +32,7 @@ export default function App() {
         onToggleSidebar={() => s.setSidebarOpen(!s.sidebarOpen)}
         onOpenSettings={() => s.setShowSettings(true)}
         onAbortLoop={s.abortLoop}
+        onClearChat={s.clearHistory}
         t={t}
       />
 

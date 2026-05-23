@@ -28,7 +28,7 @@ export function useAppState() {
 
   const { settings, isLoading: settingsLoading, updateChatConfig, toggleAutonomous, updateAutoLoopDelay, toggleAutoCommit, toggleVoiceEnabled, setVoiceLanguage, toggleVoiceAutoSend, setLanguage } = useSettings();
   const { state: agentState, isRunning: isAgentRunning, startLoop, abortLoop } = useAgentLoop();
-  const { messages, isLoading, sendMessage, cancelMessage, addMessage, deleteMessage } = useChat(settings.chat);
+  const { messages, isLoading, sendMessage, cancelMessage, addMessage, deleteMessage, clearHistory } = useChat(settings.chat);
   const { memories } = useMemory();
   const { undo, redo, canUndo, canRedo } = useChanges();
   const { pending, approve, deny } = usePermissions();
@@ -221,6 +221,7 @@ export function useAppState() {
     isLoading,
     sendMessage,
     cancelMessage,
+    clearHistory,
     addMessage,
     deleteMessage,
     memories,

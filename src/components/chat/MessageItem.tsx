@@ -117,7 +117,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
       </span>
       <div
         className={cn(
-          "flex-1 prose prose-invert prose-sm max-w-none text-dash-text-primary text-[13px]",
+          "flex-1 prose prose-invert prose-sm max-w-none text-dash-text-primary text-[12px] leading-relaxed",
           message.role !== "user" &&
             "p-2 bg-dash-surface/30 rounded border border-dash-border"
         )}

@@ -36,7 +36,6 @@ export default defineConfig(({mode}) => {
         output: {
           manualChunks(id) {
             if (id.includes('node_modules/react/') || id.includes('node_modules/react-dom/')) return 'vendor';
-            if (id.includes('node_modules/react-syntax-highlighter')) return 'syntax';
             if (id.includes('node_modules/react-markdown') || id.includes('node_modules/remark') || id.includes('node_modules/rehype')) return 'markdown';
             if (id.includes('node_modules/motion')) return 'motion';
             if (id.includes('node_modules/lucide-react')) return 'lucide';

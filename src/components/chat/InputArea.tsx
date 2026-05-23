@@ -230,7 +230,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
             onKeyDown={handleKeyDown}
             placeholder={placeholder}
             disabled={disabled}
-            className="w-full bg-transparent border-none focus:ring-0 text-[13px] font-mono p-1 pr-7 min-h-[32px] max-h-24 resize-none no-scrollbar text-dash-text-primary placeholder:text-dash-text-label disabled:opacity-50"
+            className="w-full bg-transparent border-none focus:ring-0 text-[12px] font-mono p-1 pr-7 min-h-[32px] max-h-24 resize-none no-scrollbar text-dash-text-primary placeholder:text-dash-text-label disabled:opacity-50"
           />
           {value && !disabled && (
             <button
