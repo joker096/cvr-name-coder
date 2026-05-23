@@ -627,7 +627,7 @@ function sendTo(peerId, data) {
 }
 async function loadSharedStore() {
   try {
-    const raw = await (0, import_promises12.readFile)(STORAGE_FILE, "utf-8");
+    const raw = await (0, import_promises13.readFile)(STORAGE_FILE, "utf-8");
     const items2 = JSON.parse(raw);
     for (const item of items2) {
       sharedStore.set(item.id, item);
@@ -636,9 +636,9 @@ async function loadSharedStore() {
   }
 }
 async function saveSharedStore() {
-  await (0, import_promises12.mkdir)(path17.dirname(STORAGE_FILE), { recursive: true });
+  await (0, import_promises13.mkdir)(path17.dirname(STORAGE_FILE), { recursive: true });
   const items2 = Array.from(sharedStore.values());
-  await (0, import_promises12.writeFile)(STORAGE_FILE, JSON.stringify(items2, null, 2), "utf-8");
+  await (0, import_promises13.writeFile)(STORAGE_FILE, JSON.stringify(items2, null, 2), "utf-8");
 }
 function setupP2PSync(server, config) {
   if (!config.enabled) return;
@@ -778,13 +778,13 @@ function closeP2PSync() {
 function isP2PActive() {
   return wss !== null;
 }
-var import_ws, import_crypto6, import_promises12, path17, wss, p2pConfig, peers, peerInfo, sharedStore, STORAGE_FILE;
+var import_ws, import_crypto6, import_promises13, path17, wss, p2pConfig, peers, peerInfo, sharedStore, STORAGE_FILE;
 var init_p2pSync = __esm({
   "src/server/p2pSync.ts"() {
     "use strict";
     import_ws = require("ws");
     import_crypto6 = require("crypto");
-    import_promises12 = require("fs/promises");
+    import_promises13 = require("fs/promises");
     path17 = __toESM(require("path"), 1);
     wss = null;
     p2pConfig = null;
@@ -3216,6 +3216,54 @@ function buildSkillContent(input) {
   return lines.join("\n");
 }
 
+// src/server/goalSessionStore.ts
+var import_promises6 = require("fs/promises");
+var import_path = require("path");
+var storageDir = "";
+function setGoalStorageDir(dir) {
+  storageDir = dir;
+}
+function getPath(id) {
+  if (!storageDir) throw new Error("GoalSessionStore: storage dir not set");
+  return (0, import_path.join)(storageDir, `goal-${id}.json`);
+}
+async function saveGoalState(state) {
+  await (0, import_promises6.writeFile)(getPath(state.id), JSON.stringify(state, null, 2), "utf-8");
+}
+function isValidGoalState(obj) {
+  if (typeof obj !== "object" || obj === null) return false;
+  const g = obj;
+  return typeof g.id === "string" && typeof g.goal === "string" && typeof g.status === "string";
+}
+async function loadGoalState(id) {
+  try {
+    const raw = await (0, import_promises6.readFile)(getPath(id), "utf-8");
+    const parsed = JSON.parse(raw);
+    if (!isValidGoalState(parsed)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+async function listGoalStates() {
+  try {
+    const files = await (0, import_promises6.readdir)(storageDir);
+    const states = [];
+    for (const f of files) {
+      if (f.startsWith("goal-") && f.endsWith(".json")) {
+        const raw = await (0, import_promises6.readFile)((0, import_path.join)(storageDir, f), "utf-8");
+        const parsed = JSON.parse(raw);
+        if (isValidGoalState(parsed)) {
+          states.push(parsed);
+        }
+      }
+    }
+    return states;
+  } catch {
+    return [];
+  }
+}
+
 // src/server/cache.ts
 var import_crypto3 = require("crypto");
 var path9 = __toESM(require("path"), 1);
@@ -3747,7 +3795,7 @@ async function indexDirectory(dir, rootDir, embedFn) {
 }
 
 // src/server/instructionLoader.ts
-var import_promises6 = require("fs/promises");
+var import_promises7 = require("fs/promises");
 var path11 = __toESM(require("path"), 1);
 var RULES_DIR = path11.resolve(process.cwd(), ".cvr", "rules");
 var _rulesDir = RULES_DIR;
@@ -3756,16 +3804,16 @@ function setRulesDir(dir) {
 }
 async function loadInstructions() {
   try {
-    await (0, import_promises6.access)(_rulesDir);
+    await (0, import_promises7.access)(_rulesDir);
   } catch {
     return [];
   }
-  const entries = await (0, import_promises6.readdir)(_rulesDir, { withFileTypes: true });
+  const entries = await (0, import_promises7.readdir)(_rulesDir, { withFileTypes: true });
   const files = [];
   for (const entry of entries) {
     if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
     const filePath = path11.join(_rulesDir, entry.name);
-    const raw = await (0, import_promises6.readFile)(filePath, "utf-8");
+    const raw = await (0, import_promises7.readFile)(filePath, "utf-8");
     let priority = 0;
     const frontmatterMatch = raw.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
     if (frontmatterMatch && frontmatterMatch[1] !== void 0) {
@@ -3791,27 +3839,27 @@ ${parts.join("\n\n")}`;
 }
 async function saveInstruction(name, content, priority = 0) {
   try {
-    await (0, import_promises6.access)(_rulesDir);
+    await (0, import_promises7.access)(_rulesDir);
   } catch {
-    await (0, import_promises6.mkdir)(_rulesDir, { recursive: true });
+    await (0, import_promises7.mkdir)(_rulesDir, { recursive: true });
   }
   const frontmatter = `---
 priority: ${priority}
 ---
 `;
   const filePath = path11.join(_rulesDir, `${name}.md`);
-  await (0, import_promises6.writeFile)(filePath, frontmatter + content, "utf-8");
+  await (0, import_promises7.writeFile)(filePath, frontmatter + content, "utf-8");
 }
 async function deleteInstruction(name) {
   try {
     const filePath = path11.join(_rulesDir, `${name}.md`);
-    await (0, import_promises6.unlink)(filePath);
+    await (0, import_promises7.unlink)(filePath);
   } catch {
   }
 }
 
 // src/server/pluginManager.ts
-var import_promises7 = require("fs/promises");
+var import_promises8 = require("fs/promises");
 var path12 = __toESM(require("path"), 1);
 var PLUGINS_DIR = path12.resolve(process.cwd(), ".cvr", "plugins");
 var _pluginsDir = PLUGINS_DIR;
@@ -3821,19 +3869,19 @@ function setPluginsDir(dir) {
 }
 async function loadPlugins() {
   try {
-    await (0, import_promises7.access)(_pluginsDir);
+    await (0, import_promises8.access)(_pluginsDir);
   } catch {
     _plugins = [];
     return [];
   }
-  const entries = await (0, import_promises7.readdir)(_pluginsDir, { withFileTypes: true });
+  const entries = await (0, import_promises8.readdir)(_pluginsDir, { withFileTypes: true });
   const plugins = [];
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     const pluginPath = path12.join(_pluginsDir, entry.name);
     const manifestPath = path12.join(pluginPath, "manifest.json");
     try {
-      const raw = await (0, import_promises7.readFile)(manifestPath, "utf-8");
+      const raw = await (0, import_promises8.readFile)(manifestPath, "utf-8");
       const manifest = JSON.parse(raw);
       if (manifest.id) {
         plugins.push({ manifest, enabled: true, dir: pluginPath });
@@ -3875,7 +3923,7 @@ var import_server = require("@modelcontextprotocol/sdk/server/index.js");
 var import_stdio = require("@modelcontextprotocol/sdk/server/stdio.js");
 var import_sse = require("@modelcontextprotocol/sdk/server/sse.js");
 var import_types = require("@modelcontextprotocol/sdk/types.js");
-var import_promises8 = require("fs/promises");
+var import_promises9 = require("fs/promises");
 var path13 = __toESM(require("path"), 1);
 init_errors();
 
@@ -4130,7 +4178,7 @@ var PROJECT_ROOT5 = process.cwd();
 async function loadMcpConfig() {
   try {
     const configPath = path13.join(PROJECT_ROOT5, ".cvr", "mcp.json");
-    const data = await (0, import_promises8.readFile)(configPath, "utf-8");
+    const data = await (0, import_promises9.readFile)(configPath, "utf-8");
     return JSON.parse(data);
   } catch {
     return { enabled: false, transport: "stdio" };
@@ -4212,7 +4260,7 @@ async function createMcpServer() {
   });
   server.setRequestHandler(import_types.ListResourcesRequestSchema, async () => {
     try {
-      const entries = await (0, import_promises8.readdir)(PROJECT_ROOT5, { withFileTypes: true });
+      const entries = await (0, import_promises9.readdir)(PROJECT_ROOT5, { withFileTypes: true });
       const resources = entries.filter(
         (e) => !e.name.startsWith(".") && !e.name.startsWith("node_modules") && e.isFile()
       ).map((e) => ({
@@ -4245,7 +4293,7 @@ async function createMcpServer() {
       );
     }
     try {
-      const content = await (0, import_promises8.readFile)(filePath, "utf-8");
+      const content = await (0, import_promises9.readFile)(filePath, "utf-8");
       return {
         contents: [{ uri, mimeType: "text/plain", text: content }]
       };
@@ -4325,7 +4373,7 @@ function mountMcpSseRoutes(app2, basePath = "/mcp") {
 init_browserTools();
 
 // src/server/teamSync.ts
-var import_promises9 = require("fs/promises");
+var import_promises10 = require("fs/promises");
 var path14 = __toESM(require("path"), 1);
 var import_child_process5 = require("child_process");
 var import_util4 = require("util");
@@ -4394,8 +4442,8 @@ function tryDecrypt(data) {
 }
 async function loadSyncConfig() {
   try {
-    await (0, import_promises9.access)(CONFIG_PATH);
-    const raw = await (0, import_promises9.readFile)(CONFIG_PATH, "utf-8");
+    await (0, import_promises10.access)(CONFIG_PATH);
+    const raw = await (0, import_promises10.readFile)(CONFIG_PATH, "utf-8");
     _config = JSON.parse(raw);
     _status.provider = _config.provider;
     return _config;
@@ -4408,16 +4456,16 @@ function getSyncConfig() {
   return _config;
 }
 async function saveSyncConfig(config) {
-  await (0, import_promises9.mkdir)(SYNC_DIR, { recursive: true });
+  await (0, import_promises10.mkdir)(SYNC_DIR, { recursive: true });
   const safeConfig = { ...config };
   delete safeConfig.encryptionKey;
-  await (0, import_promises9.writeFile)(CONFIG_PATH, JSON.stringify(safeConfig, null, 2), "utf-8");
+  await (0, import_promises10.writeFile)(CONFIG_PATH, JSON.stringify(safeConfig, null, 2), "utf-8");
   _config = config;
   _status.provider = config.provider;
   restartAutoSync();
 }
 async function gitInit(syncDir) {
-  await (0, import_promises9.mkdir)(syncDir, { recursive: true });
+  await (0, import_promises10.mkdir)(syncDir, { recursive: true });
   try {
     await execFileAsync4("git", ["init"], { cwd: syncDir });
     await execFileAsync4("git", ["config", "user.email", "sync@cvr.name"], { cwd: syncDir });
@@ -4464,7 +4512,7 @@ async function exportFile(fileName, syncDir) {
   const sourcePath = path14.join(SYNC_STORAGE_DIR, fileName);
   let data;
   try {
-    data = await (0, import_promises9.readFile)(sourcePath);
+    data = await (0, import_promises10.readFile)(sourcePath);
   } catch {
     return;
   }
@@ -4472,13 +4520,13 @@ async function exportFile(fileName, syncDir) {
   if (_config?.encrypt) {
     data = encrypt(data);
   }
-  await (0, import_promises9.writeFile)(destPath, data);
+  await (0, import_promises10.writeFile)(destPath, data);
 }
 async function importFile(fileName, syncDir) {
   const sourcePath = resolveSyncPath(fileName, syncDir);
   let data;
   try {
-    data = await (0, import_promises9.readFile)(sourcePath);
+    data = await (0, import_promises10.readFile)(sourcePath);
   } catch {
     return;
   }
@@ -4490,10 +4538,10 @@ async function importFile(fileName, syncDir) {
     }
   }
   const destPath = path14.join(SYNC_STORAGE_DIR, fileName);
-  await (0, import_promises9.writeFile)(destPath, data);
+  await (0, import_promises10.writeFile)(destPath, data);
 }
 async function exportAll(syncDir) {
-  await (0, import_promises9.mkdir)(syncDir, { recursive: true });
+  await (0, import_promises10.mkdir)(syncDir, { recursive: true });
   for (const file of SYNC_FILES) {
     await exportFile(file, syncDir);
   }
@@ -4504,8 +4552,8 @@ async function resolveConflict(sourcePath, destPath) {
   }
   try {
     const [srcStat, destStat] = await Promise.all([
-      (0, import_promises9.stat)(sourcePath).catch(() => null),
-      (0, import_promises9.stat)(destPath).catch(() => null)
+      (0, import_promises10.stat)(sourcePath).catch(() => null),
+      (0, import_promises10.stat)(destPath).catch(() => null)
     ]);
     if (!destStat) return true;
     if (!srcStat) return false;
@@ -4734,7 +4782,7 @@ var PROVIDER_DEFAULT_MODELS = {
   deepseek: "deepseek-chat",
   grok: "grok-3",
   groq: "meta-llama/llama-4-maverick-17b-128e-instruct",
-  baseten: "meta-llama/Llama-4-Maverick-17B-128E-Instruct",
+  baseten: "deepseek-ai/DeepSeek-V4-Pro",
   openrouter: "google/gemini-2.5-flash",
   together: "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
   mistral: "mistral-large-latest",
@@ -4746,7 +4794,7 @@ var PROVIDER_BASE_URLS = {
   deepseek: "https://api.deepseek.com/v1",
   grok: "https://api.x.ai/v1",
   groq: "https://api.groq.com/openai/v1",
-  baseten: "https://api.baseten.co/v1",
+  baseten: "https://inference.baseten.co/v1",
   openrouter: "https://openrouter.ai/api/v1",
   together: "https://api.together.xyz/v1",
   mistral: "https://api.mistral.ai/v1"
@@ -4754,7 +4802,7 @@ var PROVIDER_BASE_URLS = {
 
 // src/server/costTracker.ts
 var path15 = __toESM(require("path"), 1);
-var import_promises10 = require("fs/promises");
+var import_promises11 = require("fs/promises");
 var RATE_CARDS = {
   gemini: { input: 0.075, output: 0.3 },
   openai: { input: 2.5, output: 10 },
@@ -4776,8 +4824,8 @@ function calculateCost(provider, inputTokens, outputTokens) {
 }
 async function loadCosts() {
   try {
-    await (0, import_promises10.access)(COSTS_FILE);
-    const data = await (0, import_promises10.readFile)(COSTS_FILE, "utf-8");
+    await (0, import_promises11.access)(COSTS_FILE);
+    const data = await (0, import_promises11.readFile)(COSTS_FILE, "utf-8");
     const parsed = JSON.parse(data);
     if (Array.isArray(parsed)) return parsed;
     return [];
@@ -4786,7 +4834,7 @@ async function loadCosts() {
   }
 }
 async function saveCosts(entries) {
-  await (0, import_promises10.writeFile)(COSTS_FILE, JSON.stringify(entries, null, 2));
+  await (0, import_promises11.writeFile)(COSTS_FILE, JSON.stringify(entries, null, 2));
 }
 async function trackCost(provider, model, inputTokens, outputTokens) {
   const entry = {
@@ -4969,6 +5017,9 @@ var OpenAICompatibleProvider = class extends AIProvider {
     const { prompt, contents, localUrl, apiKey, modelName, temperature, maxTokens } = options;
     const urlError = validateLocalUrl(localUrl, this.provider);
     if (urlError) throw new Error(urlError);
+    if ((this.provider === "openai" || this.provider === "groq") && modelName?.toLowerCase().includes("claude")) {
+      throw new Error(`Model "${modelName}" is an Anthropic Claude model, but provider is ${this.provider}. To use Claude models, select provider "anthropic" instead.`);
+    }
     const baseUrl = localUrl || PROVIDER_BASE_URLS[this.provider] || "";
     const key = this.resolveApiKey(getEnvVarForProvider(this.provider), apiKey);
     const body = buildOpenAICompatibleBody({ prompt, contents, modelName, temperature, maxTokens }, this.provider);
@@ -5104,7 +5155,7 @@ async function generateEmbeddings(texts) {
 }
 
 // src/server/agentMarketplace.ts
-var import_promises11 = require("fs/promises");
+var import_promises12 = require("fs/promises");
 var path16 = __toESM(require("path"), 1);
 var import_crypto5 = require("crypto");
 var MARKET_DIR = path16.join(process.cwd(), ".cvr", "marketplace");
@@ -5113,12 +5164,12 @@ var REVIEWS_FILE = path16.join(MARKET_DIR, "reviews.json");
 var items = [];
 var reviews = [];
 async function ensureMarketDir() {
-  await (0, import_promises11.mkdir)(MARKET_DIR, { recursive: true });
-  await (0, import_promises11.mkdir)(path16.join(MARKET_DIR, "packages"), { recursive: true });
+  await (0, import_promises12.mkdir)(MARKET_DIR, { recursive: true });
+  await (0, import_promises12.mkdir)(path16.join(MARKET_DIR, "packages"), { recursive: true });
 }
 async function loadIndex() {
   try {
-    const raw = await (0, import_promises11.readFile)(INDEX_FILE, "utf-8");
+    const raw = await (0, import_promises12.readFile)(INDEX_FILE, "utf-8");
     items = JSON.parse(raw);
   } catch {
     items = [];
@@ -5126,11 +5177,11 @@ async function loadIndex() {
 }
 async function saveIndex() {
   await ensureMarketDir();
-  await (0, import_promises11.writeFile)(INDEX_FILE, JSON.stringify(items, null, 2), "utf-8");
+  await (0, import_promises12.writeFile)(INDEX_FILE, JSON.stringify(items, null, 2), "utf-8");
 }
 async function loadReviews() {
   try {
-    const raw = await (0, import_promises11.readFile)(REVIEWS_FILE, "utf-8");
+    const raw = await (0, import_promises12.readFile)(REVIEWS_FILE, "utf-8");
     reviews = JSON.parse(raw);
   } catch {
     reviews = [];
@@ -5138,7 +5189,7 @@ async function loadReviews() {
 }
 async function saveReviews() {
   await ensureMarketDir();
-  await (0, import_promises11.writeFile)(REVIEWS_FILE, JSON.stringify(reviews, null, 2), "utf-8");
+  await (0, import_promises12.writeFile)(REVIEWS_FILE, JSON.stringify(reviews, null, 2), "utf-8");
 }
 async function initMarketplace() {
   await loadIndex();
@@ -5161,7 +5212,7 @@ async function publishItem(type, name, description, content, author = "unknown",
   const id = `${type}-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${(0, import_crypto5.randomBytes)(4).toString("hex")}`;
   const pkgPath = path16.join(MARKET_DIR, "packages", `${id}.json`);
   const pkg = { type, name, description, content, author, version, tags };
-  await (0, import_promises11.writeFile)(pkgPath, JSON.stringify(pkg, null, 2), "utf-8");
+  await (0, import_promises12.writeFile)(pkgPath, JSON.stringify(pkg, null, 2), "utf-8");
   const existing = items.find((i) => i.name === name && i.type === type);
   if (existing) {
     existing.version = version;
@@ -5362,10 +5413,10 @@ var SettingsSchema = import_zod.z.object({
 
 // src/server/routes/chat.ts
 var path18 = __toESM(require("path"), 1);
-var import_promises14 = require("fs/promises");
+var import_promises15 = require("fs/promises");
 
 // src/server/prompts.ts
-var import_promises13 = require("fs/promises");
+var import_promises14 = require("fs/promises");
 var AGENT_PROMPTS = {
   build: `[ROLE: BUILD] - DEFAULT DEVELOPER AGENT. You have full access to developer tools (read/write files, execute bash). Focus on iterative coding, bug fixing, and implementation.`,
   general: `[ROLE: GENERAL] - UNIVERSAL ASSISTANT. Help with complex, multi-stage tasks. You can modify files, run parallel processes, and coordinate broad workflows.`,
@@ -5380,12 +5431,12 @@ async function getMemoryMtime() {
   let memory = 0;
   let user = 0;
   try {
-    const memStat = await (0, import_promises13.stat)(".opencode-infinite/MEMORY.md");
+    const memStat = await (0, import_promises14.stat)(".opencode-infinite/MEMORY.md");
     memory = memStat.mtimeMs;
   } catch {
   }
   try {
-    const userStat = await (0, import_promises13.stat)(".opencode-infinite/USER.md");
+    const userStat = await (0, import_promises14.stat)(".opencode-infinite/USER.md");
     user = userStat.mtimeMs;
   } catch {
   }
@@ -5678,16 +5729,16 @@ var HISTORY_FILE = path18.join(STORAGE_DIR2, "history.json");
 var MEMORY_FILE = path18.join(STORAGE_DIR2, "memory.json");
 async function ensureStorage() {
   try {
-    await (0, import_promises14.mkdir)(STORAGE_DIR2, { recursive: true });
+    await (0, import_promises15.mkdir)(STORAGE_DIR2, { recursive: true });
     try {
-      await (0, import_promises14.access)(HISTORY_FILE);
+      await (0, import_promises15.access)(HISTORY_FILE);
     } catch {
-      await (0, import_promises14.writeFile)(HISTORY_FILE, JSON.stringify([]));
+      await (0, import_promises15.writeFile)(HISTORY_FILE, JSON.stringify([]));
     }
     try {
-      await (0, import_promises14.access)(MEMORY_FILE);
+      await (0, import_promises15.access)(MEMORY_FILE);
     } catch {
-      await (0, import_promises14.writeFile)(MEMORY_FILE, JSON.stringify([]));
+      await (0, import_promises15.writeFile)(MEMORY_FILE, JSON.stringify([]));
     }
   } catch (e) {
     console.error("Storage init error:", e);
@@ -5700,7 +5751,7 @@ var _memoryCacheTime = 0;
 async function getHistoryCached() {
   if (_historyCache && Date.now() - _historyCacheTime < 5e3) return _historyCache;
   try {
-    _historyCache = JSON.parse(await (0, import_promises14.readFile)(HISTORY_FILE, "utf-8"));
+    _historyCache = JSON.parse(await (0, import_promises15.readFile)(HISTORY_FILE, "utf-8"));
     _historyCacheTime = Date.now();
     return _historyCache;
   } catch {
@@ -5710,7 +5761,7 @@ async function getHistoryCached() {
 async function getMemoriesCached() {
   if (_memoryCache && Date.now() - _memoryCacheTime < 5e3) return _memoryCache;
   try {
-    _memoryCache = JSON.parse(await (0, import_promises14.readFile)(MEMORY_FILE, "utf-8"));
+    _memoryCache = JSON.parse(await (0, import_promises15.readFile)(MEMORY_FILE, "utf-8"));
     _memoryCacheTime = Date.now();
     return _memoryCache;
   } catch {
@@ -5820,7 +5871,7 @@ function registerRoutes(app2) {
         userHistoryEntry.images = processedImages.map((img) => `data:${img.mimeType};base64,${img.base64}`);
       }
       const updatedHistory = [...history, userHistoryEntry, { role: "assistant", content: responseText, createdAt: /* @__PURE__ */ new Date() }];
-      await (0, import_promises14.writeFile)(HISTORY_FILE, JSON.stringify(updatedHistory));
+      await (0, import_promises15.writeFile)(HISTORY_FILE, JSON.stringify(updatedHistory));
       invalidateHistoryCache();
       if (updatedHistory.length % 5 === 0) {
         const kConfigTyped = kConfig;
@@ -5828,8 +5879,8 @@ function registerRoutes(app2) {
         const summaryKey = kConfigTyped.providerKeys?.[kConfigTyped.aiProvider || ""] || kConfigTyped.apiKey;
         summarizeLongHistory(updatedHistory, kConfigTyped.aiProvider, kConfigTyped.localUrl, kConfigTyped.aiProvider === "local" ? kConfigTyped.localModelName || kConfigTyped.aiModel : kConfigTyped.aiModel, summaryKey, dualCfg).then(async (summary) => {
           if (summary) {
-            const currentMemories = JSON.parse(await (0, import_promises14.readFile)(MEMORY_FILE, "utf-8"));
-            await (0, import_promises14.writeFile)(MEMORY_FILE, JSON.stringify([...currentMemories, { content: summary, createdAt: /* @__PURE__ */ new Date() }]));
+            const currentMemories = JSON.parse(await (0, import_promises15.readFile)(MEMORY_FILE, "utf-8"));
+            await (0, import_promises15.writeFile)(MEMORY_FILE, JSON.stringify([...currentMemories, { content: summary, createdAt: /* @__PURE__ */ new Date() }]));
             invalidateMemoryCache();
           }
         });
@@ -5951,8 +6002,8 @@ function registerRoutes(app2) {
     }
   });
   app2.post("/api/clear", async (_req, res) => {
-    await (0, import_promises14.writeFile)(HISTORY_FILE, JSON.stringify([]));
-    await (0, import_promises14.writeFile)(MEMORY_FILE, JSON.stringify([]));
+    await (0, import_promises15.writeFile)(HISTORY_FILE, JSON.stringify([]));
+    await (0, import_promises15.writeFile)(MEMORY_FILE, JSON.stringify([]));
     invalidateHistoryCache();
     invalidateMemoryCache();
     res.json({ status: "cleared" });
@@ -6610,7 +6661,7 @@ function registerRoutes5(app2) {
 }
 
 // src/server/changes.ts
-var import_promises15 = require("fs/promises");
+var import_promises16 = require("fs/promises");
 var path19 = __toESM(require("path"), 1);
 var STORAGE_DIR3 = path19.join(process.cwd(), ".opencode-infinite");
 var CHANGES_FILE = path19.join(STORAGE_DIR3, "changes.json");
@@ -6618,24 +6669,24 @@ var MAX_CHANGES = 50;
 var MAX_SNAPSHOT_SIZE = 1024 * 1024;
 async function loadHistory() {
   try {
-    const data = await (0, import_promises15.readFile)(CHANGES_FILE, "utf-8");
+    const data = await (0, import_promises16.readFile)(CHANGES_FILE, "utf-8");
     return JSON.parse(data);
   } catch {
     return { changes: [], undoStack: [], redoStack: [] };
   }
 }
 async function saveHistory(history) {
-  await (0, import_promises15.mkdir)(STORAGE_DIR3, { recursive: true });
-  await (0, import_promises15.writeFile)(CHANGES_FILE, JSON.stringify(history, null, 2));
+  await (0, import_promises16.mkdir)(STORAGE_DIR3, { recursive: true });
+  await (0, import_promises16.writeFile)(CHANGES_FILE, JSON.stringify(history, null, 2));
 }
 async function recordChange(filePath, operation, afterContent, description) {
   const history = await loadHistory();
   let beforeContent = null;
   try {
     const fullPath = path19.join(process.cwd(), filePath);
-    const fileStats = await (0, import_promises15.stat)(fullPath);
+    const fileStats = await (0, import_promises16.stat)(fullPath);
     if (fileStats.size <= MAX_SNAPSHOT_SIZE) {
-      beforeContent = await (0, import_promises15.readFile)(fullPath, "utf-8");
+      beforeContent = await (0, import_promises16.readFile)(fullPath, "utf-8");
     } else {
       beforeContent = "[FILE_TOO_LARGE_FOR_SNAPSHOT]";
     }
@@ -6676,15 +6727,15 @@ async function undoChange() {
   const fullPath = path19.join(process.cwd(), change.filePath);
   if (change.beforeContent === null) {
     try {
-      await (0, import_promises15.unlink)(fullPath);
+      await (0, import_promises16.unlink)(fullPath);
     } catch {
     }
   } else if (change.beforeContent === "[FILE_TOO_LARGE_FOR_SNAPSHOT]") {
     await saveHistory(history);
     return { success: false, error: "Cannot undo: file was too large to snapshot" };
   } else {
-    await (0, import_promises15.mkdir)(path19.dirname(fullPath), { recursive: true });
-    await (0, import_promises15.writeFile)(fullPath, change.beforeContent, "utf-8");
+    await (0, import_promises16.mkdir)(path19.dirname(fullPath), { recursive: true });
+    await (0, import_promises16.writeFile)(fullPath, change.beforeContent, "utf-8");
   }
   await saveHistory(history);
   return { success: true, restored: change };
@@ -6702,8 +6753,8 @@ async function redoChange() {
   history.redoStack.pop();
   history.undoStack = history.undoStack.filter((id) => id !== changeId);
   const fullPath = path19.join(process.cwd(), change.filePath);
-  await (0, import_promises15.mkdir)(path19.dirname(fullPath), { recursive: true });
-  await (0, import_promises15.writeFile)(fullPath, change.afterContent, "utf-8");
+  await (0, import_promises16.mkdir)(path19.dirname(fullPath), { recursive: true });
+  await (0, import_promises16.writeFile)(fullPath, change.afterContent, "utf-8");
   await saveHistory(history);
   return { success: true, restored: change };
 }
@@ -7417,12 +7468,12 @@ function registerRoutes10(app2) {
 }
 
 // src/server/ciPipeline.ts
-var import_promises16 = require("fs/promises");
+var import_promises17 = require("fs/promises");
 var path20 = __toESM(require("path"), 1);
 var WORKFLOW_DIR = ".github/workflows";
 async function ensureWorkflowDir() {
   const dir = path20.join(process.cwd(), WORKFLOW_DIR);
-  await (0, import_promises16.mkdir)(dir, { recursive: true });
+  await (0, import_promises17.mkdir)(dir, { recursive: true });
   return dir;
 }
 function generateNodeCIWorkflow(config) {
@@ -7650,7 +7701,7 @@ async function generateCIPipeline(config) {
     default:
       throw new Error(`Unknown pipeline type: ${config.pipelineType}`);
   }
-  await (0, import_promises16.writeFile)(path20.join(dir, filename), content, "utf-8");
+  await (0, import_promises17.writeFile)(path20.join(dir, filename), content, "utf-8");
   return {
     files: [path20.join(WORKFLOW_DIR, filename)],
     pipelineType: config.pipelineType,
@@ -7762,7 +7813,7 @@ function registerRoutes11(app2) {
 
 // src/server/routes/tools.ts
 var path21 = __toESM(require("path"), 1);
-var import_promises17 = require("fs/promises");
+var import_promises18 = require("fs/promises");
 var import_crypto9 = require("crypto");
 function registerRoutes12(app2) {
   app2.post("/api/tools/execute", validateBody(ToolExecuteSchema), async (req, res) => {
@@ -7771,7 +7822,7 @@ function registerRoutes12(app2) {
       const result = await executeTool(toolCall, mode, permissionEngine, sessionId);
       incrementToolCall();
       if (result.success && (toolCall.name === "write_file" || toolCall.name === "edit_file")) {
-        const afterContent = toolCall.name === "write_file" ? toolCall.params.content : await (0, import_promises17.readFile)(path21.join(process.cwd(), toolCall.params.path), "utf-8");
+        const afterContent = toolCall.name === "write_file" ? toolCall.params.content : await (0, import_promises18.readFile)(path21.join(process.cwd(), toolCall.params.path), "utf-8");
         const change = await recordChange(
           toolCall.params.path,
           toolCall.name === "write_file" ? "write" : "edit",
@@ -7785,6 +7836,347 @@ function registerRoutes12(app2) {
       console.error("Tool execution error:", error);
       res.status(500).json({ success: false, output: "", error: error.message });
     }
+  });
+}
+
+// src/server/goalJudge.ts
+var JUDGE_PROMPT_TEMPLATE = `You are a strict evaluator. A coding agent is working on this goal:
+
+GOAL: {goal}
+
+SUCCESS CRITERIA (ALL must be demonstrably true to mark COMPLETE):
+{successCriteria}
+
+AGENT'S PROGRESS SO FAR:
+{history}
+
+AGENT'S LAST ACTION RESULT:
+{lastObservation}
+
+RULES:
+- Verify EVERY success criterion with concrete evidence. Do not trust the agent's claims.
+- If a criterion requires files/tests/commands, confirm they exist and pass.
+- If ANY criterion is unmet, respond INCOMPLETE.
+- Give ONE concrete next step in nextHint.
+
+Respond ONLY in JSON:
+{
+  "verdict": "INCOMPLETE" | "COMPLETE",
+  "reason": "specific evidence-based explanation",
+  "nextHint": "one concrete next action for the agent"
+}`;
+function formatHistory(steps) {
+  return steps.map(
+    (s) => `Iteration ${s.iteration}: ${s.thought.substring(0, 150)}${s.thought.length > 150 ? "..." : ""}${s.observation ? ` | Observation: ${s.observation.substring(0, 150)}${s.observation.length > 150 ? "..." : ""}` : ""}`
+  ).join("\n");
+}
+async function evaluateGoal(options, thinkFn) {
+  const { goal, successCriteria, steps, lastObservation } = options;
+  const prompt = JUDGE_PROMPT_TEMPLATE.replace("{goal}", goal).replace("{successCriteria}", successCriteria || "No explicit criteria. Verify the goal is fully achieved.").replace("{history}", formatHistory(steps)).replace("{lastObservation}", lastObservation || "None");
+  const response = await thinkFn(prompt);
+  const firstBrace = response.indexOf("{");
+  const lastBrace = response.lastIndexOf("}");
+  const cleaned = firstBrace !== -1 && lastBrace > firstBrace ? response.slice(firstBrace, lastBrace + 1) : response.trim();
+  try {
+    const parsed = JSON.parse(cleaned);
+    const verdict = {
+      iteration: steps.length + 1,
+      verdict: parsed.verdict === "COMPLETE" ? "COMPLETE" : "INCOMPLETE",
+      reason: String(parsed.reason || ""),
+      timestamp: Date.now()
+    };
+    if (parsed.nextHint) {
+      verdict.nextHint = String(parsed.nextHint);
+    }
+    return verdict;
+  } catch {
+    return {
+      iteration: steps.length + 1,
+      verdict: "INCOMPLETE",
+      reason: "Judge returned invalid JSON. Treating as incomplete.",
+      nextHint: "Continue working toward the goal.",
+      timestamp: Date.now()
+    };
+  }
+}
+
+// src/server/goalEventBroadcaster.ts
+var import_events2 = require("events");
+var GoalEventBroadcaster = class extends import_events2.EventEmitter {
+  broadcast(goalId, type, data) {
+    const event = {
+      type,
+      goalId,
+      timestamp: Date.now(),
+      data
+    };
+    this.emit("event", event);
+  }
+};
+
+// src/server/goalOrchestrator.ts
+init_errors();
+var GoalOrchestrator = class {
+  state;
+  loop;
+  broadcaster;
+  judgeThinkFn;
+  _abort = false;
+  timeoutTimer;
+  totalTokensEstimate = 0;
+  saveTimeout;
+  constructor(config, options) {
+    const id = crypto.randomUUID();
+    this.state = {
+      id,
+      goal: config.goal,
+      successCriteria: config.successCriteria || "Goal is fully achieved with concrete evidence.",
+      config,
+      status: "running",
+      currentIteration: 0,
+      maxIterations: config.maxIterations || 50,
+      steps: [],
+      judgeHistory: [],
+      totalTokensUsed: 0,
+      startedAt: Date.now(),
+      updatedAt: Date.now()
+    };
+    this.judgeThinkFn = options.judgeThinkFn || options.thinkFn;
+    this.broadcaster = options.broadcaster || new GoalEventBroadcaster();
+    const wrappedThinkFn = async (prompt) => {
+      const result = await options.thinkFn(prompt);
+      this.totalTokensEstimate += Math.ceil(result.length / 4);
+      return result;
+    };
+    const loopOpts = {
+      maxSteps: 999999,
+      thinkFn: wrappedThinkFn,
+      onStep: (step) => {
+        this.broadcaster.broadcast(this.state.id, "goal.step", step);
+      },
+      sessionId: id
+    };
+    if (options.permissionEngine) {
+      loopOpts.permissionEngine = options.permissionEngine;
+    }
+    this.loop = new AgentLoop(config.goal, loopOpts);
+  }
+  getState() {
+    return { ...this.state };
+  }
+  getBroadcaster() {
+    return this.broadcaster;
+  }
+  abort() {
+    this._abort = true;
+  }
+  async run() {
+    this.broadcaster.broadcast(this.state.id, "goal.started", { goal: this.state.goal });
+    this.debouncedSave();
+    const maxDurationMs = (this.state.config.maxDurationMinutes || 120) * 60 * 1e3;
+    if (this.timeoutTimer) clearTimeout(this.timeoutTimer);
+    this.timeoutTimer = setTimeout(() => {
+      this._abort = true;
+    }, maxDurationMs);
+    try {
+      while (this.state.status === "running") {
+        if (this._abort) {
+          this.state.status = "aborted";
+          this.state.error = this.state.error || "Aborted by user";
+          break;
+        }
+        if (this.state.currentIteration >= this.state.maxIterations) {
+          this.state.status = "error";
+          this.state.error = `Max iterations reached (${this.state.maxIterations})`;
+          break;
+        }
+        if (this.totalTokensEstimate >= (this.state.config.maxTokens || 5e5)) {
+          this.state.status = "error";
+          this.state.error = "Token budget exhausted";
+          break;
+        }
+        const loopStep = await this.loop.runSingleStep();
+        const goalStep = this.mapLoopStep(loopStep);
+        this.state.steps.push(goalStep);
+        this.state.currentIteration++;
+        this.state.updatedAt = Date.now();
+        this.debouncedSave();
+        const verdict = await this.callJudge(goalStep);
+        this.broadcaster.broadcast(this.state.id, "goal.judge", verdict);
+        if (verdict.verdict === "COMPLETE") {
+          this.state.status = "completed";
+          this.state.completedAt = Date.now();
+          break;
+        }
+        if (verdict.nextHint) {
+          this.loop.setAdditionalContext(`Next step guidance: ${verdict.nextHint}`);
+        } else {
+          this.loop.setAdditionalContext("");
+        }
+      }
+    } catch (err) {
+      this.state.status = "error";
+      this.state.error = getErrorMessage(err);
+      this.broadcaster.broadcast(this.state.id, "goal.error", { error: this.state.error });
+    } finally {
+      if (this.timeoutTimer) clearTimeout(this.timeoutTimer);
+      this.state.updatedAt = Date.now();
+      this.state.totalTokensUsed = this.totalTokensEstimate;
+      await this.flushSave();
+      if (this.state.status === "completed") {
+        this.broadcaster.broadcast(this.state.id, "goal.complete", { state: this.state });
+      } else if (this.state.status === "aborted") {
+        this.broadcaster.broadcast(this.state.id, "goal.aborted", { state: this.state });
+      }
+    }
+    return this.state;
+  }
+  debouncedSave() {
+    if (this.saveTimeout) clearTimeout(this.saveTimeout);
+    this.saveTimeout = setTimeout(() => {
+      saveGoalState(this.state).catch(() => {
+      });
+    }, 300);
+  }
+  async flushSave() {
+    if (this.saveTimeout) {
+      clearTimeout(this.saveTimeout);
+      this.saveTimeout = void 0;
+    }
+    await saveGoalState(this.state);
+  }
+  mapLoopStep(loopStep) {
+    const goalStep = {
+      iteration: this.state.currentIteration + 1,
+      thought: loopStep.thought,
+      timestamp: loopStep.timestamp
+    };
+    if (loopStep.action) {
+      goalStep.action = loopStep.action;
+    }
+    if (loopStep.observation) {
+      goalStep.observation = loopStep.observation;
+    }
+    return goalStep;
+  }
+  async callJudge(step) {
+    const wrappedJudgeFn = async (prompt) => {
+      const result = await this.judgeThinkFn(prompt);
+      this.totalTokensEstimate += Math.ceil(result.length / 4);
+      return result;
+    };
+    const verdict = await evaluateGoal(
+      {
+        goal: this.state.goal,
+        successCriteria: this.state.successCriteria,
+        steps: this.state.steps,
+        lastObservation: step.observation || ""
+      },
+      wrappedJudgeFn
+    );
+    this.state.judgeHistory.push(verdict);
+    return verdict;
+  }
+};
+
+// src/server/routes/goal.ts
+function registerRoutes13(app2, options) {
+  const { generateFn: generateAIContent2, permissionEngine: permissionEngine2 } = options;
+  const activeGoals = /* @__PURE__ */ new Map();
+  app2.post("/api/goal", async (req, res) => {
+    try {
+      const config = req.body;
+      if (!config.provider) {
+        res.status(400).json({ error: "AI provider not configured. Please select a provider in Settings." });
+        return;
+      }
+      const opts = {
+        thinkFn: (prompt) => generateAIContent2(prompt, [], config.provider, void 0, config.model, config.apiKey)
+      };
+      if (permissionEngine2) opts.permissionEngine = permissionEngine2;
+      const orchestrator = new GoalOrchestrator(config, opts);
+      const goalId = orchestrator.getState().id;
+      activeGoals.set(goalId, orchestrator);
+      const cleanup = (event) => {
+        if (event.type === "goal.complete" || event.type === "goal.aborted" || event.type === "goal.error") {
+          orchestrator.getBroadcaster().off("event", cleanup);
+          activeGoals.delete(goalId);
+        }
+      };
+      orchestrator.getBroadcaster().on("event", cleanup);
+      orchestrator.run().catch((err) => console.error("Goal orchestrator error:", err));
+      res.json({ id: goalId });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+  app2.get("/api/goal/:id", async (req, res) => {
+    const goalId = req.params.id;
+    const orchestrator = activeGoals.get(goalId);
+    if (orchestrator) {
+      res.json(orchestrator.getState());
+      return;
+    }
+    const fromDisk = await loadGoalState(goalId);
+    if (fromDisk) {
+      res.json(fromDisk);
+      return;
+    }
+    res.status(404).json({ error: "Goal not found" });
+  });
+  app2.get("/api/goal/:id/events", (req, res) => {
+    const goalId = req.params.id;
+    const orchestrator = activeGoals.get(goalId);
+    if (!orchestrator) {
+      res.status(404).json({ error: "Goal not found" });
+      return;
+    }
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no"
+    });
+    const broadcaster = orchestrator.getBroadcaster();
+    const handler = (event) => {
+      res.write(`data: ${JSON.stringify(event)}
+
+`);
+      if (event.type === "goal.complete" || event.type === "goal.aborted" || event.type === "goal.error") {
+        broadcaster.off("event", handler);
+      }
+    };
+    broadcaster.on("event", handler);
+    req.on("close", () => {
+      broadcaster.off("event", handler);
+    });
+  });
+  app2.post("/api/goal/:id/abort", (req, res) => {
+    const goalId = req.params.id;
+    const orchestrator = activeGoals.get(goalId);
+    if (!orchestrator) {
+      res.status(404).json({ error: "Goal not found" });
+      return;
+    }
+    orchestrator.abort();
+    res.json({ aborted: true });
+  });
+  app2.post("/api/goal/:id/resume", async (req, res) => {
+    const goalId = req.params.id;
+    const state = await loadGoalState(goalId);
+    if (!state) {
+      res.status(404).json({ error: "Goal not found" });
+      return;
+    }
+    if (state.status !== "paused" && state.status !== "error") {
+      res.status(400).json({ error: "Goal cannot be resumed from status: " + state.status });
+      return;
+    }
+    res.status(501).json({ error: "Resume is not yet implemented. Start a new goal instead." });
+  });
+  app2.get("/api/goals", async (_req, res) => {
+    const states = await listGoalStates();
+    res.json({ goals: states });
   });
 }
 
@@ -7921,6 +8313,7 @@ registerRoutes9(app);
 registerRoutes10(app);
 registerRoutes11(app);
 registerRoutes12(app);
+registerRoutes13(app, { generateFn: generateAIContent, ...permissionEngine ? { permissionEngine } : {} });
 async function startServer() {
   await ensureStorage();
   await initSync();
@@ -7930,6 +8323,7 @@ async function startServer() {
   setSkillCreatorDir(path22.join(process.cwd(), ".cvr", "skills"));
   setRagDbPath(STORAGE_DIR2);
   setCacheDbPath(STORAGE_DIR2);
+  setGoalStorageDir(STORAGE_DIR2);
   setRulesDir(path22.join(process.cwd(), ".cvr", "rules"));
   setCustomToolsDir(path22.join(process.cwd(), ".cvr", "tools"));
   setPluginsDir(path22.join(process.cwd(), ".cvr", "plugins"));

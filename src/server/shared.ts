@@ -32,7 +32,7 @@ export function getProviderDefaults(provider: string): { baseUrl: string; defaul
     deepseek: { baseUrl: 'https://api.deepseek.com/v1', defaultModel: 'deepseek-chat', envKey: 'DEEPSEEK_API_KEY' },
     grok: { baseUrl: 'https://api.x.ai/v1', defaultModel: 'grok-3', envKey: 'XAI_API_KEY' },
     groq: { baseUrl: 'https://api.groq.com/openai/v1', defaultModel: 'meta-llama/llama-4-maverick-17b-128e-instruct', envKey: 'GROQ_API_KEY' },
-    baseten: { baseUrl: 'https://api.baseten.co/v1', defaultModel: 'meta-llama/Llama-4-Maverick-17B-128E-Instruct', envKey: 'BASETEN_API_KEY' },
+    baseten: { baseUrl: 'https://inference.baseten.co/v1', defaultModel: 'deepseek-ai/DeepSeek-V4-Pro', envKey: 'BASETEN_API_KEY' },
     openrouter: { baseUrl: 'https://openrouter.ai/api/v1', defaultModel: 'google/gemini-2.5-flash', envKey: 'OPENROUTER_API_KEY' },
     together: { baseUrl: 'https://api.together.xyz/v1', defaultModel: 'meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8', envKey: 'TOGETHER_API_KEY' },
     mistral: { baseUrl: 'https://api.mistral.ai/v1', defaultModel: 'mistral-large-latest', envKey: 'MISTRAL_API_KEY' },

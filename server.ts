@@ -12,6 +12,7 @@ import { setSessionDbPath } from "./src/server/sessionStore.js";
 import { setSkillsDir } from "./src/server/skillLoader.js";
 import { setSkillCreatorDir } from "./src/server/skillCreator.js";
 import { setRagDbPath } from "./src/server/ragEngine.js";
+import { setGoalStorageDir } from "./src/server/goalSessionStore.js";
 import { setCacheDbPath } from "./src/server/cache.js";
 import { indexProject } from "./src/server/projectOracle.js";
 import { setRulesDir } from "./src/server/instructionLoader.js";
@@ -22,12 +23,12 @@ import { closeAllBrowsers } from "./src/server/browserTools.js";
 import { initSync } from "./src/server/teamSync.js";
 import { setupSecurityMiddleware, createApiKeyMiddleware } from "./src/server/standalone/middleware.js";
 import { setupHealthRoute } from "./src/server/standalone/health.js";
-import { generateEmbeddings } from "./src/server/providers.js";
+import { generateEmbeddings, generateAIContent } from "./src/server/providers.js";
 import { initMarketplace } from "./src/server/agentMarketplace.js";
 import { setupP2PSync } from "./src/server/p2pSync.js";
 import { SettingsSchema } from "./src/server/validation.js";
 
-import { setPermissionEngine } from "./src/server/serverState.js";
+import { setPermissionEngine, permissionEngine } from "./src/server/serverState.js";
 import { STORAGE_DIR, ensureStorage, registerRoutes as registerChatRoutes } from "./src/server/routes/chat.js";
 import { registerRoutes as registerMemoryRoutes } from "./src/server/routes/memory.js";
 import { registerRoutes as registerSessionRoutes } from "./src/server/routes/sessions.js";
@@ -40,6 +41,7 @@ import { registerRoutes as registerBrowserRoutes } from "./src/server/routes/bro
 import { registerRoutes as registerTrackerRoutes } from "./src/server/routes/tracker.js";
 import { registerRoutes as registerMarketplaceRoutes } from "./src/server/routes/marketplace.js";
 import { registerRoutes as registerToolRoutes } from "./src/server/routes/tools.js";
+import { registerRoutes as registerGoalRoutes } from "./src/server/routes/goal.js";
 
 dotenv.config();
 
@@ -191,6 +193,7 @@ registerBrowserRoutes(app);
 registerTrackerRoutes(app);
 registerMarketplaceRoutes(app);
 registerToolRoutes(app);
+registerGoalRoutes(app, { generateFn: generateAIContent, ...(permissionEngine ? { permissionEngine } : {}) });
 
 async function startServer() {
   await ensureStorage();
@@ -201,6 +204,7 @@ async function startServer() {
   setSkillCreatorDir(path.join(process.cwd(), ".cvr", "skills"));
   setRagDbPath(STORAGE_DIR);
   setCacheDbPath(STORAGE_DIR);
+  setGoalStorageDir(STORAGE_DIR);
   setRulesDir(path.join(process.cwd(), ".cvr", "rules"));
   setCustomToolsDir(path.join(process.cwd(), ".cvr", "tools"));
   setPluginsDir(path.join(process.cwd(), ".cvr", "plugins"));

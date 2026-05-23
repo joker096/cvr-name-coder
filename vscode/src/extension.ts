@@ -36,10 +36,8 @@ import { registerRoutes as registerGitRoutes } from '../../src/server/routes/git
 import { registerRoutes as registerEcosystemRoutes } from '../../src/server/routes/ecosystem.js';
 import { registerRoutes as registerBrowserRoutes } from '../../src/server/routes/browser.js';
 import { trackCost } from '../../src/server/costTracker.js';
-import { GoalOrchestrator } from '../../src/server/goalOrchestrator.js';
-import { GoalEventBroadcaster } from '../../src/server/goalEventBroadcaster.js';
-import { setGoalStorageDir, loadGoalState, listGoalStates, deleteGoalState } from '../../src/server/goalSessionStore.js';
-import type { GoalConfig } from '../../src/types/goal.js';
+import { setGoalStorageDir } from '../../src/server/goalSessionStore.js';
+import { registerRoutes as registerGoalRoutes } from '../../src/server/routes/goal.js';
 
 const $fetch = (globalThis as any).fetch as (url: string, init?: any) => Promise<{ json(): Promise<any>; status: number }>;
 
@@ -51,8 +49,12 @@ let diagnosticsProvider: DiagnosticsProvider | null = null;
 let geminiClient: any = null;
 function getGemini() {
   if (!geminiClient) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new Error('GEMINI_API_KEY not set. Set it to enable RAG embeddings, or disable Project Oracle with CVR_ORACLE_ENABLED=false');
+    }
     const { GoogleGenAI } = require('@google/genai');
-    geminiClient = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
+    geminiClient = new GoogleGenAI({ apiKey });
   }
   return geminiClient;
 }
@@ -70,8 +72,13 @@ async function generateEmbeddings(texts: string[]): Promise<number[][]> {
       return [(result.embeddings as any).values as number[]];
     }
     return texts.map(() => []);
-  } catch (e) {
-    console.error('Embedding generation failed:', e);
+  } catch (e: any) {
+    // Graceful fallback: log once, return empty embeddings so RAG features degrade without crashing
+    if (e.message?.includes('GEMINI_API_KEY not set')) {
+      console.warn('[cvr.name] RAG embeddings disabled: GEMINI_API_KEY not configured');
+    } else {
+      console.error('[cvr.name] Embedding generation failed:', e.message || e);
+    }
     return texts.map(() => []);
   }
 }
@@ -575,18 +582,23 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
     }
 
     if (provider === 'custom' || provider === 'openai' || provider === 'deepseek' || provider === 'grok' || provider === 'groq' || provider === 'baseten' || provider === 'openrouter' || provider === 'together' || provider === 'mistral') {
+      // Provider-model mismatch guard
+      if ((provider === 'openai' || provider === 'groq') && modelName?.toLowerCase().includes('claude')) {
+        throw new Error(`Model "${modelName}" is an Anthropic Claude model, but provider is ${provider}. To use Claude models, select provider "anthropic" instead.`);
+      }
+
       let baseUrl = localUrl;
       if (provider === 'openai') baseUrl = 'https://api.openai.com/v1';
       if (provider === 'deepseek') baseUrl = localUrl || 'https://api.deepseek.com/v1';
       if (provider === 'grok') baseUrl = localUrl || 'https://api.x.ai/v1';
       if (provider === 'groq') baseUrl = localUrl || 'https://api.groq.com/openai/v1';
-      if (provider === 'baseten') baseUrl = 'https://api.baseten.co/v1';
+      if (provider === 'baseten') baseUrl = 'https://inference.baseten.co/v1';
       if (provider === 'openrouter') baseUrl = 'https://openrouter.ai/api/v1';
       if (provider === 'together') baseUrl = 'https://api.together.xyz/v1';
       if (provider === 'mistral') baseUrl = 'https://api.mistral.ai/v1';
       if (!baseUrl) throw new Error(`Provider ${provider} requires a URL. Configure it in Settings.`);
       const key = apiKey || getProviderEnvKey(provider);
-      const model = modelName || (provider === 'openai' ? 'gpt-4.1' : provider === 'deepseek' ? 'deepseek-chat' : provider === 'grok' ? 'grok-3' : provider === 'groq' ? 'meta-llama/llama-4-maverick-17b-128e-instruct' : provider === 'baseten' ? 'meta-llama/Llama-4-Maverick-17B-128E-Instruct' : provider === 'openrouter' ? 'google/gemini-2.5-flash' : provider === 'together' ? 'meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8' : provider === 'mistral' ? 'mistral-large-latest' : 'custom-model');
+      const model = modelName || (provider === 'openai' ? 'gpt-4.1' : provider === 'deepseek' ? 'deepseek-chat' : provider === 'grok' ? 'grok-3' : provider === 'groq' ? 'meta-llama/llama-4-maverick-17b-128e-instruct' : provider === 'baseten' ? 'deepseek-ai/DeepSeek-V4-Pro' : provider === 'openrouter' ? 'google/gemini-2.5-flash' : provider === 'together' ? 'meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8' : provider === 'mistral' ? 'mistral-large-latest' : 'custom-model');
 
       const bodyObj: any = { model, messages: msgs, stream: true };
       if (temperature !== undefined) bodyObj.temperature = temperature;
@@ -1203,90 +1215,7 @@ Complete the code at the cursor position:`;
     }
   });
 
-  // Goal API routes
-  const activeGoals = new Map<string, GoalOrchestrator>();
-
-  app.post('/api/goal', async (req: any, res: any) => {
-    try {
-      const config: GoalConfig = req.body;
-      if (!config.provider) {
-        return res.status(400).json({ error: 'AI provider not configured. Please select a provider in Settings.' });
-      }
-      const orchestrator = new GoalOrchestrator(config, {
-        thinkFn: (prompt: string) => generateAIContent(prompt, [], config.provider, undefined, config.model, config.apiKey),
-        permissionEngine,
-      });
-      const goalId = orchestrator.getState().id;
-      activeGoals.set(goalId, orchestrator);
-      const cleanup = (event: any) => {
-        if (event.type === 'goal.complete' || event.type === 'goal.aborted' || event.type === 'goal.error') {
-          orchestrator.getBroadcaster().off('event', cleanup);
-          activeGoals.delete(goalId);
-        }
-      };
-      orchestrator.getBroadcaster().on('event', cleanup);
-      orchestrator.run().catch((err: any) => console.error('Goal orchestrator error:', err));
-      res.json({ id: goalId });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  app.get('/api/goal/:id', async (req: any, res: any) => {
-    const orchestrator = activeGoals.get(req.params.id);
-    if (orchestrator) {
-      return res.json(orchestrator.getState());
-    }
-    const fromDisk = await loadGoalState(req.params.id);
-    if (fromDisk) return res.json(fromDisk);
-    return res.status(404).json({ error: 'Goal not found' });
-  });
-
-  app.get('/api/goal/:id/events', (req: any, res: any) => {
-    const orchestrator = activeGoals.get(req.params.id);
-    if (!orchestrator) return res.status(404).json({ error: 'Goal not found' });
-
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-      'X-Accel-Buffering': 'no',
-    });
-
-    const broadcaster = orchestrator.getBroadcaster();
-    const handler = (event: any) => {
-      res.write(`data: ${JSON.stringify(event)}\n\n`);
-      if (event.type === 'goal.complete' || event.type === 'goal.aborted' || event.type === 'goal.error') {
-        broadcaster.off('event', handler);
-      }
-    };
-    broadcaster.on('event', handler);
-
-    req.on('close', () => {
-      broadcaster.off('event', handler);
-    });
-  });
-
-  app.post('/api/goal/:id/abort', (req: any, res: any) => {
-    const orchestrator = activeGoals.get(req.params.id);
-    if (!orchestrator) return res.status(404).json({ error: 'Goal not found' });
-    orchestrator.abort();
-    res.json({ aborted: true });
-  });
-
-  app.post('/api/goal/:id/resume', async (req: any, res: any) => {
-    const state = await loadGoalState(req.params.id);
-    if (!state) return res.status(404).json({ error: 'Goal not found' });
-    if (state.status !== 'paused' && state.status !== 'error') {
-      return res.status(400).json({ error: 'Goal cannot be resumed from status: ' + state.status });
-    }
-    return res.status(501).json({ error: 'Resume is not yet implemented. Start a new goal instead.' });
-  });
-
-  app.get('/api/goals', async (_req: any, res: any) => {
-    const states = await listGoalStates();
-    res.json({ goals: states });
-  });
+  registerGoalRoutes(app, { generateFn: generateAIContent, permissionEngine });
 
   // Subagent API routes
   app.post('/api/subagents/spawn', async (req: any, res: any) => {

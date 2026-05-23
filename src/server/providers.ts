@@ -186,6 +186,12 @@ class OpenAICompatibleProvider extends AIProvider {
     const { prompt, contents, localUrl, apiKey, modelName, temperature, maxTokens } = options;
     const urlError = validateLocalUrl(localUrl, this.provider);
     if (urlError) throw new Error(urlError);
+
+    // Provider-model mismatch guard
+    if ((this.provider === "openai" || this.provider === "groq") && modelName?.toLowerCase().includes("claude")) {
+      throw new Error(`Model "${modelName}" is an Anthropic Claude model, but provider is ${this.provider}. To use Claude models, select provider "anthropic" instead.`);
+    }
+
     const baseUrl = localUrl || PROVIDER_BASE_URLS[this.provider] || "";
     const key = this.resolveApiKey(getEnvVarForProvider(this.provider), apiKey);
 

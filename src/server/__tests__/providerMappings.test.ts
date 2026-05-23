@@ -20,7 +20,7 @@ const PROVIDER_BASE_URLS: Record<string, string> = {
   deepseek: "https://api.deepseek.com/v1",
   grok: "https://api.x.ai/v1",
   groq: "https://api.groq.com/openai/v1",
-  baseten: "https://api.baseten.co/v1",
+  baseten: "https://inference.baseten.co/v1",
   openrouter: "https://openrouter.ai/api/v1",
   together: "https://api.together.xyz/v1",
   mistral: "https://api.mistral.ai/v1",
