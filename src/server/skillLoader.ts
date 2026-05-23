@@ -1,12 +1,13 @@
 import { readdir, readFile } from "fs/promises";
 import * as path from "path";
-import type { SkillDefinition } from "../types/skill";
+import type { SkillDefinition, SkillODMeta } from "../types/skill";
 
 interface RawFrontmatter {
   id?: string;
   name?: string;
   description?: string;
   triggers?: string[];
+  od?: SkillODMeta;
 }
 
 const SKILLS_DIR = path.resolve(process.cwd(), ".cvr", "skills");
@@ -26,13 +27,15 @@ function parseFrontmatter(raw: string): { frontmatter: RawFrontmatter; body: str
   }
   const lines = match[1].split("\n");
   const frontmatter: RawFrontmatter = {};
+  const odRaw: Record<string, string> = {};
+
   for (const line of lines) {
-    const kv = line.match(/^([\w-]+):\s*(.*)$/);
+    const kv = line.match(/^([\w._-]+):\s*(.*)$/);
     if (kv && kv[1] !== undefined && kv[2] !== undefined) {
       const key = kv[1];
       const val = kv[2].trim();
       if (key === "id" || key === "name" || key === "description") {
-        frontmatter[key] = val;
+        (frontmatter as Record<string, unknown>)[key] = val;
       } else if (key === "triggers") {
         if (val.startsWith("[") && val.endsWith("]")) {
           try {
@@ -41,9 +44,27 @@ function parseFrontmatter(raw: string): { frontmatter: RawFrontmatter; body: str
             frontmatter.triggers = [];
           }
         }
+      } else if (key.startsWith("od.")) {
+        odRaw[key.slice(3)] = val;
       }
     }
   }
+
+  if (Object.keys(odRaw).length > 0) {
+    const od: SkillODMeta = {};
+    if (odRaw.mode) od.mode = odRaw.mode;
+    if (odRaw.platform) od.platform = odRaw.platform;
+    if (odRaw.scenario) od.scenario = odRaw.scenario;
+    if (odRaw["design_system.requires"]) {
+      od.design_system = { requires: odRaw["design_system.requires"] === "true" };
+    }
+    if (odRaw["preview.type"]) {
+      od.preview = { type: odRaw["preview.type"] };
+      if (odRaw["preview.entry"]) od.preview.entry = odRaw["preview.entry"];
+    }
+    frontmatter.od = od;
+  }
+
   return { frontmatter, body: match[2].trim() };
 }
 
@@ -81,14 +102,18 @@ export async function loadSkills(force = false): Promise<SkillDefinition[]> {
 
       const relPath = path.relative(_skillsDir, filePath).replace(/\\/g, "/");
       const id = frontmatter.id ?? relPath.replace(/\.md$/, "");
-      skills.push({
+      const newSkill: SkillDefinition = {
         id,
         name: frontmatter.name ?? id,
         description: frontmatter.description ?? "",
         triggers: Array.isArray(frontmatter.triggers) ? frontmatter.triggers : [],
         content: body,
         filePath,
-      });
+      };
+      if (frontmatter.od) {
+        newSkill.od = frontmatter.od;
+      }
+      skills.push(newSkill);
     }
 
     _cache = skills;

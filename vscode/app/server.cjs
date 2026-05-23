@@ -274,7 +274,7 @@ function loadJson2() {
 }
 function saveJson2() {
   try {
-    fs3.mkdirSync(path7.dirname(_jsonPath2), { recursive: true });
+    fs3.mkdirSync(path8.dirname(_jsonPath2), { recursive: true });
     const data = { sessions: _sessions, messages: _messages };
     fs3.writeFileSync(_jsonPath2, JSON.stringify(data, null, 2));
   } catch {
@@ -282,7 +282,7 @@ function saveJson2() {
 }
 function fallbackGetDb2() {
   if (!_jsonPath2) {
-    _jsonPath2 = path7.join(_dbPath2.replace(/\.db$/, "") + "-fallback.json");
+    _jsonPath2 = path8.join(_dbPath2.replace(/\.db$/, "") + "-fallback.json");
     loadJson2();
   }
   return {
@@ -383,10 +383,10 @@ function fallbackGetDb2() {
   };
 }
 function setSessionDbPath(dir) {
-  _dbPath2 = path7.join(dir, "sessions.db");
+  _dbPath2 = path8.join(dir, "sessions.db");
   _db2 = null;
   if (_useFallback2) {
-    _jsonPath2 = path7.join(dir, "sessions-fallback.json");
+    _jsonPath2 = path8.join(dir, "sessions-fallback.json");
     loadJson2();
   }
 }
@@ -559,14 +559,14 @@ function deleteSession(sessionId) {
   }
   db.prepare("DELETE FROM messages WHERE session_id = ?").run(sessionId);
 }
-var path7, import_crypto2, fs3, _dbPath2, _db2, _useFallback2, _sessions, _messages, _jsonPath2;
+var path8, import_crypto2, fs3, _dbPath2, _db2, _useFallback2, _sessions, _messages, _jsonPath2;
 var init_sessionStore = __esm({
   "src/server/sessionStore.ts"() {
     "use strict";
-    path7 = __toESM(require("path"), 1);
+    path8 = __toESM(require("path"), 1);
     import_crypto2 = require("crypto");
     fs3 = __toESM(require("fs"), 1);
-    _dbPath2 = path7.resolve(process.cwd(), ".opencode-infinite", "sessions.db");
+    _dbPath2 = path8.resolve(process.cwd(), ".opencode-infinite", "sessions.db");
     _db2 = null;
     _useFallback2 = false;
     _sessions = [];
@@ -627,7 +627,7 @@ function sendTo(peerId, data) {
 }
 async function loadSharedStore() {
   try {
-    const raw = await (0, import_promises13.readFile)(STORAGE_FILE, "utf-8");
+    const raw = await (0, import_promises14.readFile)(STORAGE_FILE, "utf-8");
     const items2 = JSON.parse(raw);
     for (const item of items2) {
       sharedStore.set(item.id, item);
@@ -636,9 +636,9 @@ async function loadSharedStore() {
   }
 }
 async function saveSharedStore() {
-  await (0, import_promises13.mkdir)(path17.dirname(STORAGE_FILE), { recursive: true });
+  await (0, import_promises14.mkdir)(path18.dirname(STORAGE_FILE), { recursive: true });
   const items2 = Array.from(sharedStore.values());
-  await (0, import_promises13.writeFile)(STORAGE_FILE, JSON.stringify(items2, null, 2), "utf-8");
+  await (0, import_promises14.writeFile)(STORAGE_FILE, JSON.stringify(items2, null, 2), "utf-8");
 }
 function setupP2PSync(server, config) {
   if (!config.enabled) return;
@@ -778,27 +778,27 @@ function closeP2PSync() {
 function isP2PActive() {
   return wss !== null;
 }
-var import_ws, import_crypto6, import_promises13, path17, wss, p2pConfig, peers, peerInfo, sharedStore, STORAGE_FILE;
+var import_ws, import_crypto6, import_promises14, path18, wss, p2pConfig, peers, peerInfo, sharedStore, STORAGE_FILE;
 var init_p2pSync = __esm({
   "src/server/p2pSync.ts"() {
     "use strict";
     import_ws = require("ws");
     import_crypto6 = require("crypto");
-    import_promises13 = require("fs/promises");
-    path17 = __toESM(require("path"), 1);
+    import_promises14 = require("fs/promises");
+    path18 = __toESM(require("path"), 1);
     wss = null;
     p2pConfig = null;
     peers = /* @__PURE__ */ new Map();
     peerInfo = /* @__PURE__ */ new Map();
     sharedStore = /* @__PURE__ */ new Map();
-    STORAGE_FILE = path17.join(process.cwd(), ".opencode-infinite", "p2p-store.json");
+    STORAGE_FILE = path18.join(process.cwd(), ".opencode-infinite", "p2p-store.json");
   }
 });
 
 // server.ts
 var import_express = __toESM(require("express"), 1);
-var path22 = __toESM(require("path"), 1);
-var import_fs = require("fs");
+var path23 = __toESM(require("path"), 1);
+var import_fs2 = require("fs");
 var import_vite = require("vite");
 var import_dotenv = __toESM(require("dotenv"), 1);
 
@@ -855,14 +855,14 @@ var PermissionEngine = class {
     const pending = this.pending.get(id);
     if (!pending) return false;
     if (pending.resolved) return pending.approved ?? false;
-    return new Promise((resolve12) => {
+    return new Promise((resolve13) => {
       const timer = setTimeout(() => {
         this.emitter.off(`resolved:${id}`, onResolved);
-        resolve12(false);
+        resolve13(false);
       }, timeoutMs);
       const onResolved = (approved) => {
         clearTimeout(timer);
-        resolve12(approved);
+        resolve13(approved);
       };
       this.emitter.once(`resolved:${id}`, onResolved);
     });
@@ -1293,6 +1293,42 @@ var TOOL_DEFINITIONS = [
       required: ["key", "body"]
     },
     isReadOnly: false
+  },
+  {
+    name: "design_list",
+    description: "List all available design systems from .cvr/design-systems/. Returns id, name, category, and description for each.",
+    parameters: {
+      type: "object",
+      properties: {
+        category: { type: "string", description: "Optional filter by category (e.g. 'Fintech', 'Developer Tools', 'Consumer')" }
+      },
+      required: []
+    },
+    isReadOnly: true
+  },
+  {
+    name: "design_apply",
+    description: "Apply a design system to the current project. Returns the full DESIGN.md content (colors, typography, components, layout rules) that the AI should follow. The active design system is remembered in .cvr/design-active.json.",
+    parameters: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Design system ID (e.g. 'stripe', 'linear', 'apple', 'vercel', 'default')" }
+      },
+      required: ["id"]
+    },
+    isReadOnly: true
+  },
+  {
+    name: "design_preview",
+    description: "Preview a design system's visual signature: colors, typography sample, and component examples. Useful for comparing design systems before applying one.",
+    parameters: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Design system ID to preview" }
+      },
+      required: ["id"]
+    },
+    isReadOnly: true
   }
 ];
 var READ_ONLY_TOOLS = new Set(
@@ -1488,8 +1524,8 @@ async function addComment(issueKey, body) {
       throw new Error(`Unknown tracker: ${trackerConfig.type}`);
   }
 }
-async function githubRequest(path23, method = "GET", body) {
-  const url = path23.startsWith("http") ? path23 : `https://api.github.com${path23}`;
+async function githubRequest(path24, method = "GET", body) {
+  const url = path24.startsWith("http") ? path24 : `https://api.github.com${path24}`;
   const res = await fetch(url, {
     method,
     headers: {
@@ -1552,9 +1588,9 @@ async function getGitHubIssue(number) {
     updatedAt: i.updated_at
   };
 }
-async function jiraRequest(path23, method = "GET", body) {
+async function jiraRequest(path24, method = "GET", body) {
   const base = trackerConfig.baseUrl.replace(/\/$/, "");
-  const res = await fetch(`${base}/rest/api/3${path23}`, {
+  const res = await fetch(`${base}/rest/api/3${path24}`, {
     method,
     headers: {
       Authorization: `Basic ${Buffer.from(`${trackerConfig.token}:`).toString("base64")}`,
@@ -1814,7 +1850,7 @@ async function executeCommand(params) {
   }
   const [program, ...programArgs] = args;
   const timeoutMs = 3e4;
-  return new Promise((resolve12) => {
+  return new Promise((resolve13) => {
     let settled = false;
     const child = (0, import_child_process2.spawn)(program, programArgs, { cwd: resolvedCwd, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
     let stdoutData = "";
@@ -1823,7 +1859,7 @@ async function executeCommand(params) {
       if (!settled) {
         settled = true;
         child.kill("SIGTERM");
-        resolve12({ success: false, output: "", error: "Command timed out after 30s" });
+        resolve13({ success: false, output: "", error: "Command timed out after 30s" });
       }
     }, timeoutMs);
     child.stdout.on("data", (data) => {
@@ -1836,14 +1872,14 @@ async function executeCommand(params) {
       if (!settled) {
         settled = true;
         clearTimeout(timer);
-        resolve12({ success: false, output: "", error: err.message });
+        resolve13({ success: false, output: "", error: err.message });
       }
     });
     child.on("close", (code) => {
       if (!settled) {
         settled = true;
         clearTimeout(timer);
-        resolve12({ success: code === 0, output: stdoutData + (stderrData ? "\n" + stderrData : "") });
+        resolve13({ success: code === 0, output: stdoutData + (stderrData ? "\n" + stderrData : "") });
       }
     });
   });
@@ -2169,8 +2205,9 @@ function parseFrontmatter(raw) {
   }
   const lines = match[1].split("\n");
   const frontmatter = {};
+  const odRaw = {};
   for (const line of lines) {
-    const kv = line.match(/^([\w-]+):\s*(.*)$/);
+    const kv = line.match(/^([\w._-]+):\s*(.*)$/);
     if (kv && kv[1] !== void 0 && kv[2] !== void 0) {
       const key = kv[1];
       const val = kv[2].trim();
@@ -2184,8 +2221,24 @@ function parseFrontmatter(raw) {
             frontmatter.triggers = [];
           }
         }
+      } else if (key.startsWith("od.")) {
+        odRaw[key.slice(3)] = val;
       }
     }
+  }
+  if (Object.keys(odRaw).length > 0) {
+    const od = {};
+    if (odRaw.mode) od.mode = odRaw.mode;
+    if (odRaw.platform) od.platform = odRaw.platform;
+    if (odRaw.scenario) od.scenario = odRaw.scenario;
+    if (odRaw["design_system.requires"]) {
+      od.design_system = { requires: odRaw["design_system.requires"] === "true" };
+    }
+    if (odRaw["preview.type"]) {
+      od.preview = { type: odRaw["preview.type"] };
+      if (odRaw["preview.entry"]) od.preview.entry = odRaw["preview.entry"];
+    }
+    frontmatter.od = od;
   }
   return { frontmatter, body: match[2].trim() };
 }
@@ -2218,14 +2271,18 @@ async function loadSkills(force = false) {
       const { frontmatter, body } = parseFrontmatter(raw);
       const relPath = path4.relative(_skillsDir, filePath).replace(/\\/g, "/");
       const id = frontmatter.id ?? relPath.replace(/\.md$/, "");
-      skills.push({
+      const newSkill = {
         id,
         name: frontmatter.name ?? id,
         description: frontmatter.description ?? "",
         triggers: Array.isArray(frontmatter.triggers) ? frontmatter.triggers : [],
         content: body,
         filePath
-      });
+      };
+      if (frontmatter.od) {
+        newSkill.od = frontmatter.od;
+      }
+      skills.push(newSkill);
     }
     _cache = skills;
     _lastLoad = Date.now();
@@ -2244,7 +2301,7 @@ async function getSkillById(id) {
 // src/server/tools/skill.ts
 async function executeSkillList() {
   const skills = await loadSkills();
-  const list = skills.map((s) => ({ id: s.id, name: s.name, description: s.description, triggers: s.triggers }));
+  const list = skills.map((s) => ({ id: s.id, name: s.name, description: s.description, triggers: s.triggers, od: s.od }));
   return { success: true, output: JSON.stringify(list, null, 2) };
 }
 async function executeSkillRead(params) {
@@ -2882,6 +2939,217 @@ async function executeBrowserClose(sessionId) {
   };
 }
 
+// src/server/tools/design.ts
+var import_promises5 = require("fs/promises");
+var path6 = __toESM(require("path"), 1);
+var import_fs = require("fs");
+var DESIGN_SYSTEMS_DIR = path6.resolve(process.cwd(), ".cvr", "design-systems");
+var ACTIVE_DESIGN_FILE = path6.resolve(process.cwd(), ".cvr", "design-active.json");
+var _designSysDir = DESIGN_SYSTEMS_DIR;
+function setDesignSystemsDir(dir) {
+  _designSysDir = dir;
+}
+function parseDesignName(content) {
+  const lines = content.split("\n");
+  let name = "";
+  let category = "Other";
+  let description = "";
+  for (const line of lines) {
+    if (line.startsWith("# ")) {
+      name = line.replace(/^# /, "").trim();
+    } else if (line.startsWith("> Category:")) {
+      category = line.replace(/^> Category:\s*/, "").trim();
+    } else if (name && line.trim() && !line.startsWith("#") && !line.startsWith(">") && !line.startsWith("|") && !description) {
+      description = line.trim();
+    }
+  }
+  return { name: name || "Unknown", category, description: description || "No description available" };
+}
+async function findDesignSystems() {
+  const results = [];
+  try {
+    const entries = await (0, import_promises5.readdir)(_designSysDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        const designMdPath = path6.join(_designSysDir, entry.name, "DESIGN.md");
+        if ((0, import_fs.existsSync)(designMdPath)) {
+          const content = await (0, import_promises5.readFile)(designMdPath, "utf-8");
+          const { name, category, description } = parseDesignName(content);
+          results.push({
+            id: entry.name,
+            name,
+            category,
+            description,
+            path: designMdPath
+          });
+        }
+      }
+    }
+  } catch {
+  }
+  return results;
+}
+async function getDesignSystem(id) {
+  const systems = await findDesignSystems();
+  return systems.find((s) => s.id === id);
+}
+async function executeDesignList(params) {
+  const categoryFilter = params.category ? String(params.category).toLowerCase() : void 0;
+  const systems = await findDesignSystems();
+  let filtered = systems;
+  if (categoryFilter) {
+    filtered = systems.filter((s) => s.category.toLowerCase().includes(categoryFilter));
+  }
+  if (filtered.length === 0) {
+    return {
+      success: true,
+      output: JSON.stringify({ systems: [], message: "No design systems found. Add DESIGN.md files to .cvr/design-systems/<id>/ to create design systems." }, null, 2)
+    };
+  }
+  const output = filtered.map((s) => ({
+    id: s.id,
+    name: s.name,
+    category: s.category,
+    description: s.description
+  }));
+  return { success: true, output: JSON.stringify({ systems: output, count: output.length }, null, 2) };
+}
+async function executeDesignApply(params) {
+  const designId = String(params.id);
+  const system = await getDesignSystem(designId);
+  if (!system) {
+    const available = await findDesignSystems();
+    const ids = available.map((s) => s.id).join(", ");
+    return {
+      success: false,
+      output: "",
+      error: `Design system not found: "${designId}". Available: ${ids || "none"}`
+    };
+  }
+  const content = await (0, import_promises5.readFile)(system.path, "utf-8");
+  await (0, import_promises5.mkdir)(path6.dirname(ACTIVE_DESIGN_FILE), { recursive: true });
+  await (0, import_promises5.writeFile)(ACTIVE_DESIGN_FILE, JSON.stringify({
+    active: designId,
+    name: system.name,
+    appliedAt: (/* @__PURE__ */ new Date()).toISOString()
+  }, null, 2), "utf-8");
+  return {
+    success: true,
+    output: `# Design System Active: ${system.name} (${system.category})
+
+${content}
+
+---
+All generated HTML/CSS MUST follow this design system exactly. Use the colors, typography, spacing, and component patterns defined above.`
+  };
+}
+async function executeDesignPreview(params) {
+  const designId = String(params.id);
+  const system = await getDesignSystem(designId);
+  if (!system) {
+    const available = await findDesignSystems();
+    const ids = available.map((s) => s.id).join(", ");
+    return {
+      success: false,
+      output: "",
+      error: `Design system not found: "${designId}". Available: ${ids || "none"}`
+    };
+  }
+  const content = await (0, import_promises5.readFile)(system.path, "utf-8");
+  const { name, category } = parseDesignName(content);
+  const colorMatches = content.match(/#[0-9A-Fa-f]{6}/g) || [];
+  const colors = [...new Set(colorMatches)].slice(0, 10);
+  const fontMatch = content.match(/\*\*Primary:\*\*\s*(.+)/);
+  const fontFamily = fontMatch?.[1]?.trim() ?? "System default";
+  let preview = `## Preview: ${name} (${category})
+
+`;
+  preview += `### Color Palette
+`;
+  colors.forEach((c) => {
+    preview += `- ![${c}](https://via.placeholder.com/16/${c.replace("#", "")}/${c.replace("#", "")}?text=+) \`${c}\`
+`;
+  });
+  preview += `
+### Typography
+- **Font family:** ${fontFamily}
+
+`;
+  const summaryMatch = content.match(/## 1\. Visual Theme.*?\n([\s\S]*?)(?=## 2\.)/);
+  if (summaryMatch?.[1]) {
+    preview += `### Visual Theme
+${summaryMatch[1].trim()}
+
+`;
+  }
+  preview += `### Full Design System
+Use \`design_apply\` with id="${designId}" to load the complete design system.`;
+  return { success: true, output: preview };
+}
+async function getActiveDesignSystem() {
+  try {
+    const raw = await (0, import_promises5.readFile)(ACTIVE_DESIGN_FILE, "utf-8");
+    const config = JSON.parse(raw);
+    const systemPath = path6.join(_designSysDir, config.active, "DESIGN.md");
+    if ((0, import_fs.existsSync)(systemPath)) {
+      const content = await (0, import_promises5.readFile)(systemPath, "utf-8");
+      return `## Active Design System: ${config.name}
+
+${content}
+
+---
+Follow the design system above for all HTML/CSS output.`;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+async function getActiveDesignSystemBrief() {
+  try {
+    const raw = await (0, import_promises5.readFile)(ACTIVE_DESIGN_FILE, "utf-8");
+    const config = JSON.parse(raw);
+    return `Active design system: "${config.name}" (id: ${config.active}). Use design_apply to change it.`;
+  } catch {
+    return null;
+  }
+}
+async function getDesignPreviewData(id) {
+  const system = await getDesignSystem(id);
+  if (!system) return null;
+  const content = await (0, import_promises5.readFile)(system.path, "utf-8");
+  const colorMatches = content.match(/#[0-9A-Fa-f]{6}/g) || [];
+  const colors = [...new Set(colorMatches)].slice(0, 12);
+  const fontMatch = content.match(/\*\*Primary:\*\*\s*(.+)/);
+  const fontFamily = fontMatch?.[1]?.trim() ?? "System default";
+  let visualTheme = "";
+  const themeMatch = content.match(/## 1\. Visual Theme.*?\n([\s\S]*?)(?=## 2\.)/);
+  if (themeMatch?.[1]) {
+    visualTheme = themeMatch[1].split("\n").filter((l) => l.trim() && l.trim().startsWith("-")).map((l) => l.replace(/^-\s*/, "").trim()).join(" \u2022 ");
+  }
+  const dos = [];
+  const donts = [];
+  const ddMatch = content.match(/## 7\. Do's and Don'ts\n([\s\S]*?)(?=## 8\.)/);
+  if (ddMatch?.[1]) {
+    for (const line of ddMatch[1].split("\n")) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith("- \u2705")) dos.push(trimmed.replace(/^- ✅\s*/, ""));
+      else if (trimmed.startsWith("- \u274C")) donts.push(trimmed.replace(/^- ❌\s*/, ""));
+    }
+  }
+  return {
+    id: system.id,
+    name: system.name,
+    category: system.category,
+    description: system.description,
+    colors,
+    fontFamily,
+    visualTheme,
+    dos,
+    donts
+  };
+}
+
 // src/server/tools.ts
 async function executeTool(toolCall, mode = "build", permissionEngine2, sessionId = "default") {
   const { name, params } = toolCall;
@@ -3051,6 +3319,15 @@ async function executeTool(toolCall, mode = "build", permissionEngine2, sessionI
       case "browser_close":
         result = await executeBrowserClose(sessionId);
         break;
+      case "design_list":
+        result = await executeDesignList(params);
+        break;
+      case "design_apply":
+        result = await executeDesignApply(params);
+        break;
+      case "design_preview":
+        result = await executeDesignPreview(params);
+        break;
       default: {
         const customTools = await loadCustomTools();
         const customTool = customTools.find((t) => t.id === name);
@@ -3071,7 +3348,7 @@ async function executeTool(toolCall, mode = "build", permissionEngine2, sessionI
 
 // src/server/agentLoader.ts
 var fs2 = __toESM(require("fs"), 1);
-var path6 = __toESM(require("path"), 1);
+var path7 = __toESM(require("path"), 1);
 var cachedAgents = [];
 var agentsDir = ".cvr/agents";
 async function loadAgents(dir) {
@@ -3081,7 +3358,7 @@ async function loadAgents(dir) {
     const files = await fs2.promises.readdir(targetDir);
     const mdFiles = files.filter((f) => f.endsWith(".md"));
     for (const file of mdFiles) {
-      const content = await fs2.promises.readFile(path6.join(targetDir, file), "utf-8");
+      const content = await fs2.promises.readFile(path7.join(targetDir, file), "utf-8");
       const agent = parseAgentMarkdown(content);
       if (agent) agents.push(agent);
     }
@@ -3139,10 +3416,10 @@ function parseAgentMarkdown(content) {
 init_sessionStore();
 
 // src/server/skillCreator.ts
-var import_promises5 = require("fs/promises");
-var path8 = __toESM(require("path"), 1);
+var import_promises6 = require("fs/promises");
+var path9 = __toESM(require("path"), 1);
 init_errors();
-var _skillsDir2 = path8.resolve(process.cwd(), ".cvr", "skills");
+var _skillsDir2 = path9.resolve(process.cwd(), ".cvr", "skills");
 function setSkillCreatorDir(dir) {
   _skillsDir2 = dir;
 }
@@ -3172,10 +3449,10 @@ triggers: ${JSON.stringify(triggers)}
 ---
 
 ${content}`;
-  const filePath = path8.join(_skillsDir2, `${id}.md`);
+  const filePath = path9.join(_skillsDir2, `${id}.md`);
   try {
-    await (0, import_promises5.mkdir)(_skillsDir2, { recursive: true });
-    await (0, import_promises5.writeFile)(filePath, frontmatter, "utf-8");
+    await (0, import_promises6.mkdir)(_skillsDir2, { recursive: true });
+    await (0, import_promises6.writeFile)(filePath, frontmatter, "utf-8");
     return { created: true, path: filePath, reason: "Skill created successfully." };
   } catch (e) {
     return { created: false, reason: `Write failed: ${getErrorMessage(e)}` };
@@ -3217,7 +3494,7 @@ function buildSkillContent(input) {
 }
 
 // src/server/goalSessionStore.ts
-var import_promises6 = require("fs/promises");
+var import_promises7 = require("fs/promises");
 var import_path = require("path");
 var storageDir = "";
 function setGoalStorageDir(dir) {
@@ -3228,7 +3505,7 @@ function getPath(id) {
   return (0, import_path.join)(storageDir, `goal-${id}.json`);
 }
 async function saveGoalState(state) {
-  await (0, import_promises6.writeFile)(getPath(state.id), JSON.stringify(state, null, 2), "utf-8");
+  await (0, import_promises7.writeFile)(getPath(state.id), JSON.stringify(state, null, 2), "utf-8");
 }
 function isValidGoalState(obj) {
   if (typeof obj !== "object" || obj === null) return false;
@@ -3237,7 +3514,7 @@ function isValidGoalState(obj) {
 }
 async function loadGoalState(id) {
   try {
-    const raw = await (0, import_promises6.readFile)(getPath(id), "utf-8");
+    const raw = await (0, import_promises7.readFile)(getPath(id), "utf-8");
     const parsed = JSON.parse(raw);
     if (!isValidGoalState(parsed)) return null;
     return parsed;
@@ -3247,11 +3524,11 @@ async function loadGoalState(id) {
 }
 async function listGoalStates() {
   try {
-    const files = await (0, import_promises6.readdir)(storageDir);
+    const files = await (0, import_promises7.readdir)(storageDir);
     const states = [];
     for (const f of files) {
       if (f.startsWith("goal-") && f.endsWith(".json")) {
-        const raw = await (0, import_promises6.readFile)((0, import_path.join)(storageDir, f), "utf-8");
+        const raw = await (0, import_promises7.readFile)((0, import_path.join)(storageDir, f), "utf-8");
         const parsed = JSON.parse(raw);
         if (isValidGoalState(parsed)) {
           states.push(parsed);
@@ -3266,7 +3543,7 @@ async function listGoalStates() {
 
 // src/server/cache.ts
 var import_crypto3 = require("crypto");
-var path9 = __toESM(require("path"), 1);
+var path10 = __toESM(require("path"), 1);
 var fs4 = __toESM(require("fs"), 1);
 
 // src/server/logger.ts
@@ -3324,7 +3601,7 @@ var createLogger = (context, level) => new Logger(context, level);
 var log = createLogger("cvr", process.env.LOG_LEVEL || "info");
 
 // src/server/cache.ts
-var _dbPath3 = path9.resolve(process.cwd(), ".opencode-infinite", "cache.db");
+var _dbPath3 = path10.resolve(process.cwd(), ".opencode-infinite", "cache.db");
 var _db3 = null;
 var _useFallback3 = false;
 var _jsonEntries = [];
@@ -3340,7 +3617,7 @@ function loadJson3() {
 }
 function saveJson3() {
   try {
-    fs4.mkdirSync(path9.dirname(_jsonPath3), { recursive: true });
+    fs4.mkdirSync(path10.dirname(_jsonPath3), { recursive: true });
     fs4.writeFileSync(_jsonPath3, JSON.stringify(_jsonEntries, null, 2));
   } catch {
   }
@@ -3402,7 +3679,7 @@ function fallbackGetDb3() {
   };
 }
 function setCacheDbPath(dir) {
-  _dbPath3 = path9.join(dir, "cache.db");
+  _dbPath3 = path10.join(dir, "cache.db");
   _db3 = null;
   _jsonEntries = [];
   if (_useFallback3) {
@@ -3666,7 +3943,7 @@ var aiCache = new AIResponseCache();
 
 // src/server/projectOracle.ts
 var fs5 = __toESM(require("fs"), 1);
-var path10 = __toESM(require("path"), 1);
+var path11 = __toESM(require("path"), 1);
 var MAX_FILE_SIZE = 100 * 1024;
 var ORACLE_SOURCE_PREFIX = "oracle:";
 var SKIP_DIRS = /* @__PURE__ */ new Set([
@@ -3758,7 +4035,7 @@ function getAllOracleDirs(root) {
     const entries = fs5.readdirSync(root, { withFileTypes: true });
     for (const entry of entries) {
       if (entry.isDirectory() && !SKIP_DIRS.has(entry.name) && !entry.name.startsWith(".")) {
-        const fullPath = path10.join(root, entry.name);
+        const fullPath = path11.join(root, entry.name);
         dirs.push(...getAllOracleDirs(fullPath));
       }
     }
@@ -3772,17 +4049,17 @@ async function indexDirectory(dir, rootDir, embedFn) {
     const entries = fs5.readdirSync(dir, { withFileTypes: true });
     for (const entry of entries) {
       if (!entry.isFile()) continue;
-      const ext = path10.extname(entry.name).toLowerCase();
+      const ext = path11.extname(entry.name).toLowerCase();
       const baseName = entry.name.toLowerCase();
       const isText = TEXT_EXTENSIONS.has(ext) || baseName === "dockerfile" || baseName === "makefile";
       if (!isText) continue;
-      const filePath = path10.join(dir, entry.name);
+      const filePath = path11.join(dir, entry.name);
       try {
         const stat5 = fs5.statSync(filePath);
         if (stat5.size > MAX_FILE_SIZE) continue;
         const content = fs5.readFileSync(filePath, "utf-8");
         if (!content.trim()) continue;
-        const relativePath = path10.relative(rootDir, filePath).replace(/\\/g, "/");
+        const relativePath = path11.relative(rootDir, filePath).replace(/\\/g, "/");
         const source = ORACLE_SOURCE_PREFIX + relativePath;
         await ingestDocument(source, content, embedFn);
         count++;
@@ -3795,25 +4072,25 @@ async function indexDirectory(dir, rootDir, embedFn) {
 }
 
 // src/server/instructionLoader.ts
-var import_promises7 = require("fs/promises");
-var path11 = __toESM(require("path"), 1);
-var RULES_DIR = path11.resolve(process.cwd(), ".cvr", "rules");
+var import_promises8 = require("fs/promises");
+var path12 = __toESM(require("path"), 1);
+var RULES_DIR = path12.resolve(process.cwd(), ".cvr", "rules");
 var _rulesDir = RULES_DIR;
 function setRulesDir(dir) {
   _rulesDir = dir;
 }
 async function loadInstructions() {
   try {
-    await (0, import_promises7.access)(_rulesDir);
+    await (0, import_promises8.access)(_rulesDir);
   } catch {
     return [];
   }
-  const entries = await (0, import_promises7.readdir)(_rulesDir, { withFileTypes: true });
+  const entries = await (0, import_promises8.readdir)(_rulesDir, { withFileTypes: true });
   const files = [];
   for (const entry of entries) {
     if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
-    const filePath = path11.join(_rulesDir, entry.name);
-    const raw = await (0, import_promises7.readFile)(filePath, "utf-8");
+    const filePath = path12.join(_rulesDir, entry.name);
+    const raw = await (0, import_promises8.readFile)(filePath, "utf-8");
     let priority = 0;
     const frontmatterMatch = raw.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
     if (frontmatterMatch && frontmatterMatch[1] !== void 0) {
@@ -3839,29 +4116,29 @@ ${parts.join("\n\n")}`;
 }
 async function saveInstruction(name, content, priority = 0) {
   try {
-    await (0, import_promises7.access)(_rulesDir);
+    await (0, import_promises8.access)(_rulesDir);
   } catch {
-    await (0, import_promises7.mkdir)(_rulesDir, { recursive: true });
+    await (0, import_promises8.mkdir)(_rulesDir, { recursive: true });
   }
   const frontmatter = `---
 priority: ${priority}
 ---
 `;
-  const filePath = path11.join(_rulesDir, `${name}.md`);
-  await (0, import_promises7.writeFile)(filePath, frontmatter + content, "utf-8");
+  const filePath = path12.join(_rulesDir, `${name}.md`);
+  await (0, import_promises8.writeFile)(filePath, frontmatter + content, "utf-8");
 }
 async function deleteInstruction(name) {
   try {
-    const filePath = path11.join(_rulesDir, `${name}.md`);
-    await (0, import_promises7.unlink)(filePath);
+    const filePath = path12.join(_rulesDir, `${name}.md`);
+    await (0, import_promises8.unlink)(filePath);
   } catch {
   }
 }
 
 // src/server/pluginManager.ts
-var import_promises8 = require("fs/promises");
-var path12 = __toESM(require("path"), 1);
-var PLUGINS_DIR = path12.resolve(process.cwd(), ".cvr", "plugins");
+var import_promises9 = require("fs/promises");
+var path13 = __toESM(require("path"), 1);
+var PLUGINS_DIR = path13.resolve(process.cwd(), ".cvr", "plugins");
 var _pluginsDir = PLUGINS_DIR;
 var _plugins = [];
 function setPluginsDir(dir) {
@@ -3869,19 +4146,19 @@ function setPluginsDir(dir) {
 }
 async function loadPlugins() {
   try {
-    await (0, import_promises8.access)(_pluginsDir);
+    await (0, import_promises9.access)(_pluginsDir);
   } catch {
     _plugins = [];
     return [];
   }
-  const entries = await (0, import_promises8.readdir)(_pluginsDir, { withFileTypes: true });
+  const entries = await (0, import_promises9.readdir)(_pluginsDir, { withFileTypes: true });
   const plugins = [];
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
-    const pluginPath = path12.join(_pluginsDir, entry.name);
-    const manifestPath = path12.join(pluginPath, "manifest.json");
+    const pluginPath = path13.join(_pluginsDir, entry.name);
+    const manifestPath = path13.join(pluginPath, "manifest.json");
     try {
-      const raw = await (0, import_promises8.readFile)(manifestPath, "utf-8");
+      const raw = await (0, import_promises9.readFile)(manifestPath, "utf-8");
       const manifest = JSON.parse(raw);
       if (manifest.id) {
         plugins.push({ manifest, enabled: true, dir: pluginPath });
@@ -3923,8 +4200,8 @@ var import_server = require("@modelcontextprotocol/sdk/server/index.js");
 var import_stdio = require("@modelcontextprotocol/sdk/server/stdio.js");
 var import_sse = require("@modelcontextprotocol/sdk/server/sse.js");
 var import_types = require("@modelcontextprotocol/sdk/types.js");
-var import_promises9 = require("fs/promises");
-var path13 = __toESM(require("path"), 1);
+var import_promises10 = require("fs/promises");
+var path14 = __toESM(require("path"), 1);
 init_errors();
 
 // src/server/agentLoop.ts
@@ -4177,8 +4454,8 @@ function setPermissionEngine(pe) {
 var PROJECT_ROOT5 = process.cwd();
 async function loadMcpConfig() {
   try {
-    const configPath = path13.join(PROJECT_ROOT5, ".cvr", "mcp.json");
-    const data = await (0, import_promises9.readFile)(configPath, "utf-8");
+    const configPath = path14.join(PROJECT_ROOT5, ".cvr", "mcp.json");
+    const data = await (0, import_promises10.readFile)(configPath, "utf-8");
     return JSON.parse(data);
   } catch {
     return { enabled: false, transport: "stdio" };
@@ -4260,11 +4537,11 @@ async function createMcpServer() {
   });
   server.setRequestHandler(import_types.ListResourcesRequestSchema, async () => {
     try {
-      const entries = await (0, import_promises9.readdir)(PROJECT_ROOT5, { withFileTypes: true });
+      const entries = await (0, import_promises10.readdir)(PROJECT_ROOT5, { withFileTypes: true });
       const resources = entries.filter(
         (e) => !e.name.startsWith(".") && !e.name.startsWith("node_modules") && e.isFile()
       ).map((e) => ({
-        uri: `file://${path13.join(PROJECT_ROOT5, e.name)}`,
+        uri: `file://${path14.join(PROJECT_ROOT5, e.name)}`,
         name: e.name,
         mimeType: "text/plain"
       }));
@@ -4285,7 +4562,7 @@ async function createMcpServer() {
       );
     }
     const filePath = uri.slice(7);
-    const resolved = path13.resolve(filePath);
+    const resolved = path14.resolve(filePath);
     if (!resolved.startsWith(PROJECT_ROOT5)) {
       throw new import_types.McpError(
         import_types.ErrorCode.InvalidRequest,
@@ -4293,7 +4570,7 @@ async function createMcpServer() {
       );
     }
     try {
-      const content = await (0, import_promises9.readFile)(filePath, "utf-8");
+      const content = await (0, import_promises10.readFile)(filePath, "utf-8");
       return {
         contents: [{ uri, mimeType: "text/plain", text: content }]
       };
@@ -4373,8 +4650,8 @@ function mountMcpSseRoutes(app2, basePath = "/mcp") {
 init_browserTools();
 
 // src/server/teamSync.ts
-var import_promises10 = require("fs/promises");
-var path14 = __toESM(require("path"), 1);
+var import_promises11 = require("fs/promises");
+var path15 = __toESM(require("path"), 1);
 var import_child_process5 = require("child_process");
 var import_util4 = require("util");
 var import_crypto4 = require("crypto");
@@ -4388,18 +4665,18 @@ var _status = {
   provider: "none"
 };
 var _intervalId = null;
-var SYNC_DIR = path14.join(process.cwd(), ".cvr");
-var CONFIG_PATH = path14.join(SYNC_DIR, "sync.json");
-var SYNC_STORAGE_DIR = path14.join(process.cwd(), ".opencode-infinite");
+var SYNC_DIR = path15.join(process.cwd(), ".cvr");
+var CONFIG_PATH = path15.join(SYNC_DIR, "sync.json");
+var SYNC_STORAGE_DIR = path15.join(process.cwd(), ".opencode-infinite");
 var SYNC_FILES = ["MEMORY.md", "USER.md", "history.json", "memory.json", "sessions.db"];
 function getSyncDir() {
   if (_config?.provider === "git" && _config.repo) {
-    return path14.join(process.cwd(), ".sync-clone");
+    return path15.join(process.cwd(), ".sync-clone");
   }
   if (_config?.provider === "file" && _config.path) {
     return _config.path;
   }
-  return path14.join(SYNC_DIR, "sync-data");
+  return path15.join(SYNC_DIR, "sync-data");
 }
 function getKey() {
   const keyStr = _config?.encryptionKey || process.env.SYNC_ENCRYPTION_KEY;
@@ -4442,8 +4719,8 @@ function tryDecrypt(data) {
 }
 async function loadSyncConfig() {
   try {
-    await (0, import_promises10.access)(CONFIG_PATH);
-    const raw = await (0, import_promises10.readFile)(CONFIG_PATH, "utf-8");
+    await (0, import_promises11.access)(CONFIG_PATH);
+    const raw = await (0, import_promises11.readFile)(CONFIG_PATH, "utf-8");
     _config = JSON.parse(raw);
     _status.provider = _config.provider;
     return _config;
@@ -4456,16 +4733,16 @@ function getSyncConfig() {
   return _config;
 }
 async function saveSyncConfig(config) {
-  await (0, import_promises10.mkdir)(SYNC_DIR, { recursive: true });
+  await (0, import_promises11.mkdir)(SYNC_DIR, { recursive: true });
   const safeConfig = { ...config };
   delete safeConfig.encryptionKey;
-  await (0, import_promises10.writeFile)(CONFIG_PATH, JSON.stringify(safeConfig, null, 2), "utf-8");
+  await (0, import_promises11.writeFile)(CONFIG_PATH, JSON.stringify(safeConfig, null, 2), "utf-8");
   _config = config;
   _status.provider = config.provider;
   restartAutoSync();
 }
 async function gitInit(syncDir) {
-  await (0, import_promises10.mkdir)(syncDir, { recursive: true });
+  await (0, import_promises11.mkdir)(syncDir, { recursive: true });
   try {
     await execFileAsync4("git", ["init"], { cwd: syncDir });
     await execFileAsync4("git", ["config", "user.email", "sync@cvr.name"], { cwd: syncDir });
@@ -4504,15 +4781,15 @@ async function gitCommitAndPush(syncDir) {
 }
 function resolveSyncPath(fileName, syncDir) {
   if (_config?.encrypt) {
-    return path14.join(syncDir, `${fileName}.enc`);
+    return path15.join(syncDir, `${fileName}.enc`);
   }
-  return path14.join(syncDir, fileName);
+  return path15.join(syncDir, fileName);
 }
 async function exportFile(fileName, syncDir) {
-  const sourcePath = path14.join(SYNC_STORAGE_DIR, fileName);
+  const sourcePath = path15.join(SYNC_STORAGE_DIR, fileName);
   let data;
   try {
-    data = await (0, import_promises10.readFile)(sourcePath);
+    data = await (0, import_promises11.readFile)(sourcePath);
   } catch {
     return;
   }
@@ -4520,13 +4797,13 @@ async function exportFile(fileName, syncDir) {
   if (_config?.encrypt) {
     data = encrypt(data);
   }
-  await (0, import_promises10.writeFile)(destPath, data);
+  await (0, import_promises11.writeFile)(destPath, data);
 }
 async function importFile(fileName, syncDir) {
   const sourcePath = resolveSyncPath(fileName, syncDir);
   let data;
   try {
-    data = await (0, import_promises10.readFile)(sourcePath);
+    data = await (0, import_promises11.readFile)(sourcePath);
   } catch {
     return;
   }
@@ -4537,11 +4814,11 @@ async function importFile(fileName, syncDir) {
       throw new Error(`Failed to decrypt ${fileName}. Check encryption key.`);
     }
   }
-  const destPath = path14.join(SYNC_STORAGE_DIR, fileName);
-  await (0, import_promises10.writeFile)(destPath, data);
+  const destPath = path15.join(SYNC_STORAGE_DIR, fileName);
+  await (0, import_promises11.writeFile)(destPath, data);
 }
 async function exportAll(syncDir) {
-  await (0, import_promises10.mkdir)(syncDir, { recursive: true });
+  await (0, import_promises11.mkdir)(syncDir, { recursive: true });
   for (const file of SYNC_FILES) {
     await exportFile(file, syncDir);
   }
@@ -4552,8 +4829,8 @@ async function resolveConflict(sourcePath, destPath) {
   }
   try {
     const [srcStat, destStat] = await Promise.all([
-      (0, import_promises10.stat)(sourcePath).catch(() => null),
-      (0, import_promises10.stat)(destPath).catch(() => null)
+      (0, import_promises11.stat)(sourcePath).catch(() => null),
+      (0, import_promises11.stat)(destPath).catch(() => null)
     ]);
     if (!destStat) return true;
     if (!srcStat) return false;
@@ -4566,7 +4843,7 @@ async function importWithConflictCheck(syncDir) {
   const conflicts = [];
   for (const file of SYNC_FILES) {
     const sourcePath = resolveSyncPath(file, syncDir);
-    const destPath = path14.join(SYNC_STORAGE_DIR, file);
+    const destPath = path15.join(SYNC_STORAGE_DIR, file);
     const shouldOverwrite = await resolveConflict(sourcePath, destPath);
     if (!shouldOverwrite) {
       conflicts.push(file);
@@ -4801,8 +5078,8 @@ var PROVIDER_BASE_URLS = {
 };
 
 // src/server/costTracker.ts
-var path15 = __toESM(require("path"), 1);
-var import_promises11 = require("fs/promises");
+var path16 = __toESM(require("path"), 1);
+var import_promises12 = require("fs/promises");
 var RATE_CARDS = {
   gemini: { input: 0.075, output: 0.3 },
   openai: { input: 2.5, output: 10 },
@@ -4810,8 +5087,8 @@ var RATE_CARDS = {
   deepseek: { input: 0.14, output: 0.28 }
 };
 var GENERIC_RATE = { input: 1, output: 1 };
-var STORAGE_DIR = path15.join(process.cwd(), ".opencode-infinite");
-var COSTS_FILE = path15.join(STORAGE_DIR, "costs.json");
+var STORAGE_DIR = path16.join(process.cwd(), ".opencode-infinite");
+var COSTS_FILE = path16.join(STORAGE_DIR, "costs.json");
 function getRateCard(provider) {
   const key = provider.toLowerCase();
   return RATE_CARDS[key] || GENERIC_RATE;
@@ -4824,8 +5101,8 @@ function calculateCost(provider, inputTokens, outputTokens) {
 }
 async function loadCosts() {
   try {
-    await (0, import_promises11.access)(COSTS_FILE);
-    const data = await (0, import_promises11.readFile)(COSTS_FILE, "utf-8");
+    await (0, import_promises12.access)(COSTS_FILE);
+    const data = await (0, import_promises12.readFile)(COSTS_FILE, "utf-8");
     const parsed = JSON.parse(data);
     if (Array.isArray(parsed)) return parsed;
     return [];
@@ -4834,7 +5111,7 @@ async function loadCosts() {
   }
 }
 async function saveCosts(entries) {
-  await (0, import_promises11.writeFile)(COSTS_FILE, JSON.stringify(entries, null, 2));
+  await (0, import_promises12.writeFile)(COSTS_FILE, JSON.stringify(entries, null, 2));
 }
 async function trackCost(provider, model, inputTokens, outputTokens) {
   const entry = {
@@ -5023,7 +5300,7 @@ var OpenAICompatibleProvider = class extends AIProvider {
     const baseUrl = localUrl || PROVIDER_BASE_URLS[this.provider] || "";
     const key = this.resolveApiKey(getEnvVarForProvider(this.provider), apiKey);
     const body = buildOpenAICompatibleBody({ prompt, contents, modelName, temperature, maxTokens }, this.provider);
-    const authHeader = this.provider === "baseten" ? `Api-Key ${key}` : `Bearer ${key}`;
+    const authHeader = `Bearer ${key}`;
     const response = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
       method: "POST",
       headers: {
@@ -5044,7 +5321,8 @@ var OpenAICompatibleProvider = class extends AIProvider {
       throw new Error(message);
     }
     const data = await response.json();
-    const text = data.choices?.[0]?.message?.content ?? "";
+    const msg = data.choices?.[0]?.message;
+    const text = msg ? (msg.reasoning_content || "") + (msg.content || "") : "";
     const inputTokens = data.usage?.prompt_tokens || estimateTokens(prompt + contents.map((c) => c.parts?.[0]?.text || "").join(" "));
     const outputTokens = data.usage?.completion_tokens || estimateTokens(text);
     return { text, inputTokens, outputTokens };
@@ -5155,21 +5433,21 @@ async function generateEmbeddings(texts) {
 }
 
 // src/server/agentMarketplace.ts
-var import_promises12 = require("fs/promises");
-var path16 = __toESM(require("path"), 1);
+var import_promises13 = require("fs/promises");
+var path17 = __toESM(require("path"), 1);
 var import_crypto5 = require("crypto");
-var MARKET_DIR = path16.join(process.cwd(), ".cvr", "marketplace");
-var INDEX_FILE = path16.join(MARKET_DIR, "index.json");
-var REVIEWS_FILE = path16.join(MARKET_DIR, "reviews.json");
+var MARKET_DIR = path17.join(process.cwd(), ".cvr", "marketplace");
+var INDEX_FILE = path17.join(MARKET_DIR, "index.json");
+var REVIEWS_FILE = path17.join(MARKET_DIR, "reviews.json");
 var items = [];
 var reviews = [];
 async function ensureMarketDir() {
-  await (0, import_promises12.mkdir)(MARKET_DIR, { recursive: true });
-  await (0, import_promises12.mkdir)(path16.join(MARKET_DIR, "packages"), { recursive: true });
+  await (0, import_promises13.mkdir)(MARKET_DIR, { recursive: true });
+  await (0, import_promises13.mkdir)(path17.join(MARKET_DIR, "packages"), { recursive: true });
 }
 async function loadIndex() {
   try {
-    const raw = await (0, import_promises12.readFile)(INDEX_FILE, "utf-8");
+    const raw = await (0, import_promises13.readFile)(INDEX_FILE, "utf-8");
     items = JSON.parse(raw);
   } catch {
     items = [];
@@ -5177,11 +5455,11 @@ async function loadIndex() {
 }
 async function saveIndex() {
   await ensureMarketDir();
-  await (0, import_promises12.writeFile)(INDEX_FILE, JSON.stringify(items, null, 2), "utf-8");
+  await (0, import_promises13.writeFile)(INDEX_FILE, JSON.stringify(items, null, 2), "utf-8");
 }
 async function loadReviews() {
   try {
-    const raw = await (0, import_promises12.readFile)(REVIEWS_FILE, "utf-8");
+    const raw = await (0, import_promises13.readFile)(REVIEWS_FILE, "utf-8");
     reviews = JSON.parse(raw);
   } catch {
     reviews = [];
@@ -5189,7 +5467,7 @@ async function loadReviews() {
 }
 async function saveReviews() {
   await ensureMarketDir();
-  await (0, import_promises12.writeFile)(REVIEWS_FILE, JSON.stringify(reviews, null, 2), "utf-8");
+  await (0, import_promises13.writeFile)(REVIEWS_FILE, JSON.stringify(reviews, null, 2), "utf-8");
 }
 async function initMarketplace() {
   await loadIndex();
@@ -5210,9 +5488,9 @@ function getMarketItems(type, tag, search) {
 async function publishItem(type, name, description, content, author = "unknown", version = "1.0.0", tags = []) {
   await ensureMarketDir();
   const id = `${type}-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${(0, import_crypto5.randomBytes)(4).toString("hex")}`;
-  const pkgPath = path16.join(MARKET_DIR, "packages", `${id}.json`);
+  const pkgPath = path17.join(MARKET_DIR, "packages", `${id}.json`);
   const pkg = { type, name, description, content, author, version, tags };
-  await (0, import_promises12.writeFile)(pkgPath, JSON.stringify(pkg, null, 2), "utf-8");
+  await (0, import_promises13.writeFile)(pkgPath, JSON.stringify(pkg, null, 2), "utf-8");
   const existing = items.find((i) => i.name === name && i.type === type);
   if (existing) {
     existing.version = version;
@@ -5412,11 +5690,11 @@ var SettingsSchema = import_zod.z.object({
 }).passthrough();
 
 // src/server/routes/chat.ts
-var path18 = __toESM(require("path"), 1);
-var import_promises15 = require("fs/promises");
+var path19 = __toESM(require("path"), 1);
+var import_promises16 = require("fs/promises");
 
 // src/server/prompts.ts
-var import_promises14 = require("fs/promises");
+var import_promises15 = require("fs/promises");
 var AGENT_PROMPTS = {
   build: `[ROLE: BUILD] - DEFAULT DEVELOPER AGENT. You have full access to developer tools (read/write files, execute bash). Focus on iterative coding, bug fixing, and implementation.`,
   general: `[ROLE: GENERAL] - UNIVERSAL ASSISTANT. Help with complex, multi-stage tasks. You can modify files, run parallel processes, and coordinate broad workflows.`,
@@ -5431,12 +5709,12 @@ async function getMemoryMtime() {
   let memory = 0;
   let user = 0;
   try {
-    const memStat = await (0, import_promises14.stat)(".opencode-infinite/MEMORY.md");
+    const memStat = await (0, import_promises15.stat)(".opencode-infinite/MEMORY.md");
     memory = memStat.mtimeMs;
   } catch {
   }
   try {
-    const userStat = await (0, import_promises14.stat)(".opencode-infinite/USER.md");
+    const userStat = await (0, import_promises15.stat)(".opencode-infinite/USER.md");
     user = userStat.mtimeMs;
   } catch {
   }
@@ -5474,6 +5752,7 @@ Implement the plan directly and efficiently.`;
   ).join("\n") + (customToolDescriptions ? "\n" + customToolDescriptions : "");
   const memoryContext = await getMemoryContext();
   const instructionsContext = await getInstructionsContext();
+  const activeDesignContext = await getActiveDesignSystem();
   const persistentContext = contextParts || memoryContext || "No previous knowledge clusters found. Kernel is in cold-start mode.";
   const basePrompt = `You are "cvr.name", the world's most advanced autonomous coding kernel.
 
@@ -5514,6 +5793,7 @@ AUTONOMY PROTOCOLS:
 PERSISTENT CONTEXT CLUSTERS:
 ${persistentContext}
 ${instructionsContext ? "\n" + instructionsContext : ""}
+${activeDesignContext ? "\n\n" + activeDesignContext : ""}
 `;
   let resultPrompt;
   if (customSystemPrompt && customSystemPrompt.trim()) {
@@ -5724,21 +6004,21 @@ function buildDualConfig(cfg) {
   if (cfg.maxTokens !== void 0) result.maxTokens = cfg.maxTokens;
   return result;
 }
-var STORAGE_DIR2 = path18.join(process.cwd(), ".opencode-infinite");
-var HISTORY_FILE = path18.join(STORAGE_DIR2, "history.json");
-var MEMORY_FILE = path18.join(STORAGE_DIR2, "memory.json");
+var STORAGE_DIR2 = path19.join(process.cwd(), ".opencode-infinite");
+var HISTORY_FILE = path19.join(STORAGE_DIR2, "history.json");
+var MEMORY_FILE = path19.join(STORAGE_DIR2, "memory.json");
 async function ensureStorage() {
   try {
-    await (0, import_promises15.mkdir)(STORAGE_DIR2, { recursive: true });
+    await (0, import_promises16.mkdir)(STORAGE_DIR2, { recursive: true });
     try {
-      await (0, import_promises15.access)(HISTORY_FILE);
+      await (0, import_promises16.access)(HISTORY_FILE);
     } catch {
-      await (0, import_promises15.writeFile)(HISTORY_FILE, JSON.stringify([]));
+      await (0, import_promises16.writeFile)(HISTORY_FILE, JSON.stringify([]));
     }
     try {
-      await (0, import_promises15.access)(MEMORY_FILE);
+      await (0, import_promises16.access)(MEMORY_FILE);
     } catch {
-      await (0, import_promises15.writeFile)(MEMORY_FILE, JSON.stringify([]));
+      await (0, import_promises16.writeFile)(MEMORY_FILE, JSON.stringify([]));
     }
   } catch (e) {
     console.error("Storage init error:", e);
@@ -5751,7 +6031,7 @@ var _memoryCacheTime = 0;
 async function getHistoryCached() {
   if (_historyCache && Date.now() - _historyCacheTime < 5e3) return _historyCache;
   try {
-    _historyCache = JSON.parse(await (0, import_promises15.readFile)(HISTORY_FILE, "utf-8"));
+    _historyCache = JSON.parse(await (0, import_promises16.readFile)(HISTORY_FILE, "utf-8"));
     _historyCacheTime = Date.now();
     return _historyCache;
   } catch {
@@ -5761,7 +6041,7 @@ async function getHistoryCached() {
 async function getMemoriesCached() {
   if (_memoryCache && Date.now() - _memoryCacheTime < 5e3) return _memoryCache;
   try {
-    _memoryCache = JSON.parse(await (0, import_promises15.readFile)(MEMORY_FILE, "utf-8"));
+    _memoryCache = JSON.parse(await (0, import_promises16.readFile)(MEMORY_FILE, "utf-8"));
     _memoryCacheTime = Date.now();
     return _memoryCache;
   } catch {
@@ -5871,7 +6151,7 @@ function registerRoutes(app2) {
         userHistoryEntry.images = processedImages.map((img) => `data:${img.mimeType};base64,${img.base64}`);
       }
       const updatedHistory = [...history, userHistoryEntry, { role: "assistant", content: responseText, createdAt: /* @__PURE__ */ new Date() }];
-      await (0, import_promises15.writeFile)(HISTORY_FILE, JSON.stringify(updatedHistory));
+      await (0, import_promises16.writeFile)(HISTORY_FILE, JSON.stringify(updatedHistory));
       invalidateHistoryCache();
       if (updatedHistory.length % 5 === 0) {
         const kConfigTyped = kConfig;
@@ -5879,8 +6159,8 @@ function registerRoutes(app2) {
         const summaryKey = kConfigTyped.providerKeys?.[kConfigTyped.aiProvider || ""] || kConfigTyped.apiKey;
         summarizeLongHistory(updatedHistory, kConfigTyped.aiProvider, kConfigTyped.localUrl, kConfigTyped.aiProvider === "local" ? kConfigTyped.localModelName || kConfigTyped.aiModel : kConfigTyped.aiModel, summaryKey, dualCfg).then(async (summary) => {
           if (summary) {
-            const currentMemories = JSON.parse(await (0, import_promises15.readFile)(MEMORY_FILE, "utf-8"));
-            await (0, import_promises15.writeFile)(MEMORY_FILE, JSON.stringify([...currentMemories, { content: summary, createdAt: /* @__PURE__ */ new Date() }]));
+            const currentMemories = JSON.parse(await (0, import_promises16.readFile)(MEMORY_FILE, "utf-8"));
+            await (0, import_promises16.writeFile)(MEMORY_FILE, JSON.stringify([...currentMemories, { content: summary, createdAt: /* @__PURE__ */ new Date() }]));
             invalidateMemoryCache();
           }
         });
@@ -5906,7 +6186,7 @@ function registerRoutes(app2) {
         deepseek: "https://api.deepseek.com/v1",
         grok: "https://api.x.ai/v1",
         groq: "https://api.groq.com/openai/v1",
-        baseten: "https://api.baseten.co/v1",
+        baseten: "https://inference.baseten.co/v1",
         openrouter: "https://openrouter.ai/api/v1",
         together: "https://api.together.xyz/v1",
         mistral: "https://api.mistral.ai/v1"
@@ -5943,16 +6223,17 @@ function registerRoutes(app2) {
           res.status(400).json({ error: "API key required \u2014 set BASETEN_API_KEY env var" });
           return;
         }
-        const resp2 = await fetch("https://api.baseten.co/v1/models", {
-          headers: { Authorization: `Api-Key ${key2}`, "Content-Type": "application/json" }
+        const resp2 = await fetch("https://inference.baseten.co/v1/models", {
+          headers: { Authorization: `Bearer ${key2}`, "Content-Type": "application/json" }
         });
         if (!resp2.ok) {
-          res.status(resp2.status).json({ error: `Baseten API: ${resp2.status} \u2014 deploy models at baseten.co/library` });
+          const errText = await resp2.text().catch(() => "");
+          res.status(resp2.status).json({ error: `Baseten API: ${resp2.status} \u2014 ${errText.slice(0, 200)}` });
           return;
         }
         const data2 = await resp2.json();
-        const models2 = (data2.models || []).filter((m) => m.status === "ACTIVE" || m.status === "READY").sort((a, b) => (a.name || "").localeCompare(b.name || "")).map((m) => ({ id: m.id || m.model_id || "", name: m.name || m.id || m.model_id || "" }));
-        res.json({ models: models2, note: "Only deployed models shown. Deploy from baseten.co/library" });
+        const models2 = (data2.data || []).map((m) => ({ id: m.id || "", name: m.id || "" }));
+        res.json({ models: models2 });
         return;
       }
       const baseUrl = baseUrls[provider] || "";
@@ -5975,7 +6256,7 @@ function registerRoutes(app2) {
         res.status(400).json({ error: "API key required \u2014 set via env var or enter in settings" });
         return;
       }
-      const authPrefix = provider === "baseten" ? "Api-Key" : "Bearer";
+      const authPrefix = "Bearer";
       const resp = await fetch(`${baseUrl.replace(/\/$/, "")}/models`, {
         headers: { Authorization: `${authPrefix} ${key}`, "Content-Type": "application/json" }
       });
@@ -6002,8 +6283,8 @@ function registerRoutes(app2) {
     }
   });
   app2.post("/api/clear", async (_req, res) => {
-    await (0, import_promises15.writeFile)(HISTORY_FILE, JSON.stringify([]));
-    await (0, import_promises15.writeFile)(MEMORY_FILE, JSON.stringify([]));
+    await (0, import_promises16.writeFile)(HISTORY_FILE, JSON.stringify([]));
+    await (0, import_promises16.writeFile)(MEMORY_FILE, JSON.stringify([]));
     invalidateHistoryCache();
     invalidateMemoryCache();
     res.json({ status: "cleared" });
@@ -6661,32 +6942,32 @@ function registerRoutes5(app2) {
 }
 
 // src/server/changes.ts
-var import_promises16 = require("fs/promises");
-var path19 = __toESM(require("path"), 1);
-var STORAGE_DIR3 = path19.join(process.cwd(), ".opencode-infinite");
-var CHANGES_FILE = path19.join(STORAGE_DIR3, "changes.json");
+var import_promises17 = require("fs/promises");
+var path20 = __toESM(require("path"), 1);
+var STORAGE_DIR3 = path20.join(process.cwd(), ".opencode-infinite");
+var CHANGES_FILE = path20.join(STORAGE_DIR3, "changes.json");
 var MAX_CHANGES = 50;
 var MAX_SNAPSHOT_SIZE = 1024 * 1024;
 async function loadHistory() {
   try {
-    const data = await (0, import_promises16.readFile)(CHANGES_FILE, "utf-8");
+    const data = await (0, import_promises17.readFile)(CHANGES_FILE, "utf-8");
     return JSON.parse(data);
   } catch {
     return { changes: [], undoStack: [], redoStack: [] };
   }
 }
 async function saveHistory(history) {
-  await (0, import_promises16.mkdir)(STORAGE_DIR3, { recursive: true });
-  await (0, import_promises16.writeFile)(CHANGES_FILE, JSON.stringify(history, null, 2));
+  await (0, import_promises17.mkdir)(STORAGE_DIR3, { recursive: true });
+  await (0, import_promises17.writeFile)(CHANGES_FILE, JSON.stringify(history, null, 2));
 }
 async function recordChange(filePath, operation, afterContent, description) {
   const history = await loadHistory();
   let beforeContent = null;
   try {
-    const fullPath = path19.join(process.cwd(), filePath);
-    const fileStats = await (0, import_promises16.stat)(fullPath);
+    const fullPath = path20.join(process.cwd(), filePath);
+    const fileStats = await (0, import_promises17.stat)(fullPath);
     if (fileStats.size <= MAX_SNAPSHOT_SIZE) {
-      beforeContent = await (0, import_promises16.readFile)(fullPath, "utf-8");
+      beforeContent = await (0, import_promises17.readFile)(fullPath, "utf-8");
     } else {
       beforeContent = "[FILE_TOO_LARGE_FOR_SNAPSHOT]";
     }
@@ -6724,18 +7005,18 @@ async function undoChange() {
     return { success: false, error: "Nothing to undo" };
   }
   history.undoStack.push(change.id);
-  const fullPath = path19.join(process.cwd(), change.filePath);
+  const fullPath = path20.join(process.cwd(), change.filePath);
   if (change.beforeContent === null) {
     try {
-      await (0, import_promises16.unlink)(fullPath);
+      await (0, import_promises17.unlink)(fullPath);
     } catch {
     }
   } else if (change.beforeContent === "[FILE_TOO_LARGE_FOR_SNAPSHOT]") {
     await saveHistory(history);
     return { success: false, error: "Cannot undo: file was too large to snapshot" };
   } else {
-    await (0, import_promises16.mkdir)(path19.dirname(fullPath), { recursive: true });
-    await (0, import_promises16.writeFile)(fullPath, change.beforeContent, "utf-8");
+    await (0, import_promises17.mkdir)(path20.dirname(fullPath), { recursive: true });
+    await (0, import_promises17.writeFile)(fullPath, change.beforeContent, "utf-8");
   }
   await saveHistory(history);
   return { success: true, restored: change };
@@ -6752,9 +7033,9 @@ async function redoChange() {
   }
   history.redoStack.pop();
   history.undoStack = history.undoStack.filter((id) => id !== changeId);
-  const fullPath = path19.join(process.cwd(), change.filePath);
-  await (0, import_promises16.mkdir)(path19.dirname(fullPath), { recursive: true });
-  await (0, import_promises16.writeFile)(fullPath, change.afterContent, "utf-8");
+  const fullPath = path20.join(process.cwd(), change.filePath);
+  await (0, import_promises17.mkdir)(path20.dirname(fullPath), { recursive: true });
+  await (0, import_promises17.writeFile)(fullPath, change.afterContent, "utf-8");
   await saveHistory(history);
   return { success: true, restored: change };
 }
@@ -7468,12 +7749,12 @@ function registerRoutes10(app2) {
 }
 
 // src/server/ciPipeline.ts
-var import_promises17 = require("fs/promises");
-var path20 = __toESM(require("path"), 1);
+var import_promises18 = require("fs/promises");
+var path21 = __toESM(require("path"), 1);
 var WORKFLOW_DIR = ".github/workflows";
 async function ensureWorkflowDir() {
-  const dir = path20.join(process.cwd(), WORKFLOW_DIR);
-  await (0, import_promises17.mkdir)(dir, { recursive: true });
+  const dir = path21.join(process.cwd(), WORKFLOW_DIR);
+  await (0, import_promises18.mkdir)(dir, { recursive: true });
   return dir;
 }
 function generateNodeCIWorkflow(config) {
@@ -7701,9 +7982,9 @@ async function generateCIPipeline(config) {
     default:
       throw new Error(`Unknown pipeline type: ${config.pipelineType}`);
   }
-  await (0, import_promises17.writeFile)(path20.join(dir, filename), content, "utf-8");
+  await (0, import_promises18.writeFile)(path21.join(dir, filename), content, "utf-8");
   return {
-    files: [path20.join(WORKFLOW_DIR, filename)],
+    files: [path21.join(WORKFLOW_DIR, filename)],
     pipelineType: config.pipelineType,
     path: dir
   };
@@ -7812,8 +8093,8 @@ function registerRoutes11(app2) {
 }
 
 // src/server/routes/tools.ts
-var path21 = __toESM(require("path"), 1);
-var import_promises18 = require("fs/promises");
+var path22 = __toESM(require("path"), 1);
+var import_promises19 = require("fs/promises");
 var import_crypto9 = require("crypto");
 function registerRoutes12(app2) {
   app2.post("/api/tools/execute", validateBody(ToolExecuteSchema), async (req, res) => {
@@ -7822,7 +8103,7 @@ function registerRoutes12(app2) {
       const result = await executeTool(toolCall, mode, permissionEngine, sessionId);
       incrementToolCall();
       if (result.success && (toolCall.name === "write_file" || toolCall.name === "edit_file")) {
-        const afterContent = toolCall.name === "write_file" ? toolCall.params.content : await (0, import_promises18.readFile)(path21.join(process.cwd(), toolCall.params.path), "utf-8");
+        const afterContent = toolCall.name === "write_file" ? toolCall.params.content : await (0, import_promises19.readFile)(path22.join(process.cwd(), toolCall.params.path), "utf-8");
         const change = await recordChange(
           toolCall.params.path,
           toolCall.name === "write_file" ? "write" : "edit",
@@ -8192,7 +8473,7 @@ var PROVIDER_VALIDATION_URLS = {
   deepseek: "https://api.deepseek.com/v1/models",
   grok: "https://api.x.ai/v1/models",
   groq: "https://api.groq.com/openai/v1/models",
-  baseten: "https://api.baseten.co/v1/models",
+  baseten: "https://inference.baseten.co/v1/models",
   openrouter: "https://openrouter.ai/api/v1/models",
   together: "https://api.together.xyz/v1/models",
   mistral: "https://api.mistral.ai/v1/models"
@@ -8224,7 +8505,7 @@ app.post("/api/validate-key", async (req, res) => {
     }
     const baseUrl = PROVIDER_VALIDATION_URLS[provider];
     if (baseUrl) {
-      const authPrefix = provider === "baseten" ? "Api-Key" : "Bearer";
+      const authPrefix = "Bearer";
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 1e4);
       try {
@@ -8252,9 +8533,9 @@ app.use("/api", requireApiKey);
 app.use("/mcp", requireApiKey);
 app.get("/api/settings", (_req, res) => {
   try {
-    const settingsPath = path22.join(process.cwd(), ".opencode-infinite", "settings.json");
-    if ((0, import_fs.existsSync)(settingsPath)) {
-      const data = JSON.parse((0, import_fs.readFileSync)(settingsPath, "utf-8"));
+    const settingsPath = path23.join(process.cwd(), ".opencode-infinite", "settings.json");
+    if ((0, import_fs2.existsSync)(settingsPath)) {
+      const data = JSON.parse((0, import_fs2.readFileSync)(settingsPath, "utf-8"));
       res.json(data);
     } else {
       res.json({});
@@ -8270,17 +8551,17 @@ app.post("/api/settings", (req, res) => {
       res.status(400).json({ error: "Invalid settings", details: parsed.error.format() });
       return;
     }
-    const settingsPath = path22.join(process.cwd(), ".opencode-infinite", "settings.json");
-    const dir = path22.dirname(settingsPath);
-    if (!(0, import_fs.existsSync)(dir)) (0, import_fs.mkdirSync)(dir, { recursive: true });
-    (0, import_fs.writeFileSync)(settingsPath, JSON.stringify(parsed.data, null, 2));
+    const settingsPath = path23.join(process.cwd(), ".opencode-infinite", "settings.json");
+    const dir = path23.dirname(settingsPath);
+    if (!(0, import_fs2.existsSync)(dir)) (0, import_fs2.mkdirSync)(dir, { recursive: true });
+    (0, import_fs2.writeFileSync)(settingsPath, JSON.stringify(parsed.data, null, 2));
     res.json({ saved: true });
   } catch (e) {
     res.status(500).json({ error: "Failed to save settings" });
   }
 });
 try {
-  const configData = (0, import_fs.readFileSync)(".cvr/permissions.json", "utf-8");
+  const configData = (0, import_fs2.readFileSync)(".cvr/permissions.json", "utf-8");
   const config = JSON.parse(configData);
   setPermissionEngine(new PermissionEngine(config));
 } catch {
@@ -8314,19 +8595,49 @@ registerRoutes10(app);
 registerRoutes11(app);
 registerRoutes12(app);
 registerRoutes13(app, { generateFn: generateAIContent, ...permissionEngine ? { permissionEngine } : {} });
+app.get("/api/design-active", async (_req, res) => {
+  try {
+    const brief = await getActiveDesignSystemBrief();
+    if (brief) {
+      const parsed = brief.match(/"([^"]+)"\s*\(id:\s*([^)]+)\)/);
+      res.json({
+        active: parsed ? parsed[2] : null,
+        name: parsed ? parsed[1] : null,
+        brief
+      });
+    } else {
+      res.json({ active: null, name: null, brief: null });
+    }
+  } catch (e) {
+    res.status(500).json({ error: e.message || "Failed to get active design system" });
+  }
+});
+app.get("/api/design-preview/:id", async (req, res) => {
+  try {
+    const data = await getDesignPreviewData(req.params.id);
+    if (!data) {
+      res.status(404).json({ error: `Design system "${req.params.id}" not found` });
+      return;
+    }
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message || "Failed to get design preview" });
+  }
+});
 async function startServer() {
   await ensureStorage();
   await initSync();
   await initMarketplace();
   setSessionDbPath(STORAGE_DIR2);
-  setSkillsDir(path22.join(process.cwd(), ".cvr", "skills"));
-  setSkillCreatorDir(path22.join(process.cwd(), ".cvr", "skills"));
+  setSkillsDir(path23.join(process.cwd(), ".cvr", "skills"));
+  setSkillCreatorDir(path23.join(process.cwd(), ".cvr", "skills"));
   setRagDbPath(STORAGE_DIR2);
   setCacheDbPath(STORAGE_DIR2);
   setGoalStorageDir(STORAGE_DIR2);
-  setRulesDir(path22.join(process.cwd(), ".cvr", "rules"));
-  setCustomToolsDir(path22.join(process.cwd(), ".cvr", "tools"));
-  setPluginsDir(path22.join(process.cwd(), ".cvr", "plugins"));
+  setRulesDir(path23.join(process.cwd(), ".cvr", "rules"));
+  setCustomToolsDir(path23.join(process.cwd(), ".cvr", "tools"));
+  setDesignSystemsDir(path23.join(process.cwd(), ".cvr", "design-systems"));
+  setPluginsDir(path23.join(process.cwd(), ".cvr", "plugins"));
   await loadAgents();
   await registerPlugins();
   registerBuiltinHooks();
@@ -8352,10 +8663,10 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path22.join(process.cwd(), "dist");
+    const distPath = path23.join(process.cwd(), "dist");
     app.use(import_express.default.static(distPath));
     app.get("*", (_req, res) => {
-      res.sendFile(path22.join(distPath, "index.html"));
+      res.sendFile(path23.join(distPath, "index.html"));
     });
   }
   const server = app.listen(PORT, "127.0.0.1", () => {

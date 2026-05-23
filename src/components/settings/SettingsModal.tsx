@@ -78,7 +78,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   lang = "en",
   className,
 }) => {
-  const [activeTab, setActiveTab] = useState("chat" as "chat" | "mcp");
+  const [activeTab, setActiveTab] = useState("chat" as "chat" | "mcp" | "design");
   const [localConfig, setLocalConfig] = useState<ChatConfig>(config);
   const { getModelsForProvider, fetchRemoteModels, remoteModels, isRefreshingModels } = useAIProviders();
   const [keyValidations, setKeyValidations] = useState<KeyValidationResult[]>([]);

@@ -9,7 +9,10 @@
     { "pattern": "*.env*", "action": "deny" },
     { "pattern": "*/secrets/*", "action": "deny" },
     { "pattern": "bash:rm -rf *", "action": "deny" },
-    { "pattern": "bash:git push *", "action": "ask" }
+    { "pattern": "bash:git push *", "action": "ask" },
+    { "pattern": "design_list", "action": "allow" },
+    { "pattern": "design_apply", "action": "allow" },
+    { "pattern": "design_preview", "action": "allow" }
   ],
   "defaultAction": "ask"
 }

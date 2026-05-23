@@ -13,7 +13,7 @@ async function validateKey(provider: string, apiKey: string) {
     deepseek: "https://api.deepseek.com/v1/models",
     grok: "https://api.x.ai/v1/models",
     groq: "https://api.groq.com/openai/v1/models",
-    baseten: "https://api.baseten.co/v1/models",
+    baseten: "https://inference.baseten.co/v1/models",
     openrouter: "https://openrouter.ai/api/v1/models",
     together: "https://api.together.xyz/v1/models",
     mistral: "https://api.mistral.ai/v1/models",
@@ -43,7 +43,7 @@ async function validateKey(provider: string, apiKey: string) {
 
     const baseUrl = PROVIDER_VALIDATION_URLS[provider];
     if (baseUrl) {
-      const authPrefix = provider === "baseten" ? "Api-Key" : "Bearer";
+      const authPrefix = "Bearer";
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 10000);
       try {
@@ -176,11 +176,11 @@ describe("validateKey", () => {
       expect(callArgs[1].headers.Authorization).toBe("Bearer mistral-key-abc");
     });
 
-    it("should pass Api-Key auth header for Baseten", async () => {
+    it("should pass Bearer auth header for Baseten", async () => {
       mockFetch.mockResolvedValueOnce({ ok: true, status: 200 });
       await validateKey("baseten", "baseten-key-123");
       const callArgs = mockFetch.mock.calls[0];
-      expect(callArgs[1].headers.Authorization).toBe("Api-Key baseten-key-123");
+      expect(callArgs[1].headers.Authorization).toBe("Bearer baseten-key-123");
     });
   });
 

@@ -32,7 +32,10 @@ export type ToolName =
   | "issue_create"
   | "issue_list"
   | "issue_view"
-  | "issue_comment";
+  | "issue_comment"
+  | "design_list"
+  | "design_apply"
+  | "design_preview";
 
 export interface ToolCall {
   name: ToolName;
@@ -470,6 +473,42 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       required: ["key", "body"],
     },
     isReadOnly: false,
+  },
+  {
+    name: "design_list",
+    description: "List all available design systems from .cvr/design-systems/. Returns id, name, category, and description for each.",
+    parameters: {
+      type: "object",
+      properties: {
+        category: { type: "string", description: "Optional filter by category (e.g. 'Fintech', 'Developer Tools', 'Consumer')" },
+      },
+      required: [],
+    },
+    isReadOnly: true,
+  },
+  {
+    name: "design_apply",
+    description: "Apply a design system to the current project. Returns the full DESIGN.md content (colors, typography, components, layout rules) that the AI should follow. The active design system is remembered in .cvr/design-active.json.",
+    parameters: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Design system ID (e.g. 'stripe', 'linear', 'apple', 'vercel', 'default')" },
+      },
+      required: ["id"],
+    },
+    isReadOnly: true,
+  },
+  {
+    name: "design_preview",
+    description: "Preview a design system's visual signature: colors, typography sample, and component examples. Useful for comparing design systems before applying one.",
+    parameters: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Design system ID to preview" },
+      },
+      required: ["id"],
+    },
+    isReadOnly: true,
   },
 ];
 

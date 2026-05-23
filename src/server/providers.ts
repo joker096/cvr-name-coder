@@ -142,7 +142,7 @@ function getEnvVarForProvider(provider: string): string {
 
 interface OpenAIResponse {
   error?: { message?: string };
-  choices?: Array<{ message?: { content?: string } }>;
+  choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
   usage?: { prompt_tokens?: number; completion_tokens?: number };
 }
 
@@ -197,9 +197,7 @@ class OpenAICompatibleProvider extends AIProvider {
 
     const body = buildOpenAICompatibleBody({ prompt, contents, modelName, temperature, maxTokens }, this.provider);
 
-    const authHeader = this.provider === "baseten"
-      ? `Api-Key ${key}`
-      : `Bearer ${key}`;
+    const authHeader = `Bearer ${key}`;
 
     const response = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
       method: "POST",
@@ -216,7 +214,8 @@ class OpenAICompatibleProvider extends AIProvider {
       throw new Error(message);
     }
     const data = (await response.json()) as OpenAIResponse;
-    const text = data.choices?.[0]?.message?.content ?? "";
+    const msg = data.choices?.[0]?.message;
+    const text = msg ? ((msg.reasoning_content || "") + (msg.content || "")) : "";
     const inputTokens = data.usage?.prompt_tokens || estimateTokens(prompt + contents.map((c) => c.parts?.[0]?.text || "").join(" "));
     const outputTokens = data.usage?.completion_tokens || estimateTokens(text);
     return { text, inputTokens, outputTokens };

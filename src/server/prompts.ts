@@ -4,6 +4,7 @@ import { getAgentById } from "./agentLoader.js";
 import { getMemoryContext } from "./memoryStore.js";
 import { getInstructionsContext } from "./instructionLoader.js";
 import { loadCustomTools } from "./customToolLoader.js";
+import { getActiveDesignSystem } from "./tools/design.js";
 import { stat } from "fs/promises";
 
 const AGENT_PROMPTS: Record<string, string> = {
@@ -85,6 +86,7 @@ export async function buildSystemPrompt(options: {
 
   const memoryContext = await getMemoryContext();
   const instructionsContext = await getInstructionsContext();
+  const activeDesignContext = await getActiveDesignSystem();
   const persistentContext = contextParts || memoryContext || "No previous knowledge clusters found. Kernel is in cold-start mode.";
 
   const basePrompt = `You are "cvr.name", the world's most advanced autonomous coding kernel.
@@ -126,6 +128,7 @@ AUTONOMY PROTOCOLS:
 PERSISTENT CONTEXT CLUSTERS:
 ${persistentContext}
 ${instructionsContext ? "\n" + instructionsContext : ""}
+${activeDesignContext ? "\n\n" + activeDesignContext : ""}
 `;
 
   let resultPrompt: string;

@@ -1,7 +1,7 @@
 import React from "react";
 import { cn } from "../../utils/cn";
 
-export type SettingsTab = "chat" | "kernel" | "mcp";
+export type SettingsTab = "chat" | "kernel" | "mcp" | "design";
 
 export interface SettingsTabConfig {
   id: SettingsTab;

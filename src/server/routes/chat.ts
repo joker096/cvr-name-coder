@@ -263,7 +263,7 @@ export function registerRoutes(app: Application) {
         deepseek: "https://api.deepseek.com/v1",
         grok: "https://api.x.ai/v1",
         groq: "https://api.groq.com/openai/v1",
-        baseten: "https://api.baseten.co/v1",
+        baseten: "https://inference.baseten.co/v1",
         openrouter: "https://openrouter.ai/api/v1",
         together: "https://api.together.xyz/v1",
         mistral: "https://api.mistral.ai/v1",
@@ -301,19 +301,17 @@ export function registerRoutes(app: Application) {
       if (provider === "baseten") {
         const key = apiKey || process.env.BASETEN_API_KEY || "";
         if (!key) { res.status(400).json({ error: "API key required — set BASETEN_API_KEY env var" }); return; }
-        const resp = await fetch("https://api.baseten.co/v1/models", {
-          headers: { Authorization: `Api-Key ${key}`, "Content-Type": "application/json" },
+        const resp = await fetch("https://inference.baseten.co/v1/models", {
+          headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
         });
         if (!resp.ok) {
-          res.status(resp.status).json({ error: `Baseten API: ${resp.status} — deploy models at baseten.co/library` });
+          const errText = await resp.text().catch(() => "");
+          res.status(resp.status).json({ error: `Baseten API: ${resp.status} — ${errText.slice(0, 200)}` });
           return;
         }
         const data = await resp.json() as any;
-        const models = (data.models || [])
-          .filter((m: any) => m.status === "ACTIVE" || m.status === "READY")
-          .sort((a: any, b: any) => (a.name || "").localeCompare(b.name || ""))
-          .map((m: any) => ({ id: m.id || m.model_id || "", name: m.name || m.id || m.model_id || "" }));
-        res.json({ models, note: "Only deployed models shown. Deploy from baseten.co/library" });
+        const models = (data.data || []).map((m: any) => ({ id: m.id || "", name: m.id || "" }));
+        res.json({ models });
         return;
       }
 
@@ -328,7 +326,7 @@ export function registerRoutes(app: Application) {
       const key = apiKey || process.env[envKeyMap[provider] || ""] || "";
       if (!key) { res.status(400).json({ error: "API key required — set via env var or enter in settings" }); return; }
 
-      const authPrefix = provider === "baseten" ? "Api-Key" : "Bearer";
+      const authPrefix = "Bearer";
       const resp = await fetch(`${baseUrl.replace(/\/$/, "")}/models`, {
         headers: { Authorization: `${authPrefix} ${key}`, "Content-Type": "application/json" },
       });

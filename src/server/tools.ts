@@ -39,6 +39,11 @@ import {
   executeBrowserGetHtml,
   executeBrowserClose,
 } from "./tools/browser.js";
+import {
+  executeDesignList,
+  executeDesignApply,
+  executeDesignPreview,
+} from "./tools/design.js";
 
 export { setRagFn as setRagEmbedFn };
 
@@ -218,6 +223,15 @@ export async function executeTool(
         break;
       case "browser_close":
         result = await executeBrowserClose(sessionId);
+        break;
+      case "design_list":
+        result = await executeDesignList(params);
+        break;
+      case "design_apply":
+        result = await executeDesignApply(params);
+        break;
+      case "design_preview":
+        result = await executeDesignPreview(params);
         break;
       default: {
         const customTools = await loadCustomTools();

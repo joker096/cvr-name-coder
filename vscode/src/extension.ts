@@ -29,6 +29,7 @@ import { indexProject } from '../../src/server/projectOracle.js';
 import { loadInstructions, getInstructionsContext, setRulesDir, saveInstruction, deleteInstruction } from '../../src/server/instructionLoader.js';
 import { loadCustomTools, setCustomToolsDir } from '../../src/server/customToolLoader.js';
 import { loadPlugins, registerPlugins, getPlugins, enablePlugin, disablePlugin, setPluginsDir } from '../../src/server/pluginManager.js';
+import { setDesignSystemsDir } from '../../src/server/tools/design.js';
 import { cronScheduler } from '../../src/server/cronScheduler.js';
 import { loadMcpConfig, mountMcpSseRoutes } from '../../src/server/mcpServer.js';
 import { initSync } from '../../src/server/teamSync.js';
@@ -370,7 +371,7 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
     deepseek: 'https://api.deepseek.com/v1/models',
     grok: 'https://api.x.ai/v1/models',
     groq: 'https://api.groq.com/openai/v1/models',
-    baseten: 'https://api.baseten.co/v1/models',
+    baseten: 'https://inference.baseten.co/v1/models',
     openrouter: 'https://openrouter.ai/api/v1/models',
     together: 'https://api.together.xyz/v1/models',
     mistral: 'https://api.mistral.ai/v1/models',
@@ -406,7 +407,7 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
 
       const baseUrl = PROVIDER_VALIDATION_URLS[provider];
       if (baseUrl) {
-        const authPrefix = provider === 'baseten' ? 'Api-Key' : 'Bearer';
+        const authPrefix = 'Bearer';
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 10000);
         try {
@@ -480,6 +481,7 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
   setRulesDir(resolveCvrDir('rules'));
   setCustomToolsDir(resolveCvrDir('tools'));
   setPluginsDir(resolveCvrDir('plugins'));
+  setDesignSystemsDir(path.resolve(process.cwd(), '.cvr', 'design-systems'));
   setAgentsDir(resolveCvrDir('agents'));
 
   // Initialize Permission Engine
@@ -603,7 +605,7 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
       const bodyObj: any = { model, messages: msgs, stream: true };
       if (temperature !== undefined) bodyObj.temperature = temperature;
       if (maxTokens !== undefined) bodyObj.max_tokens = maxTokens;
-      const authHeader = provider === 'baseten' ? `Api-Key ${key}` : `Bearer ${key}`;
+      const authHeader = `Bearer ${key}`;
       const response = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': authHeader },
@@ -633,7 +635,8 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
           if (jsonStr === '[DONE]') return;
           try {
             const chunk = JSON.parse(jsonStr);
-            const text = chunk.choices?.[0]?.delta?.content || chunk.choices?.[0]?.text || '';
+            const delta = chunk.choices?.[0]?.delta;
+            const text = delta?.reasoning_content || delta?.content || chunk.choices?.[0]?.text || '';
             if (text) onToken(text);
           } catch {}
         }
@@ -1216,6 +1219,35 @@ Complete the code at the cursor position:`;
   });
 
   registerGoalRoutes(app, { generateFn: generateAIContent, permissionEngine });
+
+  app.get('/api/design-active', async (_req: any, res: any) => {
+    try {
+      const { getActiveDesignSystemBrief } = await import('../../src/server/tools/design.js');
+      const brief = await getActiveDesignSystemBrief();
+      if (brief) {
+        const parsed = brief.match(/"([^"]+)"\s*\(id:\s*([^)]+)\)/);
+        res.json({ active: parsed ? parsed[2] : null, name: parsed ? parsed[1] : null, brief });
+      } else {
+        res.json({ active: null, name: null, brief: null });
+      }
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Failed to get active design system" });
+    }
+  });
+
+  app.get('/api/design-preview/:id', async (req: any, res: any) => {
+    try {
+      const { getDesignPreviewData } = await import('../../src/server/tools/design.js');
+      const data = await getDesignPreviewData(req.params.id);
+      if (!data) {
+        res.status(404).json({ error: `Design system "${req.params.id}" not found` });
+        return;
+      }
+      res.json(data);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Failed to get design preview" });
+    }
+  });
 
   // Subagent API routes
   app.post('/api/subagents/spawn', async (req: any, res: any) => {

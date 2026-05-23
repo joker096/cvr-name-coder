@@ -3,7 +3,7 @@ import { loadSkills, getSkillById } from "../skillLoader.js";
 
 export async function executeSkillList(): Promise<ToolResult> {
   const skills = await loadSkills();
-  const list = skills.map((s) => ({ id: s.id, name: s.name, description: s.description, triggers: s.triggers }));
+  const list = skills.map((s) => ({ id: s.id, name: s.name, description: s.description, triggers: s.triggers, od: s.od }));
   return { success: true, output: JSON.stringify(list, null, 2) };
 }
 

@@ -4,6 +4,7 @@ import { SettingsTabs } from "./SettingsTabs";
 import { AIEngineTab } from "./AIEngineTab";
 import { GlobalSettingsSection } from "./GlobalSettingsSection";
 import { VoiceSettingsSection } from "./VoiceSettingsSection";
+import { DesignSystemsTab } from "./DesignSystemsTab";
 import type { Provider } from "./ProviderSelector";
 import type { KeyValidationResult } from "./ModelConfig";
 import type { ChatConfig, Preset, AgentId, ChatProviderId } from "../../types/settings";
@@ -94,6 +95,7 @@ export const SettingsBody: React.FC<SettingsBodyProps> = ({
 }) => {
   const tabs = [
     { id: "chat" as const, label: t.chatEngine || "AI Engine" },
+    { id: "design" as const, label: "Design" },
     { id: "mcp" as const, label: "MCP" },
   ];
 
@@ -136,6 +138,16 @@ export const SettingsBody: React.FC<SettingsBodyProps> = ({
               onPresetDelete={onPresetDelete}
               t={t}
             />
+          </motion.div>
+        )}
+        {activeTab === "design" && (
+          <motion.div
+            key="design"
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 20 }}
+          >
+            <DesignSystemsTab />
           </motion.div>
         )}
         {activeTab === "mcp" && (

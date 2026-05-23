@@ -42,6 +42,8 @@ import { registerRoutes as registerTrackerRoutes } from "./src/server/routes/tra
 import { registerRoutes as registerMarketplaceRoutes } from "./src/server/routes/marketplace.js";
 import { registerRoutes as registerToolRoutes } from "./src/server/routes/tools.js";
 import { registerRoutes as registerGoalRoutes } from "./src/server/routes/goal.js";
+import { getActiveDesignSystemBrief, getDesignPreviewData } from "./src/server/tools/design.js";
+import { setDesignSystemsDir } from "./src/server/tools/design.js";
 
 dotenv.config();
 
@@ -58,7 +60,7 @@ const PROVIDER_VALIDATION_URLS: Record<string, string> = {
   deepseek: "https://api.deepseek.com/v1/models",
   grok: "https://api.x.ai/v1/models",
   groq: "https://api.groq.com/openai/v1/models",
-  baseten: "https://api.baseten.co/v1/models",
+  baseten: "https://inference.baseten.co/v1/models",
   openrouter: "https://openrouter.ai/api/v1/models",
   together: "https://api.together.xyz/v1/models",
   mistral: "https://api.mistral.ai/v1/models",
@@ -94,7 +96,7 @@ app.post("/api/validate-key", async (req, res) => {
 
     const baseUrl = PROVIDER_VALIDATION_URLS[provider];
     if (baseUrl) {
-      const authPrefix = provider === "baseten" ? "Api-Key" : "Bearer";
+      const authPrefix = "Bearer";
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 10000);
       try {
@@ -195,6 +197,37 @@ registerMarketplaceRoutes(app);
 registerToolRoutes(app);
 registerGoalRoutes(app, { generateFn: generateAIContent, ...(permissionEngine ? { permissionEngine } : {}) });
 
+app.get("/api/design-active", async (_req, res) => {
+  try {
+    const brief = await getActiveDesignSystemBrief();
+    if (brief) {
+      const parsed = brief.match(/"([^"]+)"\s*\(id:\s*([^)]+)\)/);
+      res.json({
+        active: parsed ? parsed[2] : null,
+        name: parsed ? parsed[1] : null,
+        brief,
+      });
+    } else {
+      res.json({ active: null, name: null, brief: null });
+    }
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Failed to get active design system" });
+  }
+});
+
+app.get("/api/design-preview/:id", async (req, res) => {
+  try {
+    const data = await getDesignPreviewData(req.params.id);
+    if (!data) {
+      res.status(404).json({ error: `Design system "${req.params.id}" not found` });
+      return;
+    }
+    res.json(data);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Failed to get design preview" });
+  }
+});
+
 async function startServer() {
   await ensureStorage();
   await initSync();
@@ -207,6 +240,7 @@ async function startServer() {
   setGoalStorageDir(STORAGE_DIR);
   setRulesDir(path.join(process.cwd(), ".cvr", "rules"));
   setCustomToolsDir(path.join(process.cwd(), ".cvr", "tools"));
+  setDesignSystemsDir(path.join(process.cwd(), ".cvr", "design-systems"));
   setPluginsDir(path.join(process.cwd(), ".cvr", "plugins"));
   await loadAgents();
   await registerPlugins();
