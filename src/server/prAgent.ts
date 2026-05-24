@@ -15,6 +15,7 @@ async function runGit(args: string[]): Promise<string> {
   return stdout.trim();
 }
 
+/** Context gathered from git for pull request generation. */
 export interface PRContext {
   branch: string;
   baseBranch: string;
@@ -25,6 +26,7 @@ export interface PRContext {
   behind: number;
 }
 
+/** Result of creating or attempting to create a pull request. */
 export interface PRResult {
   title: string;
   description: string;
@@ -35,6 +37,12 @@ export interface PRResult {
   error?: string;
 }
 
+/**
+ * Gathers git context needed for PR generation including diff, commits, and branch info.
+ * Detects the base branch from origin/HEAD, falling back to main, then master.
+ * @returns PRContext with branch details, diff, and commit history
+ * @throws {Error} If the current directory is not a git repository
+ */
 export async function gatherPRContext(): Promise<PRContext> {
   if (!(await hasGitRepo())) throw new Error("Not a git repository");
 
@@ -66,6 +74,14 @@ export async function gatherPRContext(): Promise<PRContext> {
   };
 }
 
+/**
+ * Generates a pull request title and description using AI.
+ * The AI is prompted with branch info, changed files, commits, and diff (truncated to 4000 chars).
+ * Falling back to a generic title/description if JSON parsing fails.
+ * @param ctx - The PR context gathered from git
+ * @param thinkFn - AI callback that takes a prompt and returns a JSON response
+ * @returns Object with generated title and description
+ */
 export async function generatePRDescription(
   ctx: PRContext,
   thinkFn: (prompt: string) => Promise<string>
@@ -111,6 +127,15 @@ Output ONLY a JSON object (no markdown, no code fences):
   }
 }
 
+/**
+ * Creates a GitHub pull request using the gh CLI.
+ * On failure, returns a PRResult with the error message instead of throwing.
+ * @param title - PR title
+ * @param description - PR body/description
+ * @param baseBranch - The target base branch
+ * @param draft - Whether to create as a draft PR (default false)
+ * @returns PRResult with PR URL on success, or error message on failure
+ */
 export async function createGitHubPR(
   title: string,
   description: string,
@@ -142,6 +167,11 @@ export async function createGitHubPR(
   }
 }
 
+/**
+ * Lists all open pull requests using the gh CLI in JSON format.
+ * @returns JSON string with PR numbers, titles, and branch info
+ * @throws {Error} If gh CLI is not available
+ */
 export async function listOpenPRs(): Promise<string> {
   try {
     return await runGit(["pr", "list", "--state", "open", "--json", "number,title,headRefName,baseRefName,url"]);
@@ -150,18 +180,36 @@ export async function listOpenPRs(): Promise<string> {
   }
 }
 
+/**
+ * Creates and switches to a new git branch.
+ * @param branchName - Name of the new branch
+ * @returns Git command output
+ */
 export async function createBranch(branchName: string): Promise<string> {
   return await runGit(["checkout", "-b", branchName]);
 }
 
+/**
+ * Switches to an existing git branch.
+ * @param branchName - Name of the branch to switch to
+ * @returns Git command output
+ */
 export async function switchBranch(branchName: string): Promise<string> {
   return await runGit(["checkout", branchName]);
 }
 
+/**
+ * Lists all branches (local and remote).
+ * @returns Git branch output
+ */
 export async function listBranches(): Promise<string> {
   return await runGit(["branch", "-a"]);
 }
 
+/**
+ * Determines the default branch by checking origin/HEAD, falling back to main or master.
+ * @returns The default branch name
+ */
 export async function getDefaultBranch(): Promise<string> {
   try {
     return await runGit(["rev-parse", "--abbrev-ref", "origin/HEAD"]);

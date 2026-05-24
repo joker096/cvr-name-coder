@@ -118,6 +118,13 @@ export class PermissionEngine {
     }
   }
 
+  /**
+   * Waits for a pending permission request to be resolved.
+   * Returns false if the request times out or is not found.
+   * @param id - The pending permission ID to wait for
+   * @param timeoutMs - Maximum time to wait in milliseconds
+   * @returns A Promise resolving to true if approved, false if denied or timed out
+   */
   async waitForResolution(id: string, timeoutMs: number): Promise<boolean> {
     const pending = this.pending.get(id);
     if (!pending) return false;
@@ -138,14 +145,27 @@ export class PermissionEngine {
     });
   }
 
+  /**
+   * Retrieves a pending permission request by ID.
+   * @param id - The pending permission ID
+   * @returns The pending permission, or undefined if not found
+   */
   getPending(id: string): PendingPermission | undefined {
     return this.pending.get(id);
   }
 
+  /**
+   * Lists all unresolved (not yet approved/denied) pending permissions.
+   * @returns Array of unresolved pending permissions
+   */
   listPending(): PendingPermission[] {
     return Array.from(this.pending.values()).filter((p) => !p.resolved);
   }
 
+  /**
+   * Removes all resolved (approved or denied) pending permissions from memory.
+   * Prevents memory accumulation from old permission requests.
+   */
   clearResolved(): void {
     for (const [id, p] of this.pending) {
       if (p.resolved) this.pending.delete(id);

@@ -15,6 +15,17 @@ let _skillsDir = SKILLS_DIR;
 let _cache: SkillDefinition[] | null = null;
 let _lastLoad = 0;
 
+/**
+ * Sets the directory from which skill markdown files are loaded and clears the in-memory cache.
+ *
+ * @param dir - The directory path containing skill definition files.
+ */
+/**
+ * Sets the directory from which skills are loaded.
+ * Clears the in-memory cache so skills will be re-read on next load.
+ *
+ * @param dir - Absolute or relative path to the skills directory.
+ */
 export function setSkillsDir(dir: string): void {
   _skillsDir = dir;
   _cache = null;
@@ -87,6 +98,21 @@ async function findSkillFiles(dir: string): Promise<string[]> {
   return results;
 }
 
+/**
+ * Loads all skill definitions from markdown files in the skills directory.
+ * Results are cached for 30 seconds unless {@link force} is true.
+ *
+ * @param force - If true, bypasses the cache and re-reads from disk.
+ * @returns An array of parsed {@link SkillDefinition} objects.
+ */
+/**
+ * Loads all skill definition files from the skills directory.
+ * Results are cached for 30 seconds unless force is true.
+ * Each `.md` file must have YAML frontmatter with id, name, description, and optional triggers.
+ *
+ * @param force - If true, bypasses the cache and re-reads all files from disk.
+ * @returns Array of parsed {@link SkillDefinition} objects.
+ */
 export async function loadSkills(force = false): Promise<SkillDefinition[]> {
   if (!force && _cache && Date.now() - _lastLoad < 30_000) {
     return _cache;
@@ -126,11 +152,36 @@ export async function loadSkills(force = false): Promise<SkillDefinition[]> {
   }
 }
 
+/**
+ * Looks up a single skill by its unique identifier.
+ *
+ * @param id - The skill ID to search for.
+ * @returns The matching {@link SkillDefinition} or `undefined` if not found.
+ */
+/**
+ * Looks up a single skill by its unique ID.
+ *
+ * @param id - The skill identifier to find.
+ * @returns The matching {@link SkillDefinition}, or undefined if not found.
+ */
 export async function getSkillById(id: string): Promise<SkillDefinition | undefined> {
   const skills = await loadSkills();
   return skills.find((s) => s.id === id);
 }
 
+/**
+ * Finds skills whose trigger keywords appear in the given text (case-insensitive).
+ *
+ * @param text - The text to match against skill triggers.
+ * @returns An array of matching {@link SkillDefinition} objects.
+ */
+/**
+ * Finds skills whose trigger keywords appear in the given text.
+ * Matching is case-insensitive.
+ *
+ * @param text - The text to search for trigger keywords (typically a user message).
+ * @returns Array of matching {@link SkillDefinition} objects.
+ */
 export async function matchSkillsByTrigger(text: string): Promise<SkillDefinition[]> {
   const skills = await loadSkills();
   const lower = text.toLowerCase();

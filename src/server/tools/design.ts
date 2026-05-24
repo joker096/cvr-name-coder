@@ -8,10 +8,17 @@ const ACTIVE_DESIGN_FILE = path.resolve(process.cwd(), ".cvr", "design-active.js
 
 let _designSysDir = DESIGN_SYSTEMS_DIR;
 
+/**
+ * Overrides the directory where design system definitions are stored.
+ * @param dir - The absolute path to the design systems directory.
+ */
 export function setDesignSystemsDir(dir: string): void {
   _designSysDir = dir;
 }
 
+/**
+ * Metadata describing a loaded design system.
+ */
 interface DesignSystemMeta {
   id: string;
   name: string;
@@ -20,6 +27,11 @@ interface DesignSystemMeta {
   path: string;
 }
 
+/**
+ * Parses the name, category, and description from a DESIGN.md file's raw content.
+ * @param content - The raw markdown content of a DESIGN.md file.
+ * @returns The parsed name, category, and description.
+ */
 function parseDesignName(content: string): { name: string; category: string; description: string } {
   const lines = content.split("\n");
   let name = "";
@@ -39,6 +51,10 @@ function parseDesignName(content: string): { name: string; category: string; des
   return { name: name || "Unknown", category, description: description || "No description available" };
 }
 
+/**
+ * Scans the design systems directory and returns metadata for all discovered design systems.
+ * @returns An array of design system metadata objects.
+ */
 async function findDesignSystems(): Promise<DesignSystemMeta[]> {
   const results: DesignSystemMeta[] = [];
   try {
@@ -65,11 +81,21 @@ async function findDesignSystems(): Promise<DesignSystemMeta[]> {
   return results;
 }
 
+/**
+ * Looks up a single design system by its identifier.
+ * @param id - The design system identifier.
+ * @returns The design system metadata, or undefined if not found.
+ */
 async function getDesignSystem(id: string): Promise<DesignSystemMeta | undefined> {
   const systems = await findDesignSystems();
   return systems.find((s) => s.id === id);
 }
 
+/**
+ * Lists all available design systems, optionally filtered by category.
+ * @param params - Contains optional `category` filter string.
+ * @returns A tool result with JSON-encoded list of design systems.
+ */
 export async function executeDesignList(params: Record<string, unknown>): Promise<ToolResult> {
   const categoryFilter = params.category ? String(params.category).toLowerCase() : undefined;
   const systems = await findDesignSystems();
@@ -96,6 +122,11 @@ export async function executeDesignList(params: Record<string, unknown>): Promis
   return { success: true, output: JSON.stringify({ systems: output, count: output.length }, null, 2) };
 }
 
+/**
+ * Activates a design system by its identifier, persisting the choice to disk.
+ * @param params - Contains `id` (the design system identifier to activate).
+ * @returns A tool result with the full design system content for the AI to follow.
+ */
 export async function executeDesignApply(params: Record<string, unknown>): Promise<ToolResult> {
   const designId = String(params.id);
   const system = await getDesignSystem(designId);
@@ -125,6 +156,11 @@ export async function executeDesignApply(params: Record<string, unknown>): Promi
   };
 }
 
+/**
+ * Generates a preview of a design system including colors, typography, and visual theme summary.
+ * @param params - Contains `id` (the design system identifier to preview).
+ * @returns A tool result with a formatted markdown preview string.
+ */
 export async function executeDesignPreview(params: Record<string, unknown>): Promise<ToolResult> {
   const designId = String(params.id);
   const system = await getDesignSystem(designId);
@@ -165,6 +201,10 @@ export async function executeDesignPreview(params: Record<string, unknown>): Pro
   return { success: true, output: preview };
 }
 
+/**
+ * Retrieves the currently active design system content for inclusion in the system prompt.
+ * @returns The full design system markdown content, or null if no system is active.
+ */
 export async function getActiveDesignSystem(): Promise<string | null> {
   try {
     const raw = await readFile(ACTIVE_DESIGN_FILE, "utf-8");
@@ -180,6 +220,10 @@ export async function getActiveDesignSystem(): Promise<string | null> {
   }
 }
 
+/**
+ * Retrieves a brief one-line description of the currently active design system.
+ * @returns A short string describing the active design system, or null if none is active.
+ */
 export async function getActiveDesignSystemBrief(): Promise<string | null> {
   try {
     const raw = await readFile(ACTIVE_DESIGN_FILE, "utf-8");
@@ -190,6 +234,9 @@ export async function getActiveDesignSystemBrief(): Promise<string | null> {
   }
 }
 
+/**
+ * Resolved CSS style values parsed from a design system definition.
+ */
 export interface DesignPreviewStyles {
   background: string;
   surface: string;
@@ -211,6 +258,9 @@ export interface DesignPreviewStyles {
   buttonPadding: string;
 }
 
+/**
+ * Structured preview data extracted from a design system for rendering UI previews.
+ */
 export interface DesignPreviewData {
   id: string;
   name: string;
@@ -224,6 +274,11 @@ export interface DesignPreviewData {
   styles: DesignPreviewStyles;
 }
 
+/**
+ * Extracts structured preview data from a design system by its identifier.
+ * @param id - The design system identifier.
+ * @returns Parsed preview data, or null if the design system is not found.
+ */
 export async function getDesignPreviewData(id: string): Promise<DesignPreviewData | null> {
   const system = await getDesignSystem(id);
   if (!system) return null;
@@ -272,6 +327,11 @@ export async function getDesignPreviewData(id: string): Promise<DesignPreviewDat
   };
 }
 
+/**
+ * Parses CSS style values from a design system's markdown sections.
+ * @param content - The raw DESIGN.md content.
+ * @returns Resolved style values with defaults applied.
+ */
 function parseDesignStyles(content: string): DesignPreviewStyles {
   const styles: DesignPreviewStyles = {
     background: "#FAFAFA",
@@ -378,6 +438,11 @@ function parseDesignStyles(content: string): DesignPreviewStyles {
   return styles;
 }
 
+/**
+ * Parses a markdown color table into a name-to-hex-color map.
+ * @param table - The raw markdown table string from the Color Palette section.
+ * @returns A record mapping color names to their hex values.
+ */
 function parseColorTable(table: string): Record<string, string> {
   const map: Record<string, string> = {};
   for (const line of table.split("\n")) {
@@ -389,6 +454,11 @@ function parseColorTable(table: string): Record<string, string> {
   return map;
 }
 
+/**
+ * Calculates the perceived brightness of a hex color (0-255 range).
+ * @param hex - A hex color string (e.g. "#FF0000").
+ * @returns The perceived brightness value.
+ */
 function hexBrightness(hex: string): number {
   const r = parseInt(hex.slice(1, 3), 16);
   const g = parseInt(hex.slice(3, 5), 16);
@@ -396,12 +466,24 @@ function hexBrightness(hex: string): number {
   return (r * 299 + g * 587 + b * 114) / 1000;
 }
 
+/**
+ * Converts a hex color string to an RGB tuple.
+ * @param hex - A hex color string (e.g. "#FF0000").
+ * @returns An [R, G, B] tuple, or null if the hex string is invalid.
+ */
 function hexToRgb(hex: string): [number, number, number] | null {
   const m = hex.match(/^#([\dA-Fa-f]{2})([\dA-Fa-f]{2})([\dA-Fa-f]{2})$/);
   if (!m || !m[1] || !m[2] || !m[3]) return null;
   return [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)];
 }
 
+/**
+ * Converts RGB values to a hex color string.
+ * @param r - Red component (0-255).
+ * @param g - Green component (0-255).
+ * @param b - Blue component (0-255).
+ * @returns The hex color string (e.g. "#FF0000").
+ */
 function rgbToHex(r: number, g: number, b: number): string {
   return `#${[r, g, b].map((c) => Math.max(0, Math.min(255, c)).toString(16).padStart(2, "0")).join("")}`;
 }

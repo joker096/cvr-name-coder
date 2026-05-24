@@ -1,25 +1,55 @@
 import { mkdir, writeFile } from "fs/promises";
 import * as path from "path";
 
+/**
+ * Supported CI/CD pipeline types.
+ * - `node-ci`: Type-check, lint, test, and build workflow
+ * - `docker-deploy`: Build and push a Docker image
+ * - `cvr-agent`: Run the CVR agent on issues and PRs
+ * - `static-deploy`: Build and deploy a static site
+ */
 export type PipelineType = "node-ci" | "docker-deploy" | "cvr-agent" | "static-deploy";
+
+/**
+ * Supported deployment targets for CI pipelines.
+ */
 export type DeployTarget = "github-pages" | "vercel" | "cloudflare" | "docker-hub" | "custom";
 
+/**
+ * Configuration options for generating a CI/CD pipeline workflow.
+ */
 export interface CIConfig {
+  /** The type of CI pipeline to generate */
   pipelineType: PipelineType;
+  /** Display name for the project */
   projectName: string;
+  /** Node.js version to use (default: "20") */
   nodeVersion?: string;
+  /** Build command to run (default: "npm run build") */
   buildCommand?: string;
+  /** Test command to run (default: "npm test") */
   testCommand?: string;
+  /** Lint command to run (default: none) */
   lintCommand?: string;
+  /** Type-check command to run (default: none) */
   typeCheckCommand?: string;
+  /** Deployment target for deploy pipelines */
   deployTarget?: DeployTarget;
+  /** Path to Dockerfile (default: "Dockerfile") */
   dockerfile?: string;
+  /** Additional custom YAML steps to append */
   customSteps?: string;
 }
 
+/**
+ * Result of generating a CI/CD pipeline workflow.
+ */
 export interface CIResult {
+  /** List of generated files (relative paths) */
   files: string[];
+  /** Type of pipeline that was generated */
   pipelineType: string;
+  /** Absolute path to the workflow directory */
   path: string;
 }
 
@@ -235,6 +265,13 @@ ${deploySteps}
 `;
 }
 
+/**
+ * Generates a GitHub Actions workflow YAML file based on the provided configuration.
+ * The workflow file is written to `.github/workflows/` in the current working directory.
+ * @param config - Pipeline configuration specifying type, commands, and deployment target
+ * @returns A {@link CIResult} with the generated file paths and workflow directory
+ * @throws If an unknown pipeline type is specified
+ */
 export async function generateCIPipeline(config: CIConfig): Promise<CIResult> {
   const dir = await ensureWorkflowDir();
   let content: string;
@@ -270,6 +307,10 @@ export async function generateCIPipeline(config: CIConfig): Promise<CIResult> {
   };
 }
 
+/**
+ * Available pipeline templates that can be presented to users for selection.
+ * Each template includes a type identifier, human-readable name, and description.
+ */
 export const PIPELINE_TEMPLATES: Array<{ type: PipelineType; name: string; description: string }> = [
   { type: "node-ci", name: "Node.js CI", description: "Type-check, lint, test, and build on push/PR" },
   { type: "docker-deploy", name: "Docker Build & Deploy", description: "Build Docker image and push to registry" },

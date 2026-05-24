@@ -11,6 +11,10 @@ const execFileAsync = promisify(execFile);
 const TOOLS_DIR = path.resolve(process.cwd(), ".cvr", "tools");
 let _toolsDir = TOOLS_DIR;
 
+/**
+ * Sets the directory from which custom tool JSON definitions are loaded.
+ * @param dir - Absolute or relative path to the custom tools directory.
+ */
 export function setCustomToolsDir(dir: string): void {
   _toolsDir = dir;
 }
@@ -21,6 +25,13 @@ interface ParsedToolJson {
   handler?: { type?: string };
 }
 
+/**
+ * Loads all custom tool definitions from the configured tools directory.
+ * Each `.json` file is parsed as a {@link CustomToolDefinition}. Tools using
+ * the `"node"` handler type are skipped for security reasons.
+ *
+ * @returns An array of valid {@link CustomToolDefinition} objects.
+ */
 export async function loadCustomTools(): Promise<CustomToolDefinition[]> {
   try {
     await access(_toolsDir);
@@ -57,6 +68,15 @@ function shellEscape(str: string): string {
   return "'" + str.replace(/'/g, "'\"'\"'") + "'";
 }
 
+/**
+ * Executes a custom tool with the given parameters.
+ * Supports `"command"` handler type only; the `{param}` placeholders in the
+ * command template are replaced with shell-escaped parameter values.
+ *
+ * @param definition - The custom tool definition loaded from a JSON file.
+ * @param params - Key-value map of parameter values to substitute.
+ * @returns A {@link CustomToolResult} indicating success/failure and output.
+ */
 export async function executeCustomTool(
   definition: CustomToolDefinition,
   params: Record<string, unknown>

@@ -47,4 +47,4 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
   }
 }
 
-export { hasGeminiEmbeddingsConfigured };
+export { hasGeminiEmbeddingsConfigured, getGemini };

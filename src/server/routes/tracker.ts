@@ -1,6 +1,18 @@
 import type { Application, Request, Response } from "express";
 import { setTrackerConfig, createIssue as createTrackerIssue, listIssues as listTrackerIssues, getIssue as getTrackerIssue, addComment as addTrackerComment } from "../issueTracker.js";
 
+/**
+ * Registers issue tracker API routes on the Express application.
+ *
+ * Routes:
+ * - `POST /api/tracker/config` — Configure the tracker provider (type, token, baseUrl, repo, project).
+ * - `POST /api/tracker/issues` — Create a new issue with title, description, priority, and labels.
+ * - `GET /api/tracker/issues` — List issues, optionally filtered by status and limited by count.
+ * - `GET /api/tracker/issues/:key` — Retrieve a single issue by its key.
+ * - `POST /api/tracker/issues/:key/comment` — Add a comment to an issue.
+ *
+ * @param app - The Express Application instance to register routes on.
+ */
 export function registerRoutes(app: Application) {
   app.post("/api/tracker/config", (req: Request, res: Response) => {
     try {

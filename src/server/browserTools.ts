@@ -51,6 +51,9 @@ export function getBrowserConfig(): BrowserConfig {
   return { ..._config };
 }
 
+/**
+ * Internal representation of an active Playwright browser session.
+ */
 interface BrowserSession {
   browser: any;
   context: any;
@@ -178,7 +181,7 @@ export async function closeAllBrowsers(): Promise<void> {
  * Validates a URL for browser navigation.
  * Blocks local/internal addresses for security.
  * @param url - URL to validate
- * @returns Error message if invalid, null if valid
+ * @returns Error message if invalid, `null` if valid
  */
 export function validateBrowserUrl(url: string): string | null {
   try {
@@ -208,7 +211,7 @@ export function validateBrowserUrl(url: string): string | null {
 
 /**
  * Cleans up browser sessions that have exceeded their TTL.
- * @param now - Current timestamp (defaults to Date.now())
+ * @param now - Current timestamp (defaults to `Date.now()`)
  * @returns Array of closed session IDs
  */
 export async function cleanupStaleBrowserSessions(now = Date.now()): Promise<string[]> {
@@ -227,7 +230,7 @@ export async function cleanupStaleBrowserSessions(now = Date.now()): Promise<str
  * Navigates a browser session to a URL.
  * @param sessionId - Unique identifier for the browser session
  * @param url - URL to navigate to
- * @param headless - Whether to run in headless mode (default: true)
+ * @param headless - Whether to run in headless mode (default: `true`)
  * @returns Result object with success status and page title
  */
 export async function browserNavigate(sessionId: string, url: string, headless = true): Promise<{ success: boolean; output: string; error?: string }> {
@@ -251,7 +254,7 @@ export async function browserNavigate(sessionId: string, url: string, headless =
  * Clicks an element on the page.
  * @param sessionId - Unique identifier for the browser session
  * @param selector - CSS selector for the element
- * @param headless - Whether to run in headless mode (default: true)
+ * @param headless - Whether to run in headless mode (default: `true`)
  * @returns Result object with success status
  */
 export async function browserClick(sessionId: string, selector: string, headless = true): Promise<{ success: boolean; output: string; error?: string }> {
@@ -266,6 +269,14 @@ export async function browserClick(sessionId: string, selector: string, headless
   }
 }
 
+/**
+ * Types text into a form field identified by a CSS selector.
+ * @param sessionId - Unique identifier for the browser session
+ * @param selector - CSS selector for the input element
+ * @param text - Text to type into the field
+ * @param headless - Whether to run in headless mode (default: `true`)
+ * @returns Result object with success status
+ */
 export async function browserType(sessionId: string, selector: string, text: string, headless = true): Promise<{ success: boolean; output: string; error?: string }> {
   try {
     const session = await getOrCreateSession(sessionId, headless);
@@ -278,6 +289,12 @@ export async function browserType(sessionId: string, selector: string, text: str
   }
 }
 
+/**
+ * Captures a screenshot of the current page.
+ * @param sessionId - Unique identifier for the browser session
+ * @param headless - Whether to run in headless mode (default: `true`)
+ * @returns Result object with success status and optional base64-encoded PNG data
+ */
 export async function browserScreenshot(sessionId: string, headless = true): Promise<{ success: boolean; output: string; error?: string; base64?: string }> {
   try {
     const session = await getOrCreateSession(sessionId, headless);
@@ -291,14 +308,20 @@ export async function browserScreenshot(sessionId: string, headless = true): Pro
   }
 }
 
+/**
+ * Evaluates a JavaScript expression in the browser page context.
+ * The script is executed in an isolated page context via Playwright's evaluate.
+ * Script length is limited by {@link BrowserConfig.scriptMaxLength}.
+ * @param sessionId - Unique identifier for the browser session
+ * @param script - JavaScript code to evaluate in the page
+ * @param headless - Whether to run in headless mode (default: `true`)
+ * @returns Result object with success status and the evaluation result
+ */
 export async function browserEvaluate(sessionId: string, script: string, headless = true): Promise<{ success: boolean; output: string; error?: string }> {
   try {
     const session = await getOrCreateSession(sessionId, headless);
     markSessionUsed(session);
     const { page } = session;
-    // SECURITY: Script is executed in an isolated page context via Playwright's evaluate.
-    // We pass it as a string and use a minimal wrapper to return results safely.
-    // The page context is separate from Node.js, but we still validate the script.
     if (script.length > _config.scriptMaxLength!) {
       return { success: false, output: "", error: "Script exceeds maximum length" };
     }
@@ -324,6 +347,12 @@ export async function browserEvaluate(sessionId: string, script: string, headles
   }
 }
 
+/**
+ * Retrieves the full HTML content of the current page.
+ * @param sessionId - Unique identifier for the browser session
+ * @param headless - Whether to run in headless mode (default: `true`)
+ * @returns Result object with success status and the page's HTML content
+ */
 export async function browserGetHtml(sessionId: string, headless = true): Promise<{ success: boolean; output: string; error?: string }> {
   try {
     const session = await getOrCreateSession(sessionId, headless);
@@ -336,11 +365,20 @@ export async function browserGetHtml(sessionId: string, headless = true): Promis
   }
 }
 
+/**
+ * Closes the browser session identified by the given session ID.
+ * @param sessionId - Unique identifier for the browser session to close
+ * @returns Result object with success status
+ */
 export async function browserClose(sessionId: string): Promise<{ success: boolean; output: string; error?: string }> {
   await closeBrowserSession(sessionId);
   return { success: true, output: "Browser closed for session." };
 }
 
+/**
+ * Returns the list of currently active browser session IDs.
+ * @returns Array of active session ID strings
+ */
 export function getActiveBrowserSessions(): string[] {
   return Array.from(browserPool.keys());
 }

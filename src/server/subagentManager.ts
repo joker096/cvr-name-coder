@@ -3,24 +3,48 @@ import type { AgentConfig } from "../types/agent.js";
 import { getErrorMessage } from "../types/errors.js";
 import { log } from "./logger.js";
 
+/** Represents a single subagent task tracked by the manager. */
 export interface SubagentTask {
+  /** Unique identifier for this task. */
   id: string;
+  /** ID of the parent agent that spawned this subagent. */
   parentId: string;
+  /** The goal/task the subagent is working on. */
   goal: string;
+  /** Configuration for the subagent's AI behavior. */
   agentConfig: AgentConfig;
+  /** Current lifecycle status of the task. */
   status: "pending" | "running" | "completed" | "failed";
+  /** Output result if the task completed successfully. */
   result?: string;
+  /** Error message if the task failed. */
   error?: string;
+  /** Timestamp (ms) when the task started executing. */
   startTime?: number;
+  /** Timestamp (ms) when the task finished (completed or failed). */
   endTime?: number;
 }
 
+/**
+ * Manages concurrent subagent task execution with a configurable concurrency limit.
+ * Tasks exceeding the limit are queued and executed when a slot becomes available.
+ */
 export class SubagentManager {
   private tasks = new Map<string, SubagentTask>();
   private queue: string[] = [];
   private maxConcurrent = 3;
   private activeLoops = new Map<string, AgentLoop>();
 
+  /**
+   * Spawns a new subagent task. If under the concurrency limit, executes immediately;
+   * otherwise queues the task for later execution.
+   *
+   * @param parentId - ID of the parent agent.
+   * @param goal - The task goal for the subagent.
+   * @param agentConfig - Agent configuration (maxSteps, etc.).
+   * @param thinkFn - Async function that sends a prompt to the AI and returns the response.
+   * @returns The created {@link SubagentTask} (may still be "pending" if queued).
+   */
   async spawn(
     parentId: string,
     goal: string,
@@ -103,15 +127,33 @@ export class SubagentManager {
     return Array.from(this.tasks.values()).filter((t) => t.status === "running").length;
   }
 
+  /**
+   * Retrieves a task by its ID.
+   *
+   * @param id - The task identifier.
+   * @returns The {@link SubagentTask} or undefined if not found.
+   */
   getTask(id: string): SubagentTask | undefined {
     return this.tasks.get(id);
   }
 
+  /**
+   * Lists all tasks, optionally filtered by parent agent ID.
+   *
+   * @param parentId - Optional parent ID to filter by.
+   * @returns Array of matching {@link SubagentTask} objects.
+   */
   listTasks(parentId?: string): SubagentTask[] {
     const all = Array.from(this.tasks.values());
     return parentId ? all.filter((t) => t.parentId === parentId) : all;
   }
 
+  /**
+   * Aborts a running or pending subagent task.
+   * Running tasks are aborted via AgentLoop; pending tasks are removed from the queue.
+   *
+   * @param id - The ID of the task to abort.
+   */
   async abort(id: string): Promise<void> {
     const task = this.tasks.get(id);
     if (task && task.status === "running") {

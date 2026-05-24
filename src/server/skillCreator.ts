@@ -4,15 +4,22 @@ import { getErrorMessage } from "../types/errors";
 
 let _skillsDir = path.resolve(process.cwd(), ".cvr", "skills");
 
+/**
+ * Sets the directory where auto-generated skills will be saved.
+ *
+ * @param dir - Absolute or relative path to the skills directory.
+ */
 export function setSkillCreatorDir(dir: string): void {
   _skillsDir = dir;
 }
 
+/** Describes a tool invocation within a skill workflow step. */
 interface StepAction {
   tool: string;
   params?: Record<string, unknown>;
 }
 
+/** Input data captured from a completed agent task, used to auto-generate a skill. */
 export interface SkillCreationInput {
   goal: string;
   steps: Array<{ thought: string; action?: StepAction | undefined; observation?: string | undefined }>;
@@ -21,6 +28,13 @@ export interface SkillCreationInput {
   success: boolean;
 }
 
+/**
+ * Evaluates whether a completed agent task qualifies as a repeatable skill,
+ * and if so, writes a markdown skill file to the skills directory.
+ *
+ * @param input - Details of the completed task including steps and tools used.
+ * @returns Whether the skill was created, its file path (if created), and a reason string.
+ */
 export async function maybeCreateSkill(input: SkillCreationInput): Promise<{ created: boolean; path?: string; reason: string }> {
   // Only create skills for multi-step successful tasks that used diverse tools
   const MIN_STEPS = 3;

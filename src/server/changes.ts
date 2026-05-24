@@ -22,6 +22,17 @@ async function saveHistory(history: ChangeHistory): Promise<void> {
   await writeFile(CHANGES_FILE, JSON.stringify(history, null, 2));
 }
 
+/**
+ * Records a file change for undo/redo purposes.
+ * Automatically captures the "before" snapshot of the file if it exists and
+ * is under the maximum snapshot size, then persists the change history.
+ * Older changes are evicted when the history exceeds {@link MAX_CHANGES}.
+ * @param filePath - Relative path to the changed file
+ * @param operation - The type of operation performed ("write" or "edit")
+ * @param afterContent - The new file content after the change
+ * @param description - Human-readable description of the change
+ * @returns The recorded {@link FileChange} object
+ */
 export async function recordChange(
   filePath: string,
   operation: "write" | "edit",
@@ -72,6 +83,11 @@ export async function recordChange(
   return change;
 }
 
+/**
+ * Undoes the most recent active change by restoring the file's previous content.
+ * If the file was newly created (beforeContent is `null`), it is deleted.
+ * @returns Result with success status and the restored {@link FileChange}, or an error message
+ */
 export async function undoChange(): Promise<{ success: boolean; restored?: FileChange; error?: string }> {
   const history = await loadHistory();
 
@@ -108,6 +124,10 @@ export async function undoChange(): Promise<{ success: boolean; restored?: FileC
   return { success: true, restored: change };
 }
 
+/**
+ * Redoes the most recent undone change by reapplying the after-content.
+ * @returns Result with success status and the restored {@link FileChange}, or an error message
+ */
 export async function redoChange(): Promise<{ success: boolean; restored?: FileChange; error?: string }> {
   const history = await loadHistory();
 
@@ -135,6 +155,11 @@ export async function redoChange(): Promise<{ success: boolean; restored?: FileC
   return { success: true, restored: change };
 }
 
+/**
+ * Returns the current change tracking state including all changes,
+ * and whether undo/redo operations are available.
+ * @returns A {@link ChangeState} object with the full change list and operation availability flags
+ */
 export async function getChangeState(): Promise<ChangeState> {
   const history = await loadHistory();
   const activeChanges = history.changes.filter((c) => !history.undoStack.includes(c.id));

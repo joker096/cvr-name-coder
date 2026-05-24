@@ -9,6 +9,15 @@ import { incrementToolCall } from "../standalone/health.js";
 import { validateBody, ToolExecuteSchema } from "../validation.js";
 import { log } from "../logger.js";
 
+/**
+ * Registers tool execution API routes on the Express application.
+ *
+ * Routes:
+ * - `POST /api/tools/execute` — Execute a tool call with permission checks, change recording
+ *   for write/edit operations, and health metric tracking.
+ *
+ * @param app - The Express Application instance to register routes on.
+ */
 export function registerRoutes(app: Application) {
   app.post("/api/tools/execute", validateBody(ToolExecuteSchema), async (req: Request, res: Response) => {
     try {

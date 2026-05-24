@@ -5,6 +5,26 @@ import { generateEmbeddings } from "../providers.js";
 import { loadInstructions, getInstructionsContext, saveInstruction, deleteInstruction } from "../instructionLoader.js";
 import { loadCustomTools } from "../customToolLoader.js";
 
+/**
+ * Registers knowledge-related API routes on the Express application.
+ *
+ * Routes include:
+ * - GET /api/skills - List all skills
+ * - GET /api/skills/:id - Get a specific skill by ID
+ * - POST /api/rag/ingest - Ingest a document into RAG
+ * - GET /api/rag/search - Search RAG with a query
+ * - GET /api/rag/sources - List RAG sources
+ * - DELETE /api/rag/sources/:source - Clear a RAG source
+ * - GET /api/rules - List all instruction rules
+ * - GET /api/rules/:name - Get a specific rule by name
+ * - GET /api/rules/context - Get combined instructions context
+ * - PUT /api/rules/:name - Create or update a rule
+ * - DELETE /api/rules/:name - Delete a rule
+ * - GET /api/custom-tools - List all custom tools
+ * - GET /api/custom-tools/:id - Get a specific tool by ID
+ *
+ * @param app - The Express Application instance to register routes on
+ */
 export function registerRoutes(app: Application) {
   app.get("/api/skills", async (_req: Request, res: Response) => {
     try {

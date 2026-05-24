@@ -6,9 +6,39 @@ import { hookRegistry } from "./hooks";
 import { maybeCreateSkill } from "./skillCreator";
 import { getErrorMessage } from "../types/errors";
 
+/**
+ * A function that takes a prompt string and returns an AI-generated response.
+ * @param prompt - The prompt to send to the AI model
+ * @returns A Promise resolving to the AI's text response
+ */
 export type ThinkFunction = (prompt: string) => Promise<string>;
+
+/**
+ * A function that executes a tool call and returns the result.
+ * @param toolCall - The tool call to execute
+ * @param mode - The execution mode (plan, build, or review)
+ * @returns A Promise resolving to the tool execution result
+ */
 export type ExecuteToolFunction = (toolCall: ToolCall, mode?: "plan" | "build" | "review") => Promise<import("../types/tools").ToolResult>;
 
+/**
+ * Autonomous agent loop that manages multi-step task execution.
+ *
+ * Orchestrates a think-act-observe cycle: the AI thinks about what to do next,
+ * parses tool actions from its response, executes them, and observes results.
+ * Supports abort, status callbacks, hook integration, and auto skill creation.
+ *
+ * @example
+ * ```ts
+ * const loop = new AgentLoop("Fix all TypeScript errors", {
+ *   thinkFn: async (prompt) => ai.generate(prompt),
+ *   permissionEngine,
+ *   onStep: (step) => console.log(step),
+ *   onStatus: (status) => console.log(status),
+ * });
+ * const result = await loop.run();
+ * ```
+ */
 export class AgentLoop {
   private state: LoopState;
   private permissionEngine: PermissionEngine | undefined;
@@ -20,6 +50,18 @@ export class AgentLoop {
   private sessionId: string;
   private additionalContext = "";
 
+  /**
+   * Creates a new agent loop instance.
+   * @param goal - The goal/task description for the agent to accomplish
+   * @param options - Configuration options for the loop
+   * @param options.maxSteps - Maximum number of think-act steps before stopping (default: 20)
+   * @param options.permissionEngine - Permission engine for checking tool access
+   * @param options.thinkFn - Function that sends prompts to the AI and returns responses
+   * @param options.executeToolFn - Custom tool execution function (defaults to executeTool)
+   * @param options.onStep - Callback invoked after each step completes
+   * @param options.onStatus - Callback invoked when the loop status changes
+   * @param options.sessionId - Unique session identifier (defaults to a random UUID)
+   */
   constructor(
     goal: string,
     options: {
@@ -49,6 +91,16 @@ export class AgentLoop {
     this.onStatus = options.onStatus;
   }
 
+  /**
+   * Runs the agent loop until completion, error, or abort.
+   *
+   * Executes the think-act-observe cycle in a loop. Fires `loop.start` and
+   * `loop.complete` hooks. On successful multi-step tasks (3+ steps),
+   * triggers automatic skill creation via `maybeCreateSkill`.
+   *
+   * @returns A Promise resolving to the final loop state
+   * @throws Re-throws any error that occurs during execution after setting status to "error"
+   */
   async run(): Promise<LoopState> {
     try {
       await hookRegistry.execute("loop.start", { goal: this.state.goal }, this.sessionId);
@@ -100,6 +152,10 @@ export class AgentLoop {
     }
   }
 
+  /**
+   * Aborts the agent loop. Sets internal abort flag and updates state.
+   * Safe to call multiple times; only affects non-terminal states.
+   */
   abort(): void {
     this._abort = true;
     if (this.state.status !== "completed" && this.state.status !== "error") {
@@ -107,10 +163,21 @@ export class AgentLoop {
     }
   }
 
+  /**
+   * Appends additional context that will be included in the prompt for each thinking step.
+   * Useful for injecting extra instructions or situational awareness mid-loop.
+   * @param ctx - Additional context string to append
+   */
   setAdditionalContext(ctx: string): void {
     this.additionalContext = ctx;
   }
 
+  /**
+   * Executes a single think-act-observe step: thinks, parses action, executes tool, records result.
+   * Handles abort detection both before thinking and after tool execution.
+   *
+   * @returns A Promise resolving to the completed loop step
+   */
   async runSingleStep(): Promise<LoopStep> {
     if (this._abort) {
       this.state.status = "aborted";
@@ -163,6 +230,10 @@ export class AgentLoop {
     return step;
   }
 
+  /**
+   * Sends the current context + goal to the AI and returns its thinking response.
+   * @returns A Promise resolving to the trimmed AI response text
+   */
   private async think(): Promise<string> {
     const context = this.buildContext();
     const prompt = `You are an autonomous coding agent working on this goal:
@@ -184,6 +255,10 @@ Your thought:`;
     return (await this.thinkFn(prompt)).trim();
   }
 
+  /**
+   * Builds a truncated context string from the last 5 steps.
+   * @returns Context string summarizing recent steps with truncated thoughts and observations
+   */
   private buildContext(): string {
     return this.state.steps
       .slice(-5)
@@ -198,6 +273,11 @@ Your thought:`;
       .join("\n");
   }
 
+  /**
+   * Parses an ACTION and PARAMS block from the AI's thought text.
+   * @param thought - The AI's raw thought text
+   * @returns Parsed tool name and params, or null if no ACTION block found
+   */
   private parseAction(thought: string): { tool: string; params: Record<string, any> } | null {
     const actionMatch = thought.match(/ACTION:\s*(\w+)/);
     const paramsMatch = thought.match(/PARAMS:\s*(\{[\s\S]*?\})/);
@@ -214,6 +294,10 @@ Your thought:`;
     return null;
   }
 
+  /**
+   * Returns a shallow copy of the current loop state.
+   * @returns The current loop state (snapshot)
+   */
   getState(): LoopState {
     return { ...this.state };
   }

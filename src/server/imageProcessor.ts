@@ -13,22 +13,45 @@ const SUPPORTED_INPUT_MIME_TYPES = [
   "image/gif",
 ];
 
+/**
+ * @interface ProcessedImage
+ * @description The result of image processing, containing the optimized base64 data and metadata.
+ */
 export interface ProcessedImage {
+  /** Base64-encoded processed image data (without data URL prefix) */
   base64: string;
+  /** MIME type of the processed image */
   mimeType: string;
+  /** Width in pixels after processing */
   width: number;
+  /** Height in pixels after processing */
   height: number;
 }
 
+/**
+ * @interface ImageValidationError
+ * @description Represents a failed image validation result.
+ */
 export interface ImageValidationError {
+  /** Always `false` for error results */
   valid: false;
+  /** Human-readable error message describing the validation failure */
   error: string;
 }
 
+/**
+ * @interface ImageValidationSuccess
+ * @description Represents a successful image validation result.
+ */
 export interface ImageValidationSuccess {
+  /** Always `true` for success results */
   valid: true;
 }
 
+/**
+ * @typedef ImageValidationResult
+ * @description Discriminated union of image validation outcomes.
+ */
 export type ImageValidationResult = ImageValidationError | ImageValidationSuccess;
 
 function detectMimeTypeFromBase64(base64: string): string {
@@ -48,6 +71,11 @@ function stripDataUrl(base64: string): string {
   return base64.replace(/^data:image\/\w+;base64,/, "");
 }
 
+/**
+ * Validates a base64-encoded image against size constraints.
+ * @param {string} base64 - The base64-encoded image data (may include data URL prefix).
+ * @returns {ImageValidationResult} Validation result indicating success or specific error.
+ */
 export function validateImage(base64: string): ImageValidationResult {
   const stripped = stripDataUrl(base64);
   const buffer = Buffer.from(stripped, "base64");
@@ -63,10 +91,22 @@ export function validateImage(base64: string): ImageValidationResult {
   return { valid: true };
 }
 
+/**
+ * @interface ProcessImageOptions
+ * @description Options for processing an image.
+ */
 export interface ProcessImageOptions {
+  /** Maximum dimension (width or height) in pixels. Defaults to 1024. */
   maxDimension?: number;
 }
 
+/**
+ * Processes a base64-encoded image: resizes if needed, converts to an optimized format.
+ * @param {string} base64 - The base64-encoded image data (may include data URL prefix).
+ * @param {ProcessImageOptions} [options={}] - Processing options including max dimension.
+ * @returns {Promise<ProcessedImage>} The processed image data with metadata.
+ * @throws {Error} If the image format is unsupported.
+ */
 export async function processImage(base64: string, options: ProcessImageOptions = {}): Promise<ProcessedImage> {
   const { maxDimension = DEFAULT_MAX_DIMENSION } = options;
   const stripped = stripDataUrl(base64);
@@ -116,6 +156,12 @@ export async function processImage(base64: string, options: ProcessImageOptions 
   };
 }
 
+/**
+ * Processes multiple base64-encoded images, skipping any that fail validation or processing.
+ * @param {string[]} base64Images - Array of base64-encoded image data strings.
+ * @param {ProcessImageOptions} [options={}] - Processing options applied to each image.
+ * @returns {Promise<ProcessedImage[]>} Array of successfully processed images.
+ */
 export async function processImages(base64Images: string[], options: ProcessImageOptions = {}): Promise<ProcessedImage[]> {
   const results: ProcessedImage[] = [];
   for (const img of base64Images) {

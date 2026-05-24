@@ -1,20 +1,38 @@
 import { getGitDiff } from "./gitTools.js";
 
+/**
+ * A single review comment about a specific issue found in code.
+ */
 export interface ReviewComment {
+  /** Unique identifier for this comment */
   id: string;
+  /** File path where the issue was found */
   file: string;
+  /** Starting line number of the issue */
   lineStart: number | undefined;
+  /** Ending line number of the issue */
   lineEnd: number | undefined;
+  /** Category of the issue */
   category: "style" | "bug" | "security" | "performance" | "architecture";
+  /** Severity level */
   severity: "info" | "warning" | "critical";
+  /** Description of the issue */
   message: string;
+  /** Suggested fix for the issue */
   suggestion: string | undefined;
+  /** Code example showing the suggested fix */
   codeExample: string | undefined;
+  /** Whether the comment has been accepted (null = unaddressed) */
   accepted: boolean | null;
 }
 
+/**
+ * The result of a code review containing all comments and a summary.
+ */
 export interface ReviewResult {
+  /** Array of review comments */
   comments: ReviewComment[];
+  /** Overall assessment of the changes */
   summary: string;
 }
 
@@ -34,33 +52,63 @@ interface RawReviewData {
   comments?: RawReviewComment[];
 }
 
+/**
+ * A parsed diff hunk representing changes to a single file.
+ */
 export interface DiffHunk {
+  /** File path */
   file: string;
+  /** File status: added, modified, deleted, or renamed */
   status: string;
+  /** Raw diff text for this file */
   diff: string;
+  /** Individual diff hunks with line offsets and content */
   hunks: Array<{
+    /** Starting line in the old file */
     oldStart: number;
+    /** Number of lines in the old file */
     oldLines: number;
+    /** Starting line in the new file */
     newStart: number;
+    /** Number of lines in the new file */
     newLines: number;
+    /** Diff lines (prefixed with +, -, or space) */
     lines: string[];
   }>;
 }
 
 const pendingReviews: Map<string, ReviewResult> = new Map();
 
+/**
+ * Returns all pending review results currently in memory.
+ * @returns Array of pending review results
+ */
 export function getPendingReviews(): ReviewResult[] {
   return Array.from(pendingReviews.values());
 }
 
+/**
+ * Retrieves a specific review result by its ID.
+ * @param id - The review ID
+ * @returns The review result, or undefined if not found
+ */
 export function getReviewById(id: string): ReviewResult | undefined {
   return pendingReviews.get(id);
 }
 
+/**
+ * Clears all pending reviews from memory.
+ */
 export function clearPendingReviews(): void {
   pendingReviews.clear();
 }
 
+/**
+ * Marks a review comment as accepted.
+ * @param reviewId - ID of the review containing the comment
+ * @param commentId - ID of the comment to accept
+ * @returns True if the comment was found and marked accepted, false otherwise
+ */
 export function acceptComment(reviewId: string, commentId: string): boolean {
   const review = pendingReviews.get(reviewId);
   if (!review) return false;
@@ -70,6 +118,12 @@ export function acceptComment(reviewId: string, commentId: string): boolean {
   return true;
 }
 
+/**
+ * Marks a review comment as rejected.
+ * @param reviewId - ID of the review containing the comment
+ * @param commentId - ID of the comment to reject
+ * @returns True if the comment was found and marked rejected, false otherwise
+ */
 export function rejectComment(reviewId: string, commentId: string): boolean {
   const review = pendingReviews.get(reviewId);
   if (!review) return false;
@@ -79,6 +133,12 @@ export function rejectComment(reviewId: string, commentId: string): boolean {
   return true;
 }
 
+/**
+ * Parses a raw git diff string into structured hunks for review.
+ * Extracts file paths, statuses, and line-level changes from diff headers and content.
+ * @param diffText - Raw git diff output text
+ * @returns Array of parsed diff hunks, one per changed file
+ */
 export function parseDiffIntoHunks(diffText: string): DiffHunk[] {
   const diffHunks: DiffHunk[] = [];
   const diffBlocks = diffText.split("diff --git ");
@@ -181,6 +241,13 @@ function generateReviewId(): string {
   return `review-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 }
 
+/**
+ * Analyzes a git diff using an AI generation function to produce structured review feedback.
+ * Falls back to treating the raw response as a single comment if JSON parsing fails.
+ * @param generateFn - Async function that takes a prompt string and returns an AI-generated response
+ * @param providedDiff - Optional raw diff string (defaults to git diff of the current working tree)
+ * @returns Structured review result with comments and summary
+ */
 export async function analyzeDiff(
   generateFn: (prompt: string) => Promise<string>,
   providedDiff?: string

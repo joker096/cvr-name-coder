@@ -9,6 +9,24 @@ import { validateBody, AgentLoopSchema, AgentPlanSchema, PermissionRequestSchema
 import { buildDualModelConfig } from "../dualModel.js";
 import { log } from "../logger.js";
 
+/**
+ * Registers all agent-related API routes on the Express application.
+ * 
+ * Routes:
+ * - POST /api/agent/loop - Starts a new agent loop for autonomous task execution
+ * - GET /api/agent/loop/:id - Gets the current state of an agent loop
+ * - POST /api/agent/loop/:id/abort - Aborts a running agent loop
+ * - POST /api/agent/plan - Creates a plan for a given goal using AI
+ * - POST /api/subagents/spawn - Spawns a new subagent task
+ * - GET /api/subagents - Lists all subagent tasks
+ * - POST /api/subagents/:id/abort - Aborts a subagent task
+ * - POST /api/permissions/check - Checks permissions for a tool action
+ * - POST /api/permissions/ask - Requests permission, returns pending if ask action
+ * - GET /api/permissions/pending - Lists all pending permission requests
+ * - GET /api/permissions/pending/:id - Gets a specific pending permission request
+ * - POST /api/permissions/resolve/:id - Resolves (approve/deny) a pending permission request
+ * @param app - Express application instance
+ */
 export function registerRoutes(app: Application) {
   app.post("/api/agent/loop", validateBody(AgentLoopSchema), async (req: Request, res: Response) => {
     try {

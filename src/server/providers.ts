@@ -3,48 +3,104 @@ import { DEFAULT_MAX_TOKENS, PROVIDER_DEFAULT_MODELS, PROVIDER_BASE_URLS } from 
 import { estimateTokens } from "./costTracker.js";
 import { aiCache } from "./cache.js";
 
+/**
+ * Structured AI response containing text, optional reasoning, and token counts.
+ */
 export interface AIResponse {
+  /** The primary response text from the AI */
   text: string;
+  /** Internal reasoning/thinking content, if available (e.g., chain-of-thought) */
   reasoning?: string | undefined;
+  /** Estimated or reported number of input tokens consumed */
   inputTokens: number;
+  /** Estimated or reported number of output tokens generated */
   outputTokens: number;
 }
 
+/**
+ * Callbacks for receiving streaming tokens during generation.
+ */
 export interface StreamCallbacks {
+  /** Called for each text token received during streaming */
   onToken: (token: string) => void;
+  /** Called for each reasoning/thinking token, if supported by the provider */
   onReasoning?: (token: string) => void;
 }
 
+/**
+ * Abstract base class for AI providers.
+ *
+ * All providers (Gemini, OpenAI-compatible, Anthropic) extend this class
+ * and implement the generate and generateStream methods.
+ */
 export abstract class AIProvider {
+  /**
+   * Generates a complete (non-streaming) AI response.
+   * @param options - Generation options including prompt, contents, model, and API key
+   * @returns A Promise resolving to the AI response
+   */
   abstract generate(options: AIGenerateOptions): Promise<AIResponse>;
+  /**
+   * Generates an AI response with streaming token callbacks.
+   * @param options - Generation options including prompt, contents, model, and API key
+   * @param callbacks - Streaming callbacks for tokens and reasoning
+   * @returns A Promise resolving to the complete AI response
+   */
   abstract generateStream(options: AIGenerateOptions, callbacks: StreamCallbacks): Promise<AIResponse>;
 
+  /**
+   * Resolves an API key from environment variables or an explicit override.
+   * @param envVar - The environment variable name to check
+   * @param override - An optional explicit key that takes priority
+   * @returns The resolved API key string (empty string if not found)
+   */
   protected resolveApiKey(envVar: string, override?: string): string {
     return override || process.env[envVar] || "";
   }
 }
 
+/**
+ * A single part within a content message (text or inline image data).
+ */
 export interface ContentPart {
+  /** Text content, if this part is a text block */
   text?: string;
+  /** Inline binary data (e.g., base64-encoded image) */
   inlineData?: {
     mimeType: string;
     data: string;
   };
 }
 
+/**
+ * A structured message in a conversation (turn-based content with role and parts).
+ */
 export interface Content {
+  /** Role of the message sender (e.g., "user", "model", "assistant") */
   role: string;
+  /** Content parts (text and/or images) */
   parts: ContentPart[];
 }
 
+/**
+ * Options passed to AI providers for generation requests.
+ */
 export interface AIGenerateOptions {
+  /** System prompt or instruction text */
   prompt: string;
+  /** Conversation history or additional content blocks */
   contents: Content[];
+  /** Model name to use (falls back to provider default) */
   modelName?: string | undefined;
+  /** API key override (falls back to environment variable) */
   apiKey?: string | undefined;
+  /** Sampling temperature (0-2, lower = more deterministic) */
   temperature?: number | undefined;
+  /** Maximum tokens to generate */
   maxTokens?: number | undefined;
+  /** Base URL override for local or custom providers */
   localUrl?: string | undefined;
+  /** Whether to use the AI response cache */
   useCache?: boolean | undefined;
 }
 
@@ -98,16 +154,17 @@ class GeminiProvider extends AIProvider {
         ...contents,
       ],
     });
-    const allParts: Array<{ text?: string; thought?: boolean }> = [];
+    let fullText = "";
+    let fullReasoning = "";
     for await (const chunk of streamResult) {
       const text = chunk.text;
       if (text) {
-        allParts.push({ text, thought: false });
+        fullText += text;
         callbacks.onToken(text);
       }
     }
-    const reasoning = allParts.filter((p) => p.thought).map((p) => p.text || "").join("\n") || undefined;
-    const text = allParts.filter((p) => !p.thought).map((p) => p.text || "").join("");
+    const reasoning = fullReasoning || undefined;
+    const text = fullText;
     return {
       text,
       reasoning,
@@ -210,6 +267,10 @@ interface AnthropicResponse {
   usage?: { input_tokens?: number; output_tokens?: number };
 }
 
+/**
+ * URLs that are allowed for local provider connections.
+ * Only localhost and loopback addresses may be used with non-"local"/"custom" providers.
+ */
 const ALLOWED_LOCAL_URLS = [
   "http://localhost",
   "http://127.0.0.1",
@@ -422,10 +483,25 @@ class AnthropicProvider extends AIProvider {
         max_tokens: maxTokens || 4096,
         stream: true,
         system: prompt,
-        messages: contents.map((c) => ({
-          role: c.role === "model" ? "assistant" : c.role,
-          content: c.parts[0]?.text ?? "",
-        })),
+        messages: contents.map((c) => {
+          const hasImages = c.parts.some((p) => p.inlineData);
+          if (hasImages) {
+            return {
+              role: c.role === "model" ? "assistant" : c.role,
+              content: c.parts.map((p) => {
+                if (p.text) return { type: "text", text: p.text };
+                if (p.inlineData) {
+                  return { type: "image", source: { type: "base64", media_type: p.inlineData.mimeType, data: p.inlineData.data } };
+                }
+                return null;
+              }).filter((x) => x !== null),
+            };
+          }
+          return {
+            role: c.role === "model" ? "assistant" : c.role,
+            content: c.parts[0]?.text ?? "",
+          };
+        }),
       }),
     });
     if (!response.ok) {
@@ -486,6 +562,24 @@ const providers: Record<string, AIProvider> = {
   anthropic: new AnthropicProvider(),
 };
 
+/**
+ * Generates an AI response using the specified provider.
+ *
+ * Supports optional response caching: if `useCache` is true and a matching
+ * cached response exists, it is returned immediately without an API call.
+ *
+ * @param prompt - The system prompt or instruction text
+ * @param contents - Conversation history or additional content blocks (default: [])
+ * @param provider - The AI provider identifier (e.g., "gemini", "openai", "anthropic")
+ * @param localUrl - Base URL override for local or custom providers
+ * @param modelName - Model name override (falls back to provider default)
+ * @param apiKey - API key override (falls back to environment variable)
+ * @param temperature - Sampling temperature (0-2)
+ * @param maxTokens - Maximum tokens to generate
+ * @param useCache - Whether to consult and update the response cache
+ * @returns A Promise resolving to the AI response with text, reasoning, and token counts
+ * @throws {Error} If no provider is configured or the provider is unknown
+ */
 export async function generateAIResponse(
   prompt: string,
   contents: Content[] = [],
@@ -518,6 +612,23 @@ export async function generateAIResponse(
   return result;
 }
 
+/**
+ * Generates a streaming AI response using the specified provider.
+ *
+ * Tokens are delivered via callbacks as they are received from the API.
+ *
+ * @param prompt - The system prompt or instruction text
+ * @param contents - Conversation history or additional content blocks (default: [])
+ * @param provider - The AI provider identifier
+ * @param localUrl - Base URL override for local or custom providers
+ * @param modelName - Model name override
+ * @param apiKey - API key override
+ * @param temperature - Sampling temperature (0-2)
+ * @param maxTokens - Maximum tokens to generate
+ * @param callbacks - Streaming callbacks for receiving tokens and reasoning
+ * @returns A Promise resolving to the complete AI response with text, reasoning, and token counts
+ * @throws {Error} If no provider is configured or the provider is unknown
+ */
 export async function generateStreamResponse(
   prompt: string,
   contents: Content[] = [],
@@ -540,6 +651,21 @@ export async function generateStreamResponse(
   return p.generateStream({ prompt, contents, localUrl, modelName, apiKey, temperature, maxTokens }, callbacks || { onToken: () => {} });
 }
 
+/**
+ * Generates AI content and returns only the text portion of the response.
+ * Convenience wrapper around {@link generateAIResponse}.
+ *
+ * @param prompt - The system prompt or instruction text
+ * @param contents - Conversation history or additional content blocks (default: [])
+ * @param provider - The AI provider identifier
+ * @param localUrl - Base URL override for local or custom providers
+ * @param modelName - Model name override
+ * @param apiKey - API key override
+ * @param temperature - Sampling temperature (0-2)
+ * @param maxTokens - Maximum tokens to generate
+ * @param useCache - Whether to consult and update the response cache
+ * @returns A Promise resolving to the response text string
+ */
 export async function generateAIContent(
   prompt: string,
   contents: Content[] = [],
@@ -555,18 +681,41 @@ export async function generateAIContent(
   return result.text;
 }
 
+/**
+ * Configuration for dual-model setups where a "thinking" model is used
+ * for reasoning tasks and a separate "primary" model handles code generation.
+ */
 export interface DualModelConfig {
+  /** Provider identifier for the primary/code model */
   primaryProvider: string;
+  /** Model name for the primary provider */
   primaryModel?: string;
+  /** Local URL override for the primary provider */
   primaryLocalUrl?: string;
+  /** Provider identifier for the thinking/reasoning model */
   thinkingProvider?: string;
+  /** Model name for the thinking provider */
   thinkingModel?: string;
+  /** Local URL override for the thinking provider */
   thinkingLocalUrl?: string;
+  /** API key override */
   apiKey?: string;
+  /** Sampling temperature */
   temperature?: number;
+  /** Maximum tokens to generate */
   maxTokens?: number;
 }
 
+/**
+ * Generates a response using either the thinking model or primary model
+ * based on the purpose parameter.
+ *
+ * @param prompt - The system prompt or instruction text
+ * @param contents - Conversation history or additional content blocks (default: [])
+ * @param config - Dual model configuration with primary and thinking provider settings
+ * @param purpose - Determines which model to use: "think", "code", or "auto" (uses thinking model when both are configured)
+ * @returns A Promise resolving to the AI response
+ */
 export async function generateWithDualModelResponse(
   prompt: string,
   contents: Content[] = [],
@@ -599,6 +748,16 @@ export async function generateWithDualModelResponse(
   );
 }
 
+/**
+ * Generates text using dual model routing and returns only the text content.
+ * Convenience wrapper around {@link generateWithDualModelResponse}.
+ *
+ * @param prompt - The system prompt or instruction text
+ * @param contents - Conversation history or additional content blocks (default: [])
+ * @param config - Dual model configuration
+ * @param purpose - Determines which model to use: "think", "code", or "auto"
+ * @returns A Promise resolving to the response text string
+ */
 export async function generateWithDualModel(
   prompt: string,
   contents: Content[] = [],
@@ -609,6 +768,13 @@ export async function generateWithDualModel(
   return result.text;
 }
 
+/**
+ * Generates vector embeddings for the given texts using the Gemini embedding model.
+ *
+ * @param texts - Array of text strings to embed
+ * @returns A Promise resolving to an array of embedding vectors (each vector is an array of numbers)
+ * @throws {Error} If the embedding response format is unexpected
+ */
 export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
   const gemini = providers.gemini as GeminiProvider;
   return gemini.embed(texts);

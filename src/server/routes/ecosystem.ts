@@ -8,6 +8,37 @@ import { runPromptTest } from "../promptTester.js";
 import { getPeers, getShares, publishShare, isP2PActive } from "../p2pSync.js";
 import { validateBody, CronTaskSchema } from "../validation.js";
 
+/**
+ * Registers ecosystem management API routes on the Express application.
+ *
+ * Routes registered:
+ * - `GET /api/plugins` — Lists all plugins with their id, name, version, and enabled status.
+ * - `POST /api/plugins/:id/enable` — Enables a plugin by ID.
+ * - `POST /api/plugins/:id/disable` — Disables a plugin by ID.
+ * - `GET /api/cron` — Lists all scheduled cron tasks.
+ * - `POST /api/cron` — Creates a new cron task (validated against CronTaskSchema).
+ * - `DELETE /api/cron/:id` — Removes a cron task by ID.
+ * - `POST /api/cron/:id/enable` — Enables a cron task by ID.
+ * - `POST /api/cron/:id/disable` — Disables a cron task by ID.
+ * - `GET /api/hooks` — Lists all registered hooks.
+ * - `POST /api/hooks/register` — Registers a new hook (disabled in production).
+ * - `POST /api/hooks/unregister` — Unregisters a hook (disabled in production).
+ * - `GET /api/costs` — Retrieves accumulated AI cost data.
+ * - `POST /api/costs/reset` — Resets cost tracking.
+ * - `GET /api/sync/status` — Returns team sync status.
+ * - `POST /api/sync/export` — Exports sync data.
+ * - `POST /api/sync/import` — Imports sync data.
+ * - `GET /api/sync/config` — Returns sync configuration.
+ * - `POST /api/sync/config` — Saves sync configuration.
+ * - `POST /api/sync/resolve` — Manually resolves sync conflicts.
+ * - `POST /api/prompt-test` — Runs a prompt variant test.
+ * - `GET /api/p2p/status` — Returns P2P network status (active, peers, shares).
+ * - `GET /api/p2p/peers` — Lists connected P2P peers.
+ * - `GET /api/p2p/shares` — Lists shared fragments, optionally filtered by type.
+ * - `POST /api/p2p/share` — Publishes a new P2P share fragment.
+ *
+ * @param app - The Express Application instance to register routes on.
+ */
 export function registerRoutes(app: Application) {
   app.get("/api/plugins", async (_req: Request, res: Response) => {
     try {

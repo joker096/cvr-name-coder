@@ -7,10 +7,20 @@ const PLUGINS_DIR = path.resolve(process.cwd(), ".cvr", "plugins");
 let _pluginsDir = PLUGINS_DIR;
 let _plugins: PluginInstance[] = [];
 
+/**
+ * Sets the directory path where plugins are stored.
+ * @param dir - Absolute path to the plugins directory
+ */
 export function setPluginsDir(dir: string): void {
   _pluginsDir = dir;
 }
 
+/**
+ * Loads plugin manifests from the plugins directory.
+ * Each plugin directory must contain a valid `manifest.json` file.
+ * Skips invalid or missing manifests silently.
+ * @returns Array of loaded plugin instances
+ */
 export async function loadPlugins(): Promise<PluginInstance[]> {
   try {
     await access(_pluginsDir);
@@ -41,6 +51,11 @@ export async function loadPlugins(): Promise<PluginInstance[]> {
   return plugins;
 }
 
+/**
+ * Loads and registers all enabled plugins.
+ * Security note: Dynamic code execution from manifest.json is disabled;
+ * only declarative metadata is loaded.
+ */
 export async function registerPlugins(): Promise<void> {
   const plugins = await loadPlugins();
   for (const plugin of plugins) {
@@ -59,19 +74,36 @@ async function registerPlugin(plugin: PluginInstance): Promise<void> {
   }
 }
 
+/**
+ * Returns a shallow copy of all currently loaded plugins.
+ * @returns Array of plugin instances
+ */
 export function getPlugins(): PluginInstance[] {
   return [..._plugins];
 }
 
+/**
+ * Finds a single plugin by its manifest ID.
+ * @param id - The plugin manifest ID to look up
+ * @returns The matching plugin instance, or undefined if not found
+ */
 export function getPlugin(id: string): PluginInstance | undefined {
   return _plugins.find((p) => p.manifest.id === id);
 }
 
+/**
+ * Disables a plugin by its manifest ID.
+ * @param id - The plugin manifest ID to disable
+ */
 export function disablePlugin(id: string): void {
   const plugin = _plugins.find((p) => p.manifest.id === id);
   if (plugin) plugin.enabled = false;
 }
 
+/**
+ * Enables a plugin by its manifest ID.
+ * @param id - The plugin manifest ID to enable
+ */
 export function enablePlugin(id: string): void {
   const plugin = _plugins.find((p) => p.manifest.id === id);
   if (plugin) plugin.enabled = true;

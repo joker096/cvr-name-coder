@@ -4,6 +4,11 @@ import { resolveProjectPath } from "./file.js";
 
 const PROJECT_ROOT: string = process.cwd();
 
+/**
+ * Splits a command string into an array of arguments, respecting quoted strings.
+ * @param cmd - The raw command string to parse.
+ * @returns An array of individual argument strings.
+ */
 function splitArgs(cmd: string): string[] {
   const args: string[] = [];
   let current = "";
@@ -26,6 +31,11 @@ function splitArgs(cmd: string): string[] {
   return args;
 }
 
+/**
+ * Executes a shell command within the project context.
+ * @param params - Contains `command` (the shell command string) and optional `cwd` (working directory relative to project root).
+ * @returns A tool result with stdout+stderr output on success, or an error message on timeout/failure.
+ */
 export async function executeCommand(params: Record<string, unknown>): Promise<ToolResult> {
   const resolvedCwd: string = params.cwd !== undefined && params.cwd !== null ? resolveProjectPath(String(params.cwd)) : PROJECT_ROOT;
   const command = String(params.command);

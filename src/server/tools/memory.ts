@@ -1,6 +1,11 @@
 import type { ToolResult } from "../../types/tools";
 import { readMemory, writeMemory, readUser, writeUser } from "../memoryStore.js";
 
+/**
+ * Reads memory content, either project-level or user-level.
+ * @param params - Contains `type`: "user" for user preferences, anything else for project memory.
+ * @returns A tool result with the raw memory content.
+ */
 export async function executeMemoryRead(params: Record<string, unknown>): Promise<ToolResult> {
   const memoryType = String(params.type);
   if (memoryType === "user") {
@@ -12,6 +17,11 @@ export async function executeMemoryRead(params: Record<string, unknown>): Promis
   }
 }
 
+/**
+ * Writes memory content, either to project memory or user preferences.
+ * @param params - Contains `type` ("user" or anything else), `content` (the text to store), and optional `section`.
+ * @returns A tool result confirming the write.
+ */
 export async function executeMemoryWrite(params: Record<string, unknown>): Promise<ToolResult> {
   const memoryType = String(params.type);
   const content = String(params.content);

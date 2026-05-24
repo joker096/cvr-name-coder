@@ -6,12 +6,14 @@ import { randomBytes, createCipheriv, createDecipheriv, scryptSync } from "crypt
 import { readFile, writeFile, mkdir } from "fs/promises";
 import * as path from "path";
 
+/** Information about a connected peer in the P2P network. */
 export interface PeerInfo {
   id: string;
   name: string;
   connectedAt: number;
 }
 
+/** A shared fragment of data exchanged between peers. */
 export interface SharedFragment {
   id: string;
   type: "memory" | "agent" | "skill" | "rule" | "plugin";
@@ -41,6 +43,13 @@ function deriveKey(secret: string): Buffer {
   return scryptSync(secret, "p2p-sync-salt-v1", 32);
 }
 
+/**
+ * Encrypts a plaintext string for P2P transmission using AES-256-GCM.
+ * The output is a base64-encoded concatenation of IV (16 bytes) + auth tag (16 bytes) + ciphertext.
+ * @param plaintext - The text to encrypt
+ * @param secret - The shared secret key
+ * @returns Base64-encoded encrypted payload
+ */
 export function encryptP2P(plaintext: string, secret: string): string {
   const iv = randomBytes(16);
   const key = deriveKey(secret);
@@ -50,6 +59,13 @@ export function encryptP2P(plaintext: string, secret: string): string {
   return Buffer.concat([iv, tag, encrypted]).toString("base64");
 }
 
+/**
+ * Decrypts a P2P payload previously encrypted with {@link encryptP2P}.
+ * Expects the input to be: IV (16) + auth tag (16) + ciphertext, all base64-encoded.
+ * @param payload - The base64-encoded encrypted payload
+ * @param secret - The shared secret key used for encryption
+ * @returns Decrypted plaintext string
+ */
 export function decryptP2P(payload: string, secret: string): string {
   const data = Buffer.from(payload, "base64");
   const iv = data.subarray(0, 16);
@@ -96,6 +112,13 @@ async function saveSharedStore(): Promise<void> {
   await writeFile(STORAGE_FILE, JSON.stringify(items, null, 2), "utf-8");
 }
 
+/**
+ * Sets up the P2P WebSocket server for real-time peer-to-peer collaboration.
+ * Handles peer connections, chat, sharing, and ping/pong on the "/p2p" path.
+ * Does nothing if config.enabled is false.
+ * @param server - The HTTP server to attach the WebSocket server to
+ * @param config - P2P configuration with secret, port, room, and enabled flag
+ */
 export function setupP2PSync(server: Server, config: P2PConfig): void {
   if (!config.enabled) return;
   p2pConfig = config;
@@ -199,16 +222,32 @@ async function handleMessage(peerId: string, msg: Record<string, unknown>): Prom
   }
 }
 
+/**
+ * Returns the list of currently connected peers.
+ * @returns Array of peer info objects
+ */
 export function getPeers(): PeerInfo[] {
   return Array.from(peerInfo.values());
 }
 
+/**
+ * Returns shared fragments, optionally filtered by type.
+ * @param type - Optional fragment type to filter by ("memory", "agent", "skill", "rule", "plugin")
+ * @returns Array of matching shared fragments
+ */
 export function getShares(type?: string): SharedFragment[] {
   const items = Array.from(sharedStore.values());
   if (type) return items.filter((s) => s.type === type);
   return items;
 }
 
+/**
+ * Publishes a new shared fragment to all connected peers and persists it locally.
+ * @param type - Fragment type ("memory", "agent", "skill", "rule", "plugin")
+ * @param name - Human-readable name for the fragment
+ * @param content - The fragment content
+ * @returns The created SharedFragment object
+ */
 export function publishShare(
   type: SharedFragment["type"],
   name: string,
@@ -229,6 +268,11 @@ export function publishShare(
   return fragment;
 }
 
+/**
+ * Removes a shared fragment by ID and broadcasts the removal to all connected peers.
+ * @param id - The fragment ID to remove
+ * @returns true if the fragment existed and was removed, false otherwise
+ */
 export function removeShare(id: string): boolean {
   const existed = sharedStore.delete(id);
   if (existed) {
@@ -238,6 +282,9 @@ export function removeShare(id: string): boolean {
   return existed;
 }
 
+/**
+ * Closes all peer connections and shuts down the P2P WebSocket server.
+ */
 export function closeP2PSync(): void {
   if (wss) {
     for (const [, ws] of peers) {
@@ -250,6 +297,10 @@ export function closeP2PSync(): void {
   }
 }
 
+/**
+ * Checks whether the P2P sync server is currently active.
+ * @returns true if the WebSocket server is running, false otherwise
+ */
 export function isP2PActive(): boolean {
   return wss !== null;
 }

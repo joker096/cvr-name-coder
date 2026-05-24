@@ -25,6 +25,7 @@ import { log } from "./logger.js";
 
 const PROJECT_ROOT = process.cwd();
 
+/** Configuration for the MCP server transport and settings. */
 export interface McpConfig {
   enabled: boolean;
   transport: "stdio" | "http" | "sse";
@@ -32,6 +33,11 @@ export interface McpConfig {
   basePath?: string;
 }
 
+/**
+ * Loads MCP server configuration from `.cvr/mcp.json`.
+ * Falls back to a disabled stdio default if the file is missing or invalid.
+ * @returns The parsed MCP configuration
+ */
 export async function loadMcpConfig(): Promise<McpConfig> {
   try {
     const configPath = path.join(PROJECT_ROOT, ".cvr", "mcp.json");
@@ -61,6 +67,12 @@ function customParamsToSchema(params: CustomToolParameter[] | undefined) {
   return { type: "object" as const, properties, required };
 }
 
+/**
+ * Creates an MCP protocol server instance with tools, resources, and prompts handlers.
+ * Tools are sourced from built-in TOOL_DEFINITIONS and custom tools.
+ * Resources expose project root files. Prompts expose loaded agents.
+ * @returns A fully configured MCP Server instance
+ */
 export async function createMcpServer() {
   const server = new Server(
     { name: "cvr-name-coder", version: "1.3.0" },
@@ -217,6 +229,10 @@ export async function createMcpServer() {
   return server;
 }
 
+/**
+ * Starts the MCP server over stdio transport.
+ * @returns A promise that resolves once the server is connected
+ */
 export async function startMcpStdio(): Promise<void> {
   const server = await createMcpServer();
   const transport = new StdioServerTransport();
@@ -226,6 +242,12 @@ export async function startMcpStdio(): Promise<void> {
 
 const sseTransports = new Map<string, SSEServerTransport>();
 
+/**
+ * Mounts MCP SSE transport routes on an Express application.
+ * Sets up GET `/sse` for the EventSource endpoint and POST `/messages` for client message handling.
+ * @param app - The Express application instance
+ * @param basePath - Base URL path for MCP routes (default "/mcp")
+ */
 export function mountMcpSseRoutes(app: import("express").Application, basePath = "/mcp") {
   app.get(`${basePath}/sse`, async (_req: Request, res: Response) => {
     const server = await createMcpServer();

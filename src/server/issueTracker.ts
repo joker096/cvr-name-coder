@@ -1,13 +1,18 @@
 type TrackerType = "github" | "jira" | "linear";
 
+/** Configuration for connecting to an issue tracker service. */
 interface TrackerConfig {
   type: TrackerType;
   token: string;
-  baseUrl?: string;       // Jira: https://xxx.atlassian.net, Linear: https://api.linear.app/graphql
-  repo?: string;           // GitHub: owner/repo
-  project?: string;        // Jira: project key, Linear: team key
+  /** Jira: https://xxx.atlassian.net, Linear: https://api.linear.app/graphql */
+  baseUrl?: string;
+  /** GitHub: owner/repo */
+  repo?: string;
+  /** Jira: project key, Linear: team key */
+  project?: string;
 }
 
+/** Input payload for creating an issue. */
 interface IssueCreateInput {
   title: string;
   description?: string;
@@ -16,9 +21,11 @@ interface IssueCreateInput {
   assignee?: string;
 }
 
+/** Normalized representation of a tracked issue across all providers. */
 interface Issue {
   id: string;
-  key: string;          // Jira: PROJ-123, GitHub: #123, Linear: TEAM-123
+  /** Jira: PROJ-123, GitHub: #123, Linear: TEAM-123 */
+  key: string;
   title: string;
   description: string;
   status: string;
@@ -29,14 +36,28 @@ interface Issue {
 
 let trackerConfig: TrackerConfig | null = null;
 
+/**
+ * Sets the active issue tracker configuration.
+ * @param config - The tracker configuration to use
+ */
 export function setTrackerConfig(config: TrackerConfig) {
   trackerConfig = config;
 }
 
+/**
+ * Returns the currently configured issue tracker settings.
+ * @returns The active tracker configuration, or null if none is set
+ */
 export function getTrackerConfig(): TrackerConfig | null {
   return trackerConfig;
 }
 
+/**
+ * Creates an issue on the configured tracker (GitHub, Jira, or Linear).
+ * @param input - Issue creation payload
+ * @returns The normalized issue object
+ * @throws {Error} If no tracker is configured or the tracker type is unknown
+ */
 export async function createIssue(input: IssueCreateInput): Promise<Issue> {
   if (!trackerConfig) throw new Error("Issue tracker not configured");
 
@@ -52,6 +73,13 @@ export async function createIssue(input: IssueCreateInput): Promise<Issue> {
   }
 }
 
+/**
+ * Lists issues from the configured tracker.
+ * @param status - Optional status filter (e.g. "open", "closed")
+ * @param limit - Maximum number of issues to return (default 20)
+ * @returns Array of normalized issue objects
+ * @throws {Error} If no tracker is configured or the tracker type is unknown
+ */
 export async function listIssues(status?: string, limit = 20): Promise<Issue[]> {
   if (!trackerConfig) throw new Error("Issue tracker not configured");
 
@@ -67,6 +95,12 @@ export async function listIssues(status?: string, limit = 20): Promise<Issue[]> 
   }
 }
 
+/**
+ * Retrieves a single issue by its key from the configured tracker.
+ * @param issueKey - Issue key (e.g. "#123", "PROJ-123", "TEAM-123")
+ * @returns The normalized issue object
+ * @throws {Error} If no tracker is configured or the tracker type is unknown
+ */
 export async function getIssue(issueKey: string): Promise<Issue> {
   if (!trackerConfig) throw new Error("Issue tracker not configured");
 
@@ -82,6 +116,12 @@ export async function getIssue(issueKey: string): Promise<Issue> {
   }
 }
 
+/**
+ * Adds a comment to an existing issue on the configured tracker.
+ * @param issueKey - Issue key to comment on
+ * @param body - Comment body text
+ * @throws {Error} If no tracker is configured or the tracker type is unknown
+ */
 export async function addComment(issueKey: string, body: string): Promise<void> {
   if (!trackerConfig) throw new Error("Issue tracker not configured");
 

@@ -2,6 +2,22 @@ import type { Application, Request, Response } from "express";
 import { getMarketItems, publishItem, downloadItem, removeItem, addReview, getReviews, getTags, getStats } from "../agentMarketplace.js";
 import { generateCIPipeline, PIPELINE_TEMPLATES } from "../ciPipeline.js";
 
+/**
+ * Registers marketplace and CI pipeline API routes on the Express application.
+ *
+ * Routes include:
+ * - GET /api/marketplace - List marketplace items with optional filters (type, tag, search)
+ * - GET /api/marketplace/stats - Get marketplace statistics
+ * - POST /api/marketplace/publish - Publish a new marketplace item
+ * - GET /api/marketplace/:id - Download a specific marketplace item
+ * - DELETE /api/marketplace/:id - Remove a marketplace item
+ * - POST /api/marketplace/:id/review - Add a review to a marketplace item
+ * - GET /api/marketplace/:id/reviews - Get reviews for a marketplace item
+ * - POST /api/ci/generate - Generate a CI pipeline configuration
+ * - GET /api/ci/templates - List available CI pipeline templates
+ *
+ * @param app - The Express Application instance to register routes on
+ */
 export function registerRoutes(app: Application) {
   app.get("/api/marketplace", async (req: Request, res: Response) => {
     try {

@@ -5,38 +5,81 @@ import { getErrorMessage } from "../types/errors";
 const execFileAsync = promisify(execFile);
 const PROJECT_ROOT = process.cwd();
 
+/**
+ * @interface GitStatus
+ * @description Represents the current state of a git working directory.
+ */
 export interface GitStatus {
+  /** Current branch name */
   branch: string;
+  /** Number of commits ahead of remote */
   ahead: number;
+  /** Number of commits behind remote */
   behind: number;
+  /** Modified (unstaged) file paths */
   modified: string[];
+  /** Staged file paths */
   staged: string[];
+  /** Untracked file paths */
   untracked: string[];
+  /** Deleted file paths (unstaged) */
   deleted: string[];
+  /** Renamed file paths */
   renamed: string[];
+  /** Whether the working tree is clean (no changes) */
   clean: boolean;
 }
 
+/**
+ * @interface GitCommit
+ * @description Represents a single git commit.
+ */
 export interface GitCommit {
+  /** Full commit hash (SHA) */
   hash: string;
+  /** Abbreviated (short) commit hash */
   shortHash: string;
+  /** Commit message */
   message: string;
+  /** Author name */
   author: string;
+  /** Commit date string */
   date: string;
 }
 
+/**
+ * @interface GitDiff
+ * @description Represents a file-level diff from git.
+ */
 export interface GitDiff {
+  /** File path */
   file: string;
+  /** Change status (modified, added, deleted, renamed) */
   status: string;
+  /** Full diff content for the file */
   diff: string;
 }
 
+/**
+ * @interface GitResult
+ * @description Result of a git operation.
+ */
 export interface GitResult {
+  /** Whether the operation succeeded */
   success: boolean;
+  /** Command output text */
   output: string;
+  /** Error message if operation failed */
   error?: string;
 }
 
+/**
+ * Runs a git command with the given arguments.
+ * @param {string[]} args - Git command arguments.
+ * @returns {Promise<string>} The stdout output trimmed.
+ * @throws {Error} If git returns a non-warning error on stderr.
+ * @internal
+ */
 async function runGit(args: string[]): Promise<string> {
   const { stdout, stderr } = await execFileAsync("git", args, { cwd: PROJECT_ROOT, timeout: 30000 });
   if (stderr && !stderr.includes("warning")) {
@@ -45,6 +88,10 @@ async function runGit(args: string[]): Promise<string> {
   return stdout.trim();
 }
 
+/**
+ * Gets the current git working directory status.
+ * @returns {Promise<GitStatus>} The current git status including branch, staged, modified, and untracked files.
+ */
 export async function getGitStatus(): Promise<GitStatus> {
   try {
     await runGit(["rev-parse", "--git-dir"]);
@@ -121,6 +168,11 @@ export async function getGitStatus(): Promise<GitStatus> {
   };
 }
 
+/**
+ * Gets the current git diff, optionally for staged changes only.
+ * @param {boolean} [stagedOnly=false] - If `true`, shows only staged (--cached) diffs.
+ * @returns {Promise<GitDiff[]>} An array of file-level diffs.
+ */
 export async function getGitDiff(stagedOnly = false): Promise<GitDiff[]> {
   try {
     await runGit(["rev-parse", "--git-dir"]);
@@ -154,6 +206,11 @@ export async function getGitDiff(stagedOnly = false): Promise<GitDiff[]> {
   return diffs;
 }
 
+/**
+ * Stages all files and creates a git commit.
+ * @param {string} message - The commit message.
+ * @returns {Promise<GitResult>} The result of the commit operation.
+ */
 export async function gitCommit(message: string): Promise<GitResult> {
   try {
     await runGit(["rev-parse", "--git-dir"]);
@@ -165,6 +222,10 @@ export async function gitCommit(message: string): Promise<GitResult> {
   }
 }
 
+/**
+ * Pushes the current branch to the remote.
+ * @returns {Promise<GitResult>} The result of the push operation.
+ */
 export async function gitPush(): Promise<GitResult> {
   try {
     await runGit(["rev-parse", "--git-dir"]);
@@ -175,6 +236,11 @@ export async function gitPush(): Promise<GitResult> {
   }
 }
 
+/**
+ * Retrieves recent git commit history.
+ * @param {number} [limit=10] - Maximum number of commits to retrieve.
+ * @returns {Promise<GitCommit[]>} An array of recent commits.
+ */
 export async function getGitLog(limit = 10): Promise<GitCommit[]> {
   try {
     await runGit(["rev-parse", "--git-dir"]);
@@ -197,6 +263,10 @@ export async function getGitLog(limit = 10): Promise<GitCommit[]> {
   }
 }
 
+/**
+ * Checks whether the current directory is within a git repository.
+ * @returns {Promise<boolean>} `true` if inside a git repo, `false` otherwise.
+ */
 export async function hasGitRepo(): Promise<boolean> {
   try {
     await runGit(["rev-parse", "--git-dir"]);
@@ -206,6 +276,11 @@ export async function hasGitRepo(): Promise<boolean> {
   }
 }
 
+/**
+ * Stages the specified files for commit.
+ * @param {string[]} files - File paths to stage.
+ * @returns {Promise<GitResult>} The result of the staging operation.
+ */
 export async function stageFiles(files: string[]): Promise<GitResult> {
   try {
     const output = await runGit(["add", ...files]);
@@ -215,6 +290,11 @@ export async function stageFiles(files: string[]): Promise<GitResult> {
   }
 }
 
+/**
+ * Unstages the specified files from the index.
+ * @param {string[]} files - File paths to unstage.
+ * @returns {Promise<GitResult>} The result of the unstage operation.
+ */
 export async function unstageFiles(files: string[]): Promise<GitResult> {
   try {
     const output = await runGit(["reset", "HEAD", ...files]);

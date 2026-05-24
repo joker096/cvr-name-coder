@@ -7,6 +7,7 @@ import { loadCustomTools } from "./customToolLoader.js";
 import { getActiveDesignSystem } from "./tools/design.js";
 import { stat } from "fs/promises";
 
+/** Default agent role prompt templates keyed by agent ID. */
 const AGENT_PROMPTS: Record<string, string> = {
   build: `[ROLE: BUILD] - DEFAULT DEVELOPER AGENT. You have full access to developer tools (read/write files, execute bash). Focus on iterative coding, bug fixing, and implementation.`,
   general: `[ROLE: GENERAL] - UNIVERSAL ASSISTANT. Help with complex, multi-stage tasks. You can modify files, run parallel processes, and coordinate broad workflows.`,
@@ -16,6 +17,7 @@ const AGENT_PROMPTS: Record<string, string> = {
   hephaestus: `[ROLE: HEPHAESTUS] - DEEP EXECUTOR. Autonomous specialist. Given a goal, independently research patterns, write code, and finish the task without requiring step-by-step guidance.`,
 };
 
+/** Cached system prompt entry with invalidation metadata. */
 interface PromptCacheEntry {
   prompt: string;
   memoryMtime: number;
@@ -26,6 +28,11 @@ interface PromptCacheEntry {
 const _promptCache = new Map<string, PromptCacheEntry>();
 const PROMPT_CACHE_TTL = 60000;
 
+/**
+ * Retrieves modification timestamps of MEMORY.md and USER.md files
+ * for cache invalidation.
+ * @returns Modification timestamps for both memory files (0 if file missing)
+ */
 async function getMemoryMtime(): Promise<{ memory: number; user: number }> {
   let memory = 0;
   let user = 0;
@@ -40,10 +47,28 @@ async function getMemoryMtime(): Promise<{ memory: number; user: number }> {
   return { memory, user };
 }
 
+/**
+ * Generates a deterministic cache key from build parameters.
+ * @param agent - Agent identifier
+ * @param mode - Operation mode (plan/build/review)
+ * @param contextParts - Optional context fragment (first 50 chars used)
+ * @param customSystemPrompt - Whether a custom system prompt is present
+ * @returns Cache key string for prompt memoization
+ */
 function getCacheKey(agent: string, mode: string, contextParts?: string, customSystemPrompt?: string): string {
   return `${agent}|${mode}|${contextParts?.slice(0, 50) || ''}|${customSystemPrompt ? '1' : '0'}`;
 }
 
+/**
+ * Builds the full system prompt for the AI model, combining agent identity,
+ * mode directives, tool descriptions, memory context, and design system state.
+ * Results are cached per memory file mtimes for up to 60 seconds.
+ * @param options.agent - Agent ID to determine role prompt
+ * @param options.mode - Operation mode: plan, build, or review
+ * @param options.contextParts - Optional pre-assembled context string
+ * @param options.customSystemPrompt - Optional fully custom system prompt override
+ * @returns Assembled system prompt string
+ */
 export async function buildSystemPrompt(options: {
   agent: AgentId;
   mode: "plan" | "build" | "review";

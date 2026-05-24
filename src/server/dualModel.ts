@@ -1,5 +1,9 @@
 import type { DualModelConfig } from "./providers.js";
 
+/**
+ * Input parameters for building a dual-model configuration.
+ * Maps to the settings fields a user would configure.
+ */
 export interface DualModelInput {
   aiProvider?: string;
   localUrl?: string;
@@ -14,6 +18,13 @@ export interface DualModelInput {
   providerKeys?: Record<string, string>;
 }
 
+/**
+ * Constructs a {@link DualModelConfig} from user-facing settings input.
+ * Maps flat configuration fields to the structured dual-model provider config.
+ *
+ * @param cfg - User-facing settings input.
+ * @returns A fully populated {@link DualModelConfig} for use with dual-model generation.
+ */
 export function buildDualModelConfig(cfg: DualModelInput): DualModelConfig {
   const result: DualModelConfig = {
     primaryProvider: cfg.aiProvider || "",

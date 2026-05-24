@@ -1,5 +1,6 @@
 import type { Plan } from "../types/agent";
 
+/** Function signature for the AI "think" callback used by the planner. */
 export type PlanThinkFunction = (prompt: string) => Promise<string>;
 
 interface RawTask {
@@ -7,6 +8,13 @@ interface RawTask {
   dependencies?: number[];
 }
 
+/**
+ * Creates a task plan by asking the AI to break down a goal into concrete tasks.
+ * Falls back to a single-task plan if AI parsing fails.
+ * @param goal - The high-level goal to plan
+ * @param thinkFn - AI callback that takes a prompt and returns a JSON response
+ * @returns A Plan object with ordered, dependency-linked tasks
+ */
 export async function createPlan(goal: string, thinkFn: PlanThinkFunction): Promise<Plan> {
   const prompt = `Break down this goal into a sequence of concrete tasks:
 Goal: ${goal}

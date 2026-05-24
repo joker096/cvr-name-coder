@@ -7,11 +7,42 @@ import { validateBody, GoalConfigSchema } from "../validation.js";
 import { log } from "../logger.js";
 import type { Content } from "../providers.js";
 
+/**
+ * Options for registering goal management routes.
+ */
 export interface GoalRoutesOptions {
+  /**
+   * AI generation function used by the goal orchestrator to produce responses.
+   * @param prompt - The user prompt or system instruction.
+   * @param contents - Optional array of content items (context, images, etc.).
+   * @param provider - The AI provider key.
+   * @param localUrl - Optional local LLM base URL.
+   * @param modelName - The model name to use.
+   * @param apiKey - The API key for the provider.
+   * @param temperature - Sampling temperature.
+   * @param maxTokens - Maximum tokens for the response.
+   * @param useCache - Whether to use the response cache.
+   * @returns A promise resolving to the generated text.
+   */
   generateFn: (prompt: string, contents?: Content[], provider?: string, localUrl?: string, modelName?: string, apiKey?: string, temperature?: number, maxTokens?: number, useCache?: boolean) => Promise<string>;
+  /** Optional permission engine for goal tool execution authorization. */
   permissionEngine?: PermissionEngine;
 }
 
+/**
+ * Registers goal management API routes on the Express application.
+ *
+ * Routes registered:
+ * - `POST /api/goal` — Creates and starts a new goal (validated against GoalConfigSchema).
+ * - `GET /api/goal/:id` — Returns the current state of a goal by ID.
+ * - `GET /api/goal/:id/events` — Streams goal events via Server-Sent Events (SSE).
+ * - `POST /api/goal/:id/abort` — Aborts a running goal by ID.
+ * - `POST /api/goal/:id/resume` — Attempts to resume a paused or errored goal (not yet implemented).
+ * - `GET /api/goals` — Lists all persisted goal states.
+ *
+ * @param app - The Express Application instance to register routes on.
+ * @param options - Configuration including the AI generation function and optional permission engine.
+ */
 export function registerRoutes(app: Application, options: GoalRoutesOptions): void {
   const { generateFn: generateAIContent, permissionEngine } = options;
   const activeGoals = new Map<string, GoalOrchestrator>();

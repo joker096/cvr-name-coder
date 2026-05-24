@@ -6,6 +6,12 @@ import { log } from "../logger.js";
 
 const PROJECT_ROOT = process.cwd();
 
+/**
+ * Resolves a user-requested path relative to the project root and validates it does not escape.
+ * @param requestedPath - The path string to resolve.
+ * @returns The absolute resolved path within the project root.
+ * @throws {Error} If the resolved path escapes the project root directory.
+ */
 export function resolveProjectPath(requestedPath: string): string {
   const resolved = path.resolve(PROJECT_ROOT, requestedPath);
   const relative = path.relative(PROJECT_ROOT, resolved);
@@ -15,6 +21,12 @@ export function resolveProjectPath(requestedPath: string): string {
   return resolved;
 }
 
+/**
+ * Recursively searches a directory for files matching a query string (by filename or content).
+ * @param dir - The directory to search.
+ * @param query - The lowercase search query string.
+ * @returns An array of match result strings prefixed with `[MATCH]`.
+ */
 async function searchDir(dir: string, query: string): Promise<string[]> {
   const entries = await readdir(dir, { withFileTypes: true });
   const results: string[] = [];
@@ -41,12 +53,24 @@ async function searchDir(dir: string, query: string): Promise<string[]> {
   return results;
 }
 
+/**
+ * Reads the contents of a file at the given project-relative path.
+ * @param params - Contains `path` (the project-relative file path).
+ * @returns A tool result with the file contents.
+ * @throws {Error} If the path escapes the project root.
+ */
 export async function executeReadFile(params: Record<string, unknown>): Promise<ToolResult> {
   const filePath = resolveProjectPath(String(params.path));
   const content = await readFile(filePath, "utf-8");
   return { success: true, output: content };
 }
 
+/**
+ * Lists the contents of a directory at the given project-relative path.
+ * @param params - Contains optional `path` (defaults to "."); the project-relative directory path.
+ * @returns A tool result with directory listing, entries prefixed with `[DIR]` or `[FILE]`.
+ * @throws {Error} If the path escapes the project root.
+ */
 export async function executeListDirectory(params: Record<string, unknown>): Promise<ToolResult> {
   const dirPath = resolveProjectPath(String(params.path || "."));
   const entries = await readdir(dirPath, { withFileTypes: true });
@@ -54,6 +78,12 @@ export async function executeListDirectory(params: Record<string, unknown>): Pro
   return { success: true, output: lines.join("\n") };
 }
 
+/**
+ * Recursively searches files for a query string (filename or content match).
+ * @param params - Contains `path` (starting directory, defaults to ".") and `query` (search string).
+ * @returns A tool result with match lines or "No matches found."
+ * @throws {Error} If the path escapes the project root.
+ */
 export async function executeSearchFiles(params: Record<string, unknown>): Promise<ToolResult> {
   const searchPath = resolveProjectPath(String(params.path || "."));
   const query = String(params.query).toLowerCase();
@@ -61,6 +91,14 @@ export async function executeSearchFiles(params: Record<string, unknown>): Promi
   return { success: true, output: matches.length > 0 ? matches.join("\n") : "No matches found." };
 }
 
+/**
+ * Writes content to a file at the given project-relative path, creating parent directories as needed.
+ * Fires `file.write.before` and `file.write.after` hooks.
+ * @param params - Contains `path` (project-relative file path) and `content` (string to write).
+ * @param sessionId - The current session identifier for hook execution.
+ * @returns A tool result confirming the file was written.
+ * @throws {Error} If the path escapes the project root.
+ */
 export async function executeWriteFile(params: Record<string, unknown>, sessionId: string = "default"): Promise<ToolResult> {
   const writePath = resolveProjectPath(String(params.path));
   const content = String(params.content);
@@ -71,6 +109,14 @@ export async function executeWriteFile(params: Record<string, unknown>, sessionI
   return { success: true, output: `File written: ${String(params.path)}` };
 }
 
+/**
+ * Replaces a string in an existing file. Returns an error if the old string is not found.
+ * Fires `file.write.before` and `file.write.after` hooks.
+ * @param params - Contains `path` (project-relative file path), `oldString`, and `newString`.
+ * @param sessionId - The current session identifier for hook execution.
+ * @returns A tool result confirming the edit or reporting the old string was not found.
+ * @throws {Error} If the path escapes the project root.
+ */
 export async function executeEditFile(params: Record<string, unknown>, sessionId: string = "default"): Promise<ToolResult> {
   const editPath = resolveProjectPath(String(params.path));
   const oldString = String(params.oldString);

@@ -4,6 +4,17 @@ import { generateWithDualModel } from "../providers.js";
 import { validateBody, ReviewDecisionSchema, ReviewRequestSchema } from "../validation.js";
 import { buildDualModelConfig } from "../dualModel.js";
 
+/**
+ * Registers code review API routes on the Express application.
+ *
+ * Routes:
+ * - `POST /api/review` — Analyze a code diff using dual-model generation and return structured review results.
+ * - `GET /api/review/pending` — Retrieve all pending code reviews.
+ * - `POST /api/review/:id/accept` — Accept a specific comment on a review.
+ * - `POST /api/review/:id/reject` — Reject a specific comment on a review.
+ *
+ * @param app - The Express Application instance to register routes on.
+ */
 export function registerRoutes(app: Application) {
   app.post("/api/review", validateBody(ReviewRequestSchema), async (req: Request, res: Response) => {
     try {

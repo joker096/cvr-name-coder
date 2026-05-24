@@ -3,6 +3,21 @@ import { readMemory, writeMemory, replaceMemorySection, deleteMemorySection, rea
 import { getErrorMessage } from "../../types/errors.js";
 import { validateBody, SectionDeleteSchema, SectionReplaceSchema, SectionWriteSchema } from "../validation.js";
 
+/**
+ * Registers memory and user preference API routes on the Express application.
+ *
+ * Routes include:
+ * - GET /api/memory - Read all memory sections
+ * - POST /api/memory - Write a memory section (with body validation)
+ * - PUT /api/memory - Replace a memory section (with body validation)
+ * - DELETE /api/memory - Delete a memory section (with body validation)
+ * - GET /api/user - Read all user preference sections
+ * - POST /api/user - Write a user preference section (with body validation)
+ * - PUT /api/user - Replace a user preference section (with body validation)
+ * - DELETE /api/user - Delete a user preference section (with body validation)
+ *
+ * @param app - The Express Application instance to register routes on
+ */
 export function registerRoutes(app: Application) {
   app.get("/api/memory", async (_req: Request, res: Response) => {
     try {

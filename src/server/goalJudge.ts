@@ -1,11 +1,25 @@
 import type { GoalStep, JudgeVerdict } from "../types/goal";
 
+/**
+ * @typedef JudgeThinkFunction
+ * @description A function that sends a prompt to an AI model and returns its text response.
+ * @param {string} prompt - The prompt to send to the AI model.
+ * @returns {Promise<string>} The AI model's text response.
+ */
 export type JudgeThinkFunction = (prompt: string) => Promise<string>;
 
+/**
+ * @interface JudgeOptions
+ * @description Configuration options for evaluating a goal's progress.
+ */
 export interface JudgeOptions {
+  /** The goal description to evaluate */
   goal: string;
+  /** Success criteria that must all be demonstrably true for completion */
   successCriteria: string;
+  /** Steps the agent has taken so far */
   steps: GoalStep[];
+  /** The most recent observation from the agent's last action */
   lastObservation?: string;
 }
 
@@ -46,6 +60,12 @@ function formatHistory(steps: GoalStep[]): string {
     .join("\n");
 }
 
+/**
+ * Evaluates a goal's progress by sending a structured prompt to a judge AI.
+ * @param {JudgeOptions} options - The evaluation options including goal, criteria, steps, and last observation.
+ * @param {JudgeThinkFunction} thinkFn - A function to call the AI model with the evaluation prompt.
+ * @returns {Promise<JudgeVerdict>} The judge's verdict indicating COMPLETE or INCOMPLETE with reasoning.
+ */
 export async function evaluateGoal(
   options: JudgeOptions,
   thinkFn: JudgeThinkFunction

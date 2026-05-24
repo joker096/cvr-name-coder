@@ -8,6 +8,11 @@ let _userCache: { data: MemoryData; mtime: number } | null = null;
 let _contextCache: string | null = null;
 let _contextTimestamp = 0;
 
+/**
+ * Sets the directory where MEMORY.md and USER.md are stored.
+ * Clears all caches when the directory changes.
+ * @param dir - Absolute path to the memory directory
+ */
 export function setMemoryDir(dir: string): void {
   _memoryDir = dir;
   _memCache = null;
@@ -18,11 +23,13 @@ export function setMemoryDir(dir: string): void {
 function getMemoryPath(): string { return path.join(_memoryDir, "MEMORY.md"); }
 function getUserPath(): string { return path.join(_memoryDir, "USER.md"); }
 
+/** A single section within a memory document, containing a title and its content lines. */
 export interface MemorySection {
   title: string;
   lines: string[];
 }
 
+/** Parsed representation of a memory document with sections and raw text. */
 export interface MemoryData {
   sections: MemorySection[];
   raw: string;
@@ -63,6 +70,11 @@ async function ensureFile(filePath: string, defaultContent: string): Promise<voi
   }
 }
 
+/**
+ * Reads the project memory document (MEMORY.md), creating it with defaults if missing.
+ * Uses an in-memory cache keyed on file modification time.
+ * @returns Parsed memory data containing sections and raw text
+ */
 export async function readMemory(): Promise<MemoryData> {
   const memoryPath = getMemoryPath();
   await ensureFile(
@@ -126,6 +138,13 @@ export async function readMemory(): Promise<MemoryData> {
 
 
 
+/**
+ * Appends a timestamped entry to the project memory document.
+ * If a section name is provided, the entry is added to that section;
+ * otherwise it falls back to "Project Facts".
+ * @param content - The text content to append
+ * @param section - Optional section title to target
+ */
 export async function writeMemory(content: string, section?: string): Promise<void> {
   const data = await readMemory();
   const timestamp = new Date().toISOString().split("T")[0];
@@ -154,6 +173,12 @@ export async function writeMemory(content: string, section?: string): Promise<vo
   _contextCache = null;
 }
 
+/**
+ * Replaces the content of a named section in the project memory document.
+ * Creates the section if it does not already exist.
+ * @param section - The section title to replace or create
+ * @param lines - New content lines for the section
+ */
 export async function replaceMemorySection(section: string, lines: string[]): Promise<void> {
   const data = await readMemory();
   const target = data.sections.find((s) => s.title.toLowerCase() === section.toLowerCase());
@@ -168,6 +193,10 @@ export async function replaceMemorySection(section: string, lines: string[]): Pr
   _contextCache = null;
 }
 
+/**
+ * Deletes a named section from the project memory document.
+ * @param section - The section title to delete (case-insensitive match)
+ */
 export async function deleteMemorySection(section: string): Promise<void> {
   const data = await readMemory();
   data.sections = data.sections.filter((s) => s.title.toLowerCase() !== section.toLowerCase());
@@ -177,6 +206,11 @@ export async function deleteMemorySection(section: string): Promise<void> {
   _contextCache = null;
 }
 
+/**
+ * Reads the user preferences document (USER.md), creating it with defaults if missing.
+ * Uses an in-memory cache keyed on file modification time.
+ * @returns Parsed user preference data containing sections and raw text
+ */
 export async function readUser(): Promise<MemoryData> {
   const userPath = getUserPath();
   await ensureFile(
@@ -224,6 +258,13 @@ export async function readUser(): Promise<MemoryData> {
   return data;
 }
 
+/**
+ * Appends a timestamped entry to the user preferences document.
+ * If a section name is provided, the entry is added to that section;
+ * otherwise it falls back to "Coding Style".
+ * @param content - The text content to append
+ * @param section - Optional section title to target
+ */
 export async function writeUser(content: string, section?: string): Promise<void> {
   const data = await readUser();
   const timestamp = new Date().toISOString().split("T")[0];
@@ -251,6 +292,12 @@ export async function writeUser(content: string, section?: string): Promise<void
   _contextCache = null;
 }
 
+/**
+ * Replaces the content of a named section in the user preferences document.
+ * Creates the section if it does not already exist.
+ * @param section - The section title to replace or create
+ * @param lines - New content lines for the section
+ */
 export async function replaceUserSection(section: string, lines: string[]): Promise<void> {
   const data = await readUser();
   const target = data.sections.find((s) => s.title.toLowerCase() === section.toLowerCase());
@@ -265,6 +312,10 @@ export async function replaceUserSection(section: string, lines: string[]): Prom
   _contextCache = null;
 }
 
+/**
+ * Deletes a named section from the user preferences document.
+ * @param section - The section title to delete (case-insensitive match)
+ */
 export async function deleteUserSection(section: string): Promise<void> {
   const data = await readUser();
   data.sections = data.sections.filter((s) => s.title.toLowerCase() !== section.toLowerCase());
@@ -290,6 +341,11 @@ function rebuildMarkdown(kind: MemoryDocumentKind, sections: MemorySection[]): s
   return lines.join("\n").trim() + "\n";
 }
 
+/**
+ * Builds and returns the combined memory context string for AI prompt inclusion.
+ * Combines both project memory and user preferences with a 10-second cache.
+ * @returns Formatted markdown string with project memory and user preferences
+ */
 export async function getMemoryContext(): Promise<string> {
   if (_contextCache && Date.now() - _contextTimestamp < 10000) return _contextCache;
 

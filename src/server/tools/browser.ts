@@ -1,5 +1,8 @@
 import type { ToolResult } from "../../types/tools";
 
+/**
+ * Interface for browser automation tools provided by playwright-core.
+ */
 interface BrowserToolsModule {
   browserNavigate: (sessionId: string, url: string, headless: boolean) => Promise<{ success: boolean; output?: string; error?: string }>;
   browserClick: (sessionId: string, selector: string, headless: boolean) => Promise<{ success: boolean; output?: string; error?: string }>;
@@ -12,6 +15,10 @@ interface BrowserToolsModule {
 
 let browserTools: BrowserToolsModule | null = null;
 
+/**
+ * Lazily loads the browser tools module.
+ * @returns The browser tools module, or null if playwright-core is not installed.
+ */
 export async function getBrowserTools(): Promise<BrowserToolsModule | null> {
   if (!browserTools) {
     try {
@@ -23,6 +30,12 @@ export async function getBrowserTools(): Promise<BrowserToolsModule | null> {
   return browserTools;
 }
 
+/**
+ * Navigates a browser session to the specified URL.
+ * @param params - Contains `url` (the target URL) and `headless` (whether to run headless, defaults to true).
+ * @param sessionId - The browser session identifier.
+ * @returns The navigation result.
+ */
 export async function executeBrowserNavigate(params: Record<string, unknown>, sessionId: string): Promise<ToolResult> {
   const bt = await getBrowserTools();
   if (!bt) return { success: false, output: "", error: "playwright-core not installed" };
@@ -34,6 +47,12 @@ export async function executeBrowserNavigate(params: Record<string, unknown>, se
   };
 }
 
+/**
+ * Clicks on an element in a browser session by CSS selector.
+ * @param params - Contains `selector` (CSS selector string) and `headless` (whether to run headless, defaults to true).
+ * @param sessionId - The browser session identifier.
+ * @returns The click result.
+ */
 export async function executeBrowserClick(params: Record<string, unknown>, sessionId: string): Promise<ToolResult> {
   const bt = await getBrowserTools();
   if (!bt) return { success: false, output: "", error: "playwright-core not installed" };
@@ -45,6 +64,12 @@ export async function executeBrowserClick(params: Record<string, unknown>, sessi
   };
 }
 
+/**
+ * Types text into an element in a browser session.
+ * @param params - Contains `selector` (CSS selector), `text` (text to type), and `headless` (defaults to true).
+ * @param sessionId - The browser session identifier.
+ * @returns The typing result.
+ */
 export async function executeBrowserType(params: Record<string, unknown>, sessionId: string): Promise<ToolResult> {
   const bt = await getBrowserTools();
   if (!bt) return { success: false, output: "", error: "playwright-core not installed" };
@@ -56,6 +81,12 @@ export async function executeBrowserType(params: Record<string, unknown>, sessio
   };
 }
 
+/**
+ * Takes a screenshot of the current browser page.
+ * @param params - Contains `headless` (whether to run headless, defaults to true).
+ * @param sessionId - The browser session identifier.
+ * @returns The screenshot result, potentially with a base64-encoded image.
+ */
 export async function executeBrowserScreenshot(params: Record<string, unknown>, sessionId: string): Promise<ToolResult> {
   const bt = await getBrowserTools();
   if (!bt) return { success: false, output: "", error: "playwright-core not installed" };
@@ -68,6 +99,12 @@ export async function executeBrowserScreenshot(params: Record<string, unknown>, 
   };
 }
 
+/**
+ * Evaluates a JavaScript script in the browser context.
+ * @param params - Contains `script` (JavaScript code to execute) and `headless` (defaults to true).
+ * @param sessionId - The browser session identifier.
+ * @returns The evaluation result.
+ */
 export async function executeBrowserEvaluate(params: Record<string, unknown>, sessionId: string): Promise<ToolResult> {
   const bt = await getBrowserTools();
   if (!bt) return { success: false, output: "", error: "playwright-core not installed" };
@@ -79,6 +116,12 @@ export async function executeBrowserEvaluate(params: Record<string, unknown>, se
   };
 }
 
+/**
+ * Retrieves the full HTML of the current browser page.
+ * @param params - Contains `headless` (whether to run headless, defaults to true).
+ * @param sessionId - The browser session identifier.
+ * @returns The HTML content result.
+ */
 export async function executeBrowserGetHtml(params: Record<string, unknown>, sessionId: string): Promise<ToolResult> {
   const bt = await getBrowserTools();
   if (!bt) return { success: false, output: "", error: "playwright-core not installed" };
@@ -90,6 +133,11 @@ export async function executeBrowserGetHtml(params: Record<string, unknown>, ses
   };
 }
 
+/**
+ * Closes a browser session.
+ * @param sessionId - The browser session identifier.
+ * @returns The close result.
+ */
 export async function executeBrowserClose(sessionId: string): Promise<ToolResult> {
   const bt = await getBrowserTools();
   if (!bt) return { success: false, output: "", error: "playwright-core not installed" };

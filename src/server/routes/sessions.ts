@@ -3,6 +3,19 @@ import { createSession, addMessage, getSession, listSessions, searchSessions, de
 import { getErrorMessage } from "../../types/errors.js";
 import { validateBody, SessionCreateSchema, SessionMessageSchema, SessionSearchQuerySchema } from "../validation.js";
 
+/**
+ * Registers session management API routes on the Express application.
+ *
+ * Routes:
+ * - `POST /api/sessions` — Create a new chat session with an optional title.
+ * - `GET /api/sessions` — List all existing chat sessions.
+ * - `GET /api/sessions/:id` — Retrieve a single session by its ID.
+ * - `POST /api/sessions/:id/messages` — Add a message (user, assistant, or system) to a session.
+ * - `GET /api/sessions/search` — Search sessions by query string with an optional limit.
+ * - `DELETE /api/sessions/:id` — Delete a session by its ID.
+ *
+ * @param app - The Express Application instance to register routes on.
+ */
 export function registerRoutes(app: Application) {
   app.post("/api/sessions", validateBody(SessionCreateSchema), async (req: Request, res: Response) => {
     try {

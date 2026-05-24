@@ -28,6 +28,15 @@ const TEXT_EXTENSIONS = new Set([
   '.txt', '.log',
 ]);
 
+/**
+ * Recursively indexes a project directory into the RAG engine for semantic search.
+ * Skips common non-source directories and binary files, processing only text files
+ * whose extensions are recognized.
+ *
+ * @param rootDir - The root directory of the project to index.
+ * @param embedFn - Function used to generate embeddings for document chunks.
+ * @returns The total number of files successfully indexed.
+ */
 export async function indexProject(
   rootDir: string,
   embedFn: EmbedFunction

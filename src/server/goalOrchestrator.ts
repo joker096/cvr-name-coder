@@ -7,6 +7,13 @@ import type { GoalConfig, GoalState, GoalStep, JudgeVerdict } from "../types/goa
 import type { LoopStep } from "../types/agent";
 import { getErrorMessage } from "../types/errors";
 
+/**
+ * @typedef OrchestratorThinkFunction
+ * @description A function that sends a prompt to an AI model and returns its text response.
+ *   Used by the orchestrator for both the agent loop and the judge.
+ * @param {string} prompt - The prompt to send to the AI model.
+ * @returns {Promise<string>} The AI model's text response.
+ */
 export type OrchestratorThinkFunction = (prompt: string) => Promise<string>;
 
 interface GoalOrchestratorOptions {
@@ -16,6 +23,12 @@ interface GoalOrchestratorOptions {
   broadcaster?: GoalEventBroadcaster;
 }
 
+/**
+ * @class GoalOrchestrator
+ * @description Manages the lifecycle of a goal execution: runs an agent loop,
+ *   periodically calls a judge to evaluate progress, persists state, and
+ *   broadcasts events. Supports abort, token budgeting, and iteration limits.
+ */
 export class GoalOrchestrator {
   private state: GoalState;
   private loop: AgentLoop;
@@ -26,6 +39,11 @@ export class GoalOrchestrator {
   private totalTokensEstimate = 0;
   private saveTimeout: NodeJS.Timeout | undefined;
 
+  /**
+   * Creates a new GoalOrchestrator instance.
+   * @param {GoalConfig} config - The goal configuration including description, criteria, and limits.
+   * @param {GoalOrchestratorOptions} options - Runtime options including the think function and permission engine.
+   */
   constructor(config: GoalConfig, options: GoalOrchestratorOptions) {
     const id = crypto.randomUUID();
     this.state = {
@@ -71,19 +89,35 @@ export class GoalOrchestrator {
     this.loop = new AgentLoop(config.goal, loopOpts);
   }
 
+  /**
+   * Returns a shallow copy of the current goal state.
+   * @returns {GoalState} The current goal state snapshot.
+   */
   getState(): GoalState {
     return { ...this.state };
   }
 
+  /**
+   * Returns the event broadcaster for subscribing to goal events.
+   * @returns {GoalEventBroadcaster} The broadcaster instance.
+   */
   getBroadcaster(): GoalEventBroadcaster {
     return this.broadcaster;
   }
 
+  /**
+   * Aborts the current goal execution gracefully.
+   */
   abort(): void {
     this._abort = true;
     this.loop.abort();
   }
 
+  /**
+   * Runs the goal orchestration loop until completion, error, or abort.
+   * Delegates to the agent loop for step execution and the judge for progress evaluation.
+   * @returns {Promise<GoalState>} The final goal state after the run concludes.
+   */
   async run(): Promise<GoalState> {
     this.broadcaster.broadcast(this.state.id, "goal.started", { goal: this.state.goal });
     this.debouncedSave();

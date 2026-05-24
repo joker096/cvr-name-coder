@@ -30,6 +30,7 @@ import { loadCustomTools, setCustomToolsDir } from '../../src/server/customToolL
 import { loadPlugins, registerPlugins, getPlugins, enablePlugin, disablePlugin, setPluginsDir } from '../../src/server/pluginManager.js';
 import { setDesignSystemsDir } from '../../src/server/tools/design.js';
 import { cronScheduler } from '../../src/server/cronScheduler.js';
+import { trackCost } from '../../src/server/costTracker.js';
 import { loadMcpConfig, mountMcpSseRoutes } from '../../src/server/mcpServer.js';
 import { initSync } from '../../src/server/teamSync.js';
 import { registerRoutes as registerGitRoutes } from '../../src/server/routes/git.js';
@@ -40,7 +41,8 @@ import { registerRoutes as registerGoalRoutes } from '../../src/server/routes/go
 import { setupSecurityMiddleware, createTrustedLocalOriginMiddleware } from '../../src/server/standalone/middleware.js';
 import { SettingsSchema } from '../../src/server/validation.js';
 import { McpManager } from './mcp/McpManager.js';
-import { generateEmbeddings, hasGeminiEmbeddingsConfigured } from './embeddings/geminiEmbeddings.js';
+import type { McpServerConfig } from './mcp/McpManager.js';
+import { generateEmbeddings, hasGeminiEmbeddingsConfigured, getGemini } from './embeddings/geminiEmbeddings.js';
 
 const $fetch = (globalThis as { fetch: (url: string, init?: RequestInit) => Promise<Response> }).fetch;
 
@@ -386,7 +388,7 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
           try {
             const chunk = JSON.parse(jsonStr);
             const delta = chunk.choices?.[0]?.delta;
-            const reasoningText = delta?.reasoning_content || chunk?.choices?.[0]?.text?.reasoning_content;
+            const reasoningText = delta?.reasoning_content;
             if (reasoningText && onReasoning) onReasoning(reasoningText);
             const text = delta?.content || chunk.choices?.[0]?.text || '';
             if (text) onToken(text);
@@ -407,7 +409,20 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
           max_tokens: maxTokens || 4096,
           stream: true,
           system: prompt,
-          messages: contents.map((c: any) => ({ role: c.role === 'model' ? 'assistant' : c.role, content: c.parts[0].text }))
+          messages: contents.map((c: any) => {
+            const hasImages = c.parts.some((p: any) => p.inlineData);
+            if (hasImages) {
+              return {
+                role: c.role === 'model' ? 'assistant' : c.role,
+                content: c.parts.map((p: any) => {
+                  if (p.text) return { type: 'text', text: p.text };
+                  if (p.inlineData) return { type: 'image', source: { type: 'base64', media_type: p.inlineData.mimeType, data: p.inlineData.data } };
+                  return null;
+                }).filter((x: any) => x !== null),
+              };
+            }
+            return { role: c.role === 'model' ? 'assistant' : c.role, content: c.parts[0]?.text ?? '' };
+          })
         }),
         signal,
       });

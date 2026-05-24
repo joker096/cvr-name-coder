@@ -47,6 +47,20 @@ import {
 
 export { setRagFn as setRagEmbedFn };
 
+/**
+ * Executes a tool call by name with the given parameters.
+ *
+ * Supports ~35 built-in tools across file operations, git, browser automation,
+ * issue tracking, skill management, memory, RAG search, design tools, and custom tools.
+ * Handles plan-mode restrictions, permission checks (allow/deny/ask), hook events
+ * (`tool.before`, `tool.after`), and custom tool fallback.
+ *
+ * @param toolCall - The tool call with name and params to execute
+ * @param mode - Execution mode: "plan" (read-only), "build" (full access), or "review"
+ * @param permissionEngine - Optional permission engine for access control
+ * @param sessionId - Session identifier for hook correlation (default: "default")
+ * @returns A Promise resolving to the tool result with success flag, output, and optional error
+ */
 export async function executeTool(
   toolCall: { name: string; params: Record<string, unknown> },
   mode: "plan" | "build" | "review" = "build",

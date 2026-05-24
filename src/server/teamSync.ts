@@ -8,6 +8,7 @@ import { log } from "./logger.js";
 
 const execFileAsync = promisify(execFile);
 
+/** Configuration for team synchronization across multiple developer machines. */
 export interface SyncConfig {
   enabled: boolean;
   provider: "git" | "file" | "api";
@@ -102,6 +103,11 @@ function tryDecrypt(data: Buffer): Buffer {
 
 // ─── Config ───
 
+/**
+ * Loads the sync configuration from .cvr/sync.json.
+ *
+ * @returns The parsed {@link SyncConfig}, or null if the file doesn't exist or is invalid.
+ */
 export async function loadSyncConfig(): Promise<SyncConfig | null> {
   try {
     await access(CONFIG_PATH);
@@ -115,10 +121,21 @@ export async function loadSyncConfig(): Promise<SyncConfig | null> {
   }
 }
 
+/**
+ * Returns the currently loaded sync configuration (without re-reading from disk).
+ *
+ * @returns The current {@link SyncConfig}, or null if not yet loaded.
+ */
 export function getSyncConfig(): SyncConfig | null {
   return _config;
 }
 
+/**
+ * Persists the sync configuration to .cvr/sync.json.
+ * The encryption key is stripped from the saved file for security.
+ *
+ * @param config - The {@link SyncConfig} to save.
+ */
 export async function saveSyncConfig(config: SyncConfig): Promise<void> {
   await mkdir(SYNC_DIR, { recursive: true });
   const safeConfig: Omit<SyncConfig, "encryptionKey"> = { ...config };
@@ -272,6 +289,12 @@ async function importWithConflictCheck(syncDir: string): Promise<string[]> {
 
 // ─── Public API ───
 
+/**
+ * Exports local sync files (MEMORY.md, USER.md, history.json, etc.) to the configured
+ * sync destination (git repo, file directory, or API endpoint).
+ *
+ * @returns An object with success status and a descriptive message.
+ */
 export async function exportSync(): Promise<{ success: boolean; message: string }> {
   if (!_config?.enabled) {
     return { success: false, message: "Sync is not enabled" };
@@ -309,6 +332,12 @@ export async function exportSync(): Promise<{ success: boolean; message: string 
   }
 }
 
+/**
+ * Imports sync files from the configured sync destination into local storage.
+ * Handles conflict detection based on the configured conflict resolution strategy.
+ *
+ * @returns An object with success status, message, and optional list of conflicted filenames.
+ */
 export async function importSync(): Promise<{ success: boolean; message: string; conflicts?: string[] }> {
   if (!_config?.enabled) {
     return { success: false, message: "Sync is not enabled" };
@@ -352,10 +381,18 @@ export async function importSync(): Promise<{ success: boolean; message: string;
   }
 }
 
+/**
+ * Returns a snapshot of the current sync status.
+ *
+ * @returns A copy of the internal {@link SyncStatus} object.
+ */
 export function getSyncStatus(): SyncStatus {
   return { ..._status };
 }
 
+/**
+ * Stops any active auto-sync interval and resets sync status to defaults.
+ */
 export async function resetSync(): Promise<void> {
   if (_intervalId) {
     clearInterval(_intervalId);
@@ -369,6 +406,10 @@ export async function resetSync(): Promise<void> {
   };
 }
 
+/**
+ * Restarts the automatic sync interval based on the configured interval setting.
+ * Stops any existing interval first. Does nothing if sync is disabled or interval is 0.
+ */
 export function restartAutoSync(): void {
   if (_intervalId) {
     clearInterval(_intervalId);
@@ -385,6 +426,10 @@ export function restartAutoSync(): void {
   }, intervalMs);
 }
 
+/**
+ * Initializes the sync system by loading config and starting auto-sync if enabled.
+ * Call this once during server startup.
+ */
 export async function initSync(): Promise<void> {
   await loadSyncConfig();
   if (_config?.enabled) {
@@ -394,6 +439,13 @@ export async function initSync(): Promise<void> {
 
 // ─── API Provider Helpers (stub for future expansion) ───
 
+/**
+ * Exports sync data to a remote API endpoint.
+ *
+ * @param apiUrl - Base URL of the sync API.
+ * @param apiKey - Bearer token for API authentication.
+ * @throws If the API request fails (non-2xx response).
+ */
 export async function apiExport(apiUrl: string, apiKey: string): Promise<void> {
   // Placeholder for API-based sync
   const data = await readFile(CONFIG_PATH, "utf-8");
@@ -408,6 +460,13 @@ export async function apiExport(apiUrl: string, apiKey: string): Promise<void> {
   if (!response.ok) throw new Error(`API export failed: ${response.statusText}`);
 }
 
+/**
+ * Imports sync data from a remote API endpoint.
+ *
+ * @param apiUrl - Base URL of the sync API.
+ * @param apiKey - Bearer token for API authentication.
+ * @throws If the API request fails (non-2xx response).
+ */
 export async function apiImport(apiUrl: string, apiKey: string): Promise<void> {
   // Placeholder for API-based sync
   const response = await fetch(`${apiUrl}/sync/import`, {
@@ -421,6 +480,12 @@ export async function apiImport(apiUrl: string, apiKey: string): Promise<void> {
   await writeFile(CONFIG_PATH, JSON.stringify(data, null, 2), "utf-8");
 }
 
+/**
+ * Resolves sync conflicts manually by accepting either local or remote versions per file.
+ *
+ * @param resolutions - Map of filename to resolution choice: "local" keeps the local copy, "remote" overwrites with the synced version.
+ * @throws If sync is not configured.
+ */
 export async function resolveConflictsManually(resolutions: Record<string, "local" | "remote">): Promise<void> {
   if (!_config) throw new Error("Sync not configured");
   const syncDir = getSyncDir();

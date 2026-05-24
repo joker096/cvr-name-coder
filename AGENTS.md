@@ -141,7 +141,7 @@ npm run type-check    # TypeScript validation
 4. ~~No health check endpoint~~ → Use `/api/health`
 5. ~~No structured logging~~ → Use `src/server/logger.ts`
 6. ~~Monolithic tools.ts~~ → Use `src/server/tools/` modules
-7. Some tests are flaky (network-dependent) - 16 failing, 7 skipped
+7. Some tests are flaky (network-dependent) - 7 skipped
 
 ## When Making Changes
 

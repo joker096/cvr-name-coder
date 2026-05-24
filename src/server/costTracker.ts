@@ -1,28 +1,49 @@
 import * as path from "path";
 import { readFile, writeFile, access } from "fs/promises";
 
+/**
+ * A single cost tracking entry representing one AI API call.
+ */
 export interface CostEntry {
+  /** The AI provider identifier (e.g. "openai", "gemini"). */
   provider: string;
+  /** The specific model name used. */
   model: string;
+  /** Number of input (prompt) tokens consumed. */
   inputTokens: number;
+  /** Number of output (completion) tokens generated. */
   outputTokens: number;
+  /** Calculated cost in USD. */
   cost: number;
+  /** ISO 8601 timestamp of when the cost was recorded. */
   timestamp: string;
 }
 
+/**
+ * Aggregated cost summary across all tracked API calls.
+ */
 export interface CostSummary {
+  /** Total cost in USD across all entries. */
   totalCost: number;
+  /** Total input tokens across all entries. */
   totalInputTokens: number;
+  /** Total output tokens across all entries. */
   totalOutputTokens: number;
+  /** Cost and usage breakdown grouped by provider. */
   byProvider: Record<
     string,
     {
+      /** Total cost for this provider in USD. */
       cost: number;
+      /** Total input tokens for this provider. */
       inputTokens: number;
+      /** Total output tokens for this provider. */
       outputTokens: number;
+      /** Number of API calls made to this provider. */
       calls: number;
     }
   >;
+  /** All individual cost entries. */
   entries: CostEntry[];
 }
 
@@ -72,6 +93,15 @@ async function saveCosts(entries: CostEntry[]): Promise<void> {
   await writeFile(COSTS_FILE, JSON.stringify(entries, null, 2));
 }
 
+/**
+ * Records a cost entry for an AI API call and persists it to disk.
+ * Calculates the cost using provider-specific rate cards (USD per 1M tokens).
+ * @param {string} provider - The AI provider identifier.
+ * @param {string} model - The model name used.
+ * @param {number} inputTokens - Number of input (prompt) tokens.
+ * @param {number} outputTokens - Number of output (completion) tokens.
+ * @returns {Promise<CostEntry>} The newly created cost entry.
+ */
 export async function trackCost(provider: string, model: string, inputTokens: number, outputTokens: number): Promise<CostEntry> {
   const entry: CostEntry = {
     provider: provider.toLowerCase(),
@@ -89,6 +119,10 @@ export async function trackCost(provider: string, model: string, inputTokens: nu
   return entry;
 }
 
+/**
+ * Retrieves a complete cost summary including per-provider breakdowns and all entries.
+ * @returns {Promise<CostSummary>} Aggregated cost summary.
+ */
 export async function getCosts(): Promise<CostSummary> {
   const entries = await loadCosts();
 
@@ -125,6 +159,11 @@ export async function getCosts(): Promise<CostSummary> {
   return summary;
 }
 
+/**
+ * Retrieves a cost summary filtered to a specific provider.
+ * @param {string} provider - The provider identifier to filter by.
+ * @returns {Promise<CostSummary>} Cost summary containing only entries for the given provider.
+ */
 export async function getCostsByProvider(provider: string): Promise<CostSummary> {
   const all = await getCosts();
   const filtered = all.entries.filter((e) => e.provider === provider.toLowerCase());
@@ -147,10 +186,19 @@ export async function getCostsByProvider(provider: string): Promise<CostSummary>
   return summary;
 }
 
+/**
+ * Resets all tracked costs by clearing the cost entries file.
+ * @returns {Promise<void>}
+ */
 export async function resetCosts(): Promise<void> {
   await saveCosts([]);
 }
 
+/**
+ * Estimates the number of tokens in a text string using a rough heuristic of 4 characters per token.
+ * @param {string} text - The text to estimate tokens for.
+ * @returns {number} The estimated token count (0 for empty input).
+ */
 // Helper: estimate tokens from text (roughly 4 chars per token)
 export function estimateTokens(text: string): number {
   if (!text) return 0;

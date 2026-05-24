@@ -140,6 +140,11 @@ function fallbackGetDb(): Database {
   };
 }
 
+/**
+ * Sets the directory path for the session database.
+ * Reinitializes the database connection and fallback JSON storage to the new directory.
+ * @param {string} dir - The directory path where the sessions database file should be stored.
+ */
 export function setSessionDbPath(dir: string): void {
   _dbPath = path.join(dir, "sessions.db");
   _db = null;
@@ -149,6 +154,11 @@ export function setSessionDbPath(dir: string): void {
   }
 }
 
+/**
+ * Returns the active database instance, initializing it if necessary.
+ * Attempts to use better-sqlite3 first, falling back to a JSON-based in-memory store.
+ * @returns {Database} The database instance (SQLite or fallback).
+ */
 export function getDb(): Database {
   if (!_db) {
     try {
@@ -200,30 +210,59 @@ function initSchema(db: Database): void {
   }
 }
 
+/**
+ * Represents a chat session stored in the database.
+ */
 export interface Session {
+  /** Unique session identifier (UUID). */
   id: string;
+  /** Human-readable session title. */
   title: string;
+  /** Unix timestamp (ms) when the session was created. */
   createdAt: number;
+  /** Unix timestamp (ms) when the session was last updated. */
   updatedAt: number;
 }
 
+/**
+ * Represents a single chat message within a session.
+ */
 export interface Message {
+  /** Unique message identifier (UUID). */
   id: string;
+  /** The session ID this message belongs to. */
   sessionId: string;
+  /** The role of the message sender (e.g. "user", "assistant", "system"). */
   role: string;
+  /** The message content text. */
   content: string;
+  /** Unix timestamp (ms) when the message was created. */
   createdAt: number;
 }
 
+/**
+ * Represents a full-text search result across sessions and messages.
+ */
 export interface SearchResult {
+  /** The session ID containing the matching message. */
   sessionId: string;
+  /** The title of the session containing the match. */
   sessionTitle: string;
+  /** The ID of the matching message. */
   messageId: string;
+  /** The role of the matching message sender. */
   role: string;
+  /** A truncated snippet of the matching content with highlighted terms. */
   snippet: string;
+  /** Unix timestamp (ms) when the matching message was created. */
   createdAt: number;
 }
 
+/**
+ * Creates a new chat session with the given title.
+ * @param {string} title - The title for the new session.
+ * @returns {Session} The newly created session object.
+ */
 export function createSession(title: string): Session {
   const db = getDb();
   const id = randomUUID();
@@ -234,6 +273,14 @@ export function createSession(title: string): Session {
   return session;
 }
 
+/**
+ * Adds a message to an existing session and updates the session's timestamp.
+ * Also inserts into the FTS index when using SQLite backend.
+ * @param {string} sessionId - The ID of the session to add the message to.
+ * @param {string} role - The role of the message sender.
+ * @param {string} content - The message content.
+ * @returns {Message} The newly created message object.
+ */
 export function addMessage(sessionId: string, role: string, content: string): Message {
   const db = getDb();
   const id = randomUUID();
@@ -256,6 +303,11 @@ export function addMessage(sessionId: string, role: string, content: string): Me
   return { id, sessionId, role, content, createdAt: now };
 }
 
+/**
+ * Retrieves a session and all its messages.
+ * @param {string} sessionId - The ID of the session to retrieve.
+ * @returns {{ session: Session; messages: Message[] } | null} The session with its messages, or null if not found.
+ */
 export function getSession(sessionId: string): { session: Session; messages: Message[] } | null {
   const db = getDb();
   const session = db.prepare("SELECT id, title, created_at, updated_at FROM sessions WHERE id = ?").get!(sessionId) as
@@ -290,6 +342,10 @@ export function getSession(sessionId: string): { session: Session; messages: Mes
   };
 }
 
+/**
+ * Lists all sessions ordered by most recently updated first.
+ * @returns {Session[]} An array of all sessions sorted by updatedAt descending.
+ */
 export function listSessions(): Session[] {
   const db = getDb();
   const rows = db
@@ -308,6 +364,12 @@ export function listSessions(): Session[] {
   }));
 }
 
+/**
+ * Searches sessions and messages using full-text search (via FTS5 or fallback substring matching).
+ * @param {string} query - The search query string.
+ * @param {number} [limit=20] - Maximum number of results to return.
+ * @returns {SearchResult[]} An array of matching search results.
+ */
 export function searchSessions(query: string, limit = 20): SearchResult[] {
   if (_useFallback) {
     const q = query.toLowerCase();
@@ -371,6 +433,10 @@ export function searchSessions(query: string, limit = 20): SearchResult[] {
   }));
 }
 
+/**
+ * Deletes a session and all its associated messages and FTS indexes.
+ * @param {string} sessionId - The ID of the session to delete.
+ */
 export function deleteSession(sessionId: string): void {
   const db = getDb();
   if (_useFallback) {

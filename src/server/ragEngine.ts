@@ -85,6 +85,17 @@ function fallbackGetDb(): Database {
   };
 }
 
+/**
+ * Sets the directory where the RAG SQLite database (and JSON fallback) is stored.
+ *
+ * @param dir - The target directory path.
+ */
+/**
+ * Sets the directory path for the RAG database.
+ * Resets any cached database instance so it will be re-initialized on next access.
+ *
+ * @param dir - Directory path containing (or to contain) the rag.db file.
+ */
 export function setRagDbPath(dir: string): void {
   _dbPath = path.join(dir, "rag.db");
   _db = null;
@@ -123,6 +134,11 @@ function initSchema(db: Database): void {
   `);
 }
 
+/**
+ * A function that accepts an array of text strings and returns their embedding vectors.
+ * Each inner array corresponds to the embedding for the text at the same index.
+ */
+/** Callback that accepts an array of text strings and returns their vector embeddings. */
 export type EmbedFunction = (texts: string[]) => Promise<number[][]>;
 
 function chunkText(text: string, maxChars = 500): string[] {
@@ -156,6 +172,21 @@ function cosineSimilarity(a: number[], b: number[]): number {
   return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
+/**
+ * Ingests a document into the RAG store by chunking its content, generating
+ * embeddings, and persisting them to the database.
+ *
+ * @param source - A label identifying the document source.
+ * @param content - The full text content to ingest.
+ * @param embedFn - Function that converts text chunks to embedding vectors.
+ */
+/**
+ * Splits a document into chunks, generates embeddings, and stores them in the RAG database.
+ *
+ * @param source - A label/identifier for the document source.
+ * @param content - The full text content to ingest.
+ * @param embedFn - Function that generates embeddings for an array of text chunks.
+ */
 export async function ingestDocument(
   source: string,
   content: string,
@@ -172,12 +203,34 @@ export async function ingestDocument(
   if (_useFallback) saveJson();
 }
 
+/** A single search result from the RAG store, including a similarity score. */
+/** A single search result from the RAG index. */
 export interface RagResult {
+  /** Source identifier of the document chunk. */
   source: string;
+  /** The matched text content. */
   content: string;
+  /** Cosine similarity score (0-1), higher is better. */
   score: number;
 }
 
+/**
+ * Searches ingested documents using cosine similarity on embeddings.
+ *
+ * @param query - The search query text.
+ * @param embedFn - Function that converts a text query to an embedding vector.
+ * @param topK - Maximum number of results to return (default 3).
+ * @returns An array of scored results, filtered to those with similarity > 0.5.
+ */
+/**
+ * Searches the RAG index for chunks semantically similar to the query.
+ * Only returns results with a cosine similarity above 0.5.
+ *
+ * @param query - The search query text.
+ * @param embedFn - Function that generates embeddings for text.
+ * @param topK - Maximum number of results to return (default 3).
+ * @returns Array of ranked {@link RagResult} objects, sorted by descending score.
+ */
 export async function searchRAG(
   query: string,
   embedFn: EmbedFunction,
@@ -202,12 +255,32 @@ export async function searchRAG(
   return scored;
 }
 
+/**
+ * Returns the distinct source labels for all ingested documents.
+ *
+ * @returns An array of source name strings.
+ */
+/**
+ * Lists all unique source identifiers currently in the RAG database.
+ *
+ * @returns Array of source name strings.
+ */
 export function listSources(): string[] {
   const db = getDb();
   const rows = db.prepare("SELECT DISTINCT source FROM chunks").all!() as Array<{ source: string }>;
   return rows.map((r) => r.source);
 }
 
+/**
+ * Removes all chunks associated with a given document source.
+ *
+ * @param source - The source label to clear.
+ */
+/**
+ * Removes all chunks belonging to a specific source from the RAG database.
+ *
+ * @param source - The source identifier to clear.
+ */
 export function clearSource(source: string): void {
   const db = getDb();
   db.prepare("DELETE FROM chunks WHERE source = ?").run!(source);

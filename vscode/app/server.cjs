@@ -37,6 +37,10 @@ var init_logger = __esm({
     Logger = class {
       context;
       level;
+      /**
+       * @param context - Logger name for output prefix
+       * @param level - Minimum log level threshold (default: 'info')
+       */
       constructor(context, level = "info") {
         this.context = context;
         this.level = level;
@@ -50,21 +54,42 @@ var init_logger = __esm({
         const dur = entry.duration ? ` [${entry.duration}ms]` : "";
         return `[${entry.timestamp}] [${entry.level.toUpperCase()}] [${this.context}] ${entry.message}${ctx}${dur}`;
       }
+      /**
+       * Logs a debug-level message (verbose diagnostics).
+       * @param message - Log message text
+       * @param context - Optional structured context data
+       */
       debug(message, context) {
         if (!this.shouldLog("debug")) return;
         const entry = { timestamp: (/* @__PURE__ */ new Date()).toISOString(), level: "debug", message, context };
         console.debug(this.format(entry));
       }
+      /**
+       * Logs an info-level message (normal operational events).
+       * @param message - Log message text
+       * @param context - Optional structured context data
+       */
       info(message, context) {
         if (!this.shouldLog("info")) return;
         const entry = { timestamp: (/* @__PURE__ */ new Date()).toISOString(), level: "info", message, context };
         console.info(this.format(entry));
       }
+      /**
+       * Logs a warning-level message (recoverable anomalies).
+       * @param message - Log message text
+       * @param context - Optional structured context data
+       */
       warn(message, context) {
         if (!this.shouldLog("warn")) return;
         const entry = { timestamp: (/* @__PURE__ */ new Date()).toISOString(), level: "warn", message, context };
         console.warn(this.format(entry));
       }
+      /**
+       * Logs an error-level message. Includes Error object message and stack trace.
+       * @param message - Log message text
+       * @param error - Error object whose message and stack are captured
+       * @param context - Optional structured context data (merged with error info)
+       */
       error(message, error, context) {
         if (!this.shouldLog("error")) return;
         const entry = {
@@ -75,6 +100,12 @@ var init_logger = __esm({
         };
         console.error(this.format(entry));
       }
+      /**
+       * Starts a high-resolution timer. Call the returned function to log
+       * the elapsed duration at debug level.
+       * @param label - Operation name for the completion message
+       * @returns A stop function that logs and returns duration in milliseconds
+       */
       time(label) {
         const start = Date.now();
         return () => {
@@ -996,6 +1027,13 @@ var PermissionEngine = class {
       setTimeout(() => this.pending.delete(id), 3e5);
     }
   }
+  /**
+   * Waits for a pending permission request to be resolved.
+   * Returns false if the request times out or is not found.
+   * @param id - The pending permission ID to wait for
+   * @param timeoutMs - Maximum time to wait in milliseconds
+   * @returns A Promise resolving to true if approved, false if denied or timed out
+   */
   async waitForResolution(id, timeoutMs) {
     const pending = this.pending.get(id);
     if (!pending) return false;
@@ -1012,12 +1050,25 @@ var PermissionEngine = class {
       this.emitter.once(`resolved:${id}`, onResolved);
     });
   }
+  /**
+   * Retrieves a pending permission request by ID.
+   * @param id - The pending permission ID
+   * @returns The pending permission, or undefined if not found
+   */
   getPending(id) {
     return this.pending.get(id);
   }
+  /**
+   * Lists all unresolved (not yet approved/denied) pending permissions.
+   * @returns Array of unresolved pending permissions
+   */
   listPending() {
     return Array.from(this.pending.values()).filter((p) => !p.resolved);
   }
+  /**
+   * Removes all resolved (approved or denied) pending permissions from memory.
+   * Prevents memory accumulation from old permission requests.
+   */
   clearResolved() {
     for (const [id, p] of this.pending) {
       if (p.resolved) this.pending.delete(id);
@@ -1485,12 +1536,21 @@ var ALL_TOOL_NAMES = TOOL_DEFINITIONS.map((t) => t.name);
 init_logger();
 var HookRegistry = class {
   hooks = /* @__PURE__ */ new Map();
+  /**
+   * Registers a hook to be executed at the specified hook point.
+   * @param {HookRegistration<P>} reg - The hook registration containing id, hookPoint, handler, and priority.
+   * @typeParam P - The hook point type parameter.
+   */
   register(reg) {
     const existing = this.hooks.get(reg.hookPoint) || [];
     existing.push(reg);
     existing.sort((a, b) => b.priority - a.priority);
     this.hooks.set(reg.hookPoint, existing);
   }
+  /**
+   * Unregisters a hook by its unique ID.
+   * @param {string} id - The identifier of the hook to remove.
+   */
   unregister(id) {
     for (const [point, regs] of this.hooks) {
       this.hooks.set(
@@ -1499,6 +1559,15 @@ var HookRegistry = class {
       );
     }
   }
+  /**
+   * Executes all registered hooks for the given hook point in priority order.
+   * Hook errors are caught and logged; they do not prevent other hooks from running.
+   * @param {P} hookPoint - The lifecycle hook point.
+   * @param {HookDataMap[P]} data - Data specific to this hook point.
+   * @param {string} sessionId - The current session identifier.
+   * @typeParam P - The hook point type parameter.
+   * @returns {Promise<void>} Resolves when all hooks have executed.
+   */
   async execute(hookPoint, data, sessionId) {
     const regs = this.hooks.get(hookPoint) || [];
     const ctx = { hookPoint, data, timestamp: Date.now(), sessionId };
@@ -1510,6 +1579,11 @@ var HookRegistry = class {
       }
     }
   }
+  /**
+   * Lists registered hooks, optionally filtered by hook point.
+   * @param {HookPoint} [hookPoint] - Optional hook point to filter by.
+   * @returns {HookRegistration[]} An array of registered hook registrations.
+   */
   list(hookPoint) {
     if (hookPoint) return this.hooks.get(hookPoint) || [];
     return Array.from(this.hooks.values()).flat();
@@ -3937,6 +4011,11 @@ var AIResponseCache = class {
   _warmed = false;
   _pendingRequests = /* @__PURE__ */ new Map();
   _pruneInterval = null;
+  /**
+   * Creates a new AIResponseCache with background pruning.
+   * @param defaultTTL - Default time-to-live in milliseconds (default: 300000)
+   * @param maxSize - Maximum number of in-memory entries (default: 500)
+   */
   constructor(defaultTTL = 3e5, maxSize = 500) {
     this.defaultTTL = defaultTTL;
     this.maxSize = maxSize;
@@ -3978,6 +4057,15 @@ var AIResponseCache = class {
     } catch {
     }
   }
+  /**
+   * Retrieves a cached response by key components. Checks in-memory cache first,
+   * falls back to persistent storage. Returns null on miss or expired entry.
+   * @param prompt - User prompt text
+   * @param contents - Conversation contents array
+   * @param provider - AI provider name
+   * @param model - Optional model name
+   * @returns Cached response string or null
+   */
   get(prompt, contents, provider, model) {
     this.warmFromDb();
     const key = this.hashKey(prompt, contents, provider, model);
@@ -4008,6 +4096,15 @@ var AIResponseCache = class {
     this.stats.hits++;
     return entry.value;
   }
+  /**
+   * Stores a response in the cache (in-memory and persistent).
+   * @param prompt - User prompt text
+   * @param contents - Conversation contents array
+   * @param provider - AI provider name
+   * @param response - AI response string to cache
+   * @param model - Optional model name
+   * @param ttl - Optional TTL override in milliseconds
+   */
   set(prompt, contents, provider, response, model, ttl) {
     this.warmFromDb();
     if (this.cache.size >= this.maxSize) {
@@ -4024,6 +4121,16 @@ var AIResponseCache = class {
     this._keys.push(key);
     this.saveToDb(key, entry);
   }
+  /**
+   * Request coalescing: returns existing cached value, waits on in-flight
+   * request for the same key, or invokes the factory to produce a result.
+   * @param prompt - User prompt text
+   * @param contents - Conversation contents array
+   * @param provider - AI provider name
+   * @param model - Optional model name
+   * @param factory - Async function that produces the response when cache misses
+   * @returns Promise resolving to the cached or freshly computed response
+   */
   coalesce(prompt, contents, provider, model, factory) {
     const key = this.hashKey(prompt, contents, provider, model);
     const cached = this.get(prompt, contents, provider, model);
@@ -4095,6 +4202,9 @@ var AIResponseCache = class {
       this._keys = this._keys.filter((k) => k !== oldest);
     }
   }
+  /**
+   * Clears all in-memory and persistent cache entries and resets statistics.
+   */
   clear() {
     this.cache.clear();
     this._keys = [];
@@ -4111,6 +4221,10 @@ var AIResponseCache = class {
     }
     log.info("Cache cleared");
   }
+  /**
+   * Returns aggregated cache performance metrics.
+   * @returns CacheStats with hits, misses, size, and hitRate
+   */
   getStats() {
     return {
       hits: this.stats.hits,
@@ -4119,6 +4233,10 @@ var AIResponseCache = class {
       hitRate: this.stats.hits + this.stats.misses > 0 ? this.stats.hits / (this.stats.hits + this.stats.misses) : 0
     };
   }
+  /**
+   * Removes all expired entries from both in-memory and persistent storage.
+   * @returns Total number of entries pruned
+   */
   prune() {
     const now = Date.now();
     let pruned = 0;
@@ -4145,6 +4263,9 @@ var AIResponseCache = class {
     }
     return pruned;
   }
+  /**
+   * Stops background pruning interval. Call before discarding the cache instance.
+   */
   dispose() {
     if (this._pruneInterval) {
       clearInterval(this._pruneInterval);
@@ -4429,6 +4550,18 @@ var AgentLoop = class {
   _abort = false;
   sessionId;
   additionalContext = "";
+  /**
+   * Creates a new agent loop instance.
+   * @param goal - The goal/task description for the agent to accomplish
+   * @param options - Configuration options for the loop
+   * @param options.maxSteps - Maximum number of think-act steps before stopping (default: 20)
+   * @param options.permissionEngine - Permission engine for checking tool access
+   * @param options.thinkFn - Function that sends prompts to the AI and returns responses
+   * @param options.executeToolFn - Custom tool execution function (defaults to executeTool)
+   * @param options.onStep - Callback invoked after each step completes
+   * @param options.onStatus - Callback invoked when the loop status changes
+   * @param options.sessionId - Unique session identifier (defaults to a random UUID)
+   */
   constructor(goal, options) {
     this.sessionId = options.sessionId || crypto.randomUUID();
     this.state = {
@@ -4444,6 +4577,16 @@ var AgentLoop = class {
     this.onStep = options.onStep;
     this.onStatus = options.onStatus;
   }
+  /**
+   * Runs the agent loop until completion, error, or abort.
+   *
+   * Executes the think-act-observe cycle in a loop. Fires `loop.start` and
+   * `loop.complete` hooks. On successful multi-step tasks (3+ steps),
+   * triggers automatic skill creation via `maybeCreateSkill`.
+   *
+   * @returns A Promise resolving to the final loop state
+   * @throws Re-throws any error that occurs during execution after setting status to "error"
+   */
   async run() {
     try {
       await hookRegistry.execute("loop.start", { goal: this.state.goal }, this.sessionId);
@@ -4484,15 +4627,30 @@ var AgentLoop = class {
       throw err;
     }
   }
+  /**
+   * Aborts the agent loop. Sets internal abort flag and updates state.
+   * Safe to call multiple times; only affects non-terminal states.
+   */
   abort() {
     this._abort = true;
     if (this.state.status !== "completed" && this.state.status !== "error") {
       this.state.status = "aborted";
     }
   }
+  /**
+   * Appends additional context that will be included in the prompt for each thinking step.
+   * Useful for injecting extra instructions or situational awareness mid-loop.
+   * @param ctx - Additional context string to append
+   */
   setAdditionalContext(ctx) {
     this.additionalContext = ctx;
   }
+  /**
+   * Executes a single think-act-observe step: thinks, parses action, executes tool, records result.
+   * Handles abort detection both before thinking and after tool execution.
+   *
+   * @returns A Promise resolving to the completed loop step
+   */
   async runSingleStep() {
     if (this._abort) {
       this.state.status = "aborted";
@@ -4539,6 +4697,10 @@ var AgentLoop = class {
     this.onStatus?.(this.state.status);
     return step;
   }
+  /**
+   * Sends the current context + goal to the AI and returns its thinking response.
+   * @returns A Promise resolving to the trimmed AI response text
+   */
   async think() {
     const context = this.buildContext();
     const prompt = `You are an autonomous coding agent working on this goal:
@@ -4561,11 +4723,20 @@ COMPLETE: brief summary
 Your thought:`;
     return (await this.thinkFn(prompt)).trim();
   }
+  /**
+   * Builds a truncated context string from the last 5 steps.
+   * @returns Context string summarizing recent steps with truncated thoughts and observations
+   */
   buildContext() {
     return this.state.steps.slice(-5).map(
       (s) => `Step ${s.id}: ${s.thought.substring(0, 200)}${s.thought.length > 200 ? "..." : ""} Observation: ${s.observation?.substring(0, 200)}${s.observation && s.observation.length > 200 ? "..." : ""}`
     ).join("\n");
   }
+  /**
+   * Parses an ACTION and PARAMS block from the AI's thought text.
+   * @param thought - The AI's raw thought text
+   * @returns Parsed tool name and params, or null if no ACTION block found
+   */
   parseAction(thought) {
     const actionMatch = thought.match(/ACTION:\s*(\w+)/);
     const paramsMatch = thought.match(/PARAMS:\s*(\{[\s\S]*?\})/);
@@ -4581,6 +4752,10 @@ Your thought:`;
     }
     return null;
   }
+  /**
+   * Returns a shallow copy of the current loop state.
+   * @returns The current loop state (snapshot)
+   */
   getState() {
     return { ...this.state };
   }
@@ -4594,6 +4769,16 @@ var SubagentManager = class {
   queue = [];
   maxConcurrent = 3;
   activeLoops = /* @__PURE__ */ new Map();
+  /**
+   * Spawns a new subagent task. If under the concurrency limit, executes immediately;
+   * otherwise queues the task for later execution.
+   *
+   * @param parentId - ID of the parent agent.
+   * @param goal - The task goal for the subagent.
+   * @param agentConfig - Agent configuration (maxSteps, etc.).
+   * @param thinkFn - Async function that sends a prompt to the AI and returns the response.
+   * @returns The created {@link SubagentTask} (may still be "pending" if queued).
+   */
   async spawn(parentId, goal, agentConfig, thinkFn) {
     const id = crypto.randomUUID();
     const task = {
@@ -4656,13 +4841,31 @@ var SubagentManager = class {
   getRunningCount() {
     return Array.from(this.tasks.values()).filter((t) => t.status === "running").length;
   }
+  /**
+   * Retrieves a task by its ID.
+   *
+   * @param id - The task identifier.
+   * @returns The {@link SubagentTask} or undefined if not found.
+   */
   getTask(id) {
     return this.tasks.get(id);
   }
+  /**
+   * Lists all tasks, optionally filtered by parent agent ID.
+   *
+   * @param parentId - Optional parent ID to filter by.
+   * @returns Array of matching {@link SubagentTask} objects.
+   */
   listTasks(parentId) {
     const all = Array.from(this.tasks.values());
     return parentId ? all.filter((t) => t.parentId === parentId) : all;
   }
+  /**
+   * Aborts a running or pending subagent task.
+   * Running tasks are aborted via AgentLoop; pending tasks are removed from the queue.
+   *
+   * @param id - The ID of the task to abort.
+   */
   async abort(id) {
     const task = this.tasks.get(id);
     if (task && task.status === "running") {
@@ -5411,6 +5614,12 @@ function estimateTokens(text) {
 
 // src/server/providers.ts
 var AIProvider = class {
+  /**
+   * Resolves an API key from environment variables or an explicit override.
+   * @param envVar - The environment variable name to check
+   * @param override - An optional explicit key that takes priority
+   * @returns The resolved API key string (empty string if not found)
+   */
   resolveApiKey(envVar, override) {
     return override || process.env[envVar] || "";
   }
@@ -5462,16 +5671,17 @@ var GeminiProvider = class extends AIProvider {
         ...contents
       ]
     });
-    const allParts = [];
+    let fullText = "";
+    let fullReasoning = "";
     for await (const chunk of streamResult) {
       const text2 = chunk.text;
       if (text2) {
-        allParts.push({ text: text2, thought: false });
+        fullText += text2;
         callbacks.onToken(text2);
       }
     }
-    const reasoning = allParts.filter((p) => p.thought).map((p) => p.text || "").join("\n") || void 0;
-    const text = allParts.filter((p) => !p.thought).map((p) => p.text || "").join("");
+    const reasoning = fullReasoning || void 0;
+    const text = fullText;
     return {
       text,
       reasoning,
@@ -5743,10 +5953,25 @@ var AnthropicProvider = class extends AIProvider {
         max_tokens: maxTokens || 4096,
         stream: true,
         system: prompt,
-        messages: contents.map((c) => ({
-          role: c.role === "model" ? "assistant" : c.role,
-          content: c.parts[0]?.text ?? ""
-        }))
+        messages: contents.map((c) => {
+          const hasImages = c.parts.some((p) => p.inlineData);
+          if (hasImages) {
+            return {
+              role: c.role === "model" ? "assistant" : c.role,
+              content: c.parts.map((p) => {
+                if (p.text) return { type: "text", text: p.text };
+                if (p.inlineData) {
+                  return { type: "image", source: { type: "base64", media_type: p.inlineData.mimeType, data: p.inlineData.data } };
+                }
+                return null;
+              }).filter((x) => x !== null)
+            };
+          }
+          return {
+            role: c.role === "model" ? "assistant" : c.role,
+            content: c.parts[0]?.text ?? ""
+          };
+        })
       })
     });
     if (!response.ok) {
@@ -6395,10 +6620,20 @@ var ContextWindow = class {
   maxTokens;
   tokenBuffer;
   nextId = 0;
+  /**
+   * Creates a new ContextWindow.
+   * @param {ContextWindowOptions} [options={}] - Configuration options for the window.
+   */
   constructor(options = {}) {
     this.maxTokens = options.maxTokens ?? 128e3;
     this.tokenBuffer = options.tokenBuffer ?? 16e3;
   }
+  /**
+   * Adds a single message to the context window.
+   * @param {string} role - The role of the message sender.
+   * @param {string} content - The message content.
+   * @param {Priority} [priority=Priority.NORMAL] - The priority level for this message.
+   */
   add(role, content, priority = 1 /* NORMAL */) {
     this.messages.push({
       role,
@@ -6408,20 +6643,41 @@ var ContextWindow = class {
       id: String(this.nextId++)
     });
   }
+  /**
+   * Adds multiple messages to the context window in a single call.
+   * @param {Array<{ role: string; content: string; priority?: Priority }>} msgs - Array of messages to add.
+   */
   addMany(msgs) {
     for (const m of msgs) {
       this.add(m.role, m.content, m.priority ?? 1 /* NORMAL */);
     }
   }
+  /**
+   * Removes all messages from the context window.
+   */
   clear() {
     this.messages = [];
   }
+  /**
+   * Returns the current number of messages in the context window.
+   * @returns {number} The message count.
+   */
   size() {
     return this.messages.length;
   }
+  /**
+   * Calculates the estimated total token count of all messages.
+   * @returns {number} The estimated total token count.
+   */
   totalTokens() {
     return this.messages.reduce((sum, m) => sum + estimateTokens(m.content), 0);
   }
+  /**
+   * Returns the messages that fit within the token budget, sorted by timestamp.
+   * CRITICAL priority messages are always included. Remaining messages are selected
+   * by priority (highest first), then recency, until the budget is exhausted.
+   * @returns {ContextMessage[]} The set of messages that fit in the current budget.
+   */
   getMessages() {
     const effectiveBudget = this.maxTokens - this.tokenBuffer;
     const systemMsgs = this.messages.filter((m) => m.priority === 5 /* CRITICAL */);
@@ -6454,6 +6710,10 @@ var ContextWindow = class {
     }
     return result.sort((a, b) => a.timestamp - b.timestamp);
   }
+  /**
+   * Returns statistics about the context window including total, kept, and trimmed counts.
+   * @returns {{ total: number; kept: number; trimmed: number; budget: number; used: number }} Window statistics.
+   */
   getStats() {
     const kept = this.getMessages();
     return {
@@ -7273,6 +7533,13 @@ var CronScheduler = class {
   tasks = /* @__PURE__ */ new Map();
   timers = /* @__PURE__ */ new Map();
   runCallbacks = /* @__PURE__ */ new Map();
+  /**
+   * Registers a new scheduled task and starts it if enabled.
+   *
+   * @param task - Task definition without an ID (auto-generated).
+   * @returns The full task record including its generated ID.
+   * @throws {Error} If the schedule expression is invalid.
+   */
   addTask(task) {
     const interval = parseSchedule(task.schedule);
     if (!interval) {
@@ -7286,25 +7553,46 @@ var CronScheduler = class {
     }
     return fullTask;
   }
+  /**
+   * Removes a task and stops its timer.
+   * @param id - The task ID.
+   */
   removeTask(id) {
     this.stopTask(id);
     this.tasks.delete(id);
   }
+  /**
+   * Enables a disabled task and schedules its next run.
+   * @param id - The task ID.
+   */
   enableTask(id) {
     const task = this.tasks.get(id);
     if (!task) return;
     task.enabled = true;
     this.startTask(id);
   }
+  /**
+   * Disables a task without removing it.
+   * @param id - The task ID.
+   */
   disableTask(id) {
     const task = this.tasks.get(id);
     if (!task) return;
     task.enabled = false;
     this.stopTask(id);
   }
+  /**
+   * Returns all registered tasks.
+   * @returns Array of task records.
+   */
   getTasks() {
     return Array.from(this.tasks.values());
   }
+  /**
+   * Finds a task by ID.
+   * @param id - The task ID.
+   * @returns The task record, or `undefined`.
+   */
   getTask(id) {
     return this.tasks.get(id);
   }
@@ -7349,6 +7637,13 @@ var CronScheduler = class {
       task.nextRun = Date.now() + interval;
     }
   }
+  /**
+   * Registers a callback to execute when the task runs.
+   * If the task is enabled, it also starts the timer.
+   *
+   * @param id - The task ID.
+   * @param callback - Function invoked with the task record on each run.
+   */
   onTaskRun(id, callback) {
     const task = this.tasks.get(id);
     if (!task) return;
@@ -7357,6 +7652,9 @@ var CronScheduler = class {
       this.startTask(id);
     }
   }
+  /**
+   * Stops all timers and clears all task/callback registrations.
+   */
   dispose() {
     for (const [id] of this.timers) {
       this.stopTask(id);
@@ -8897,6 +9195,12 @@ async function evaluateGoal(options, thinkFn) {
 // src/server/goalEventBroadcaster.ts
 var import_events2 = require("events");
 var GoalEventBroadcaster = class extends import_events2.EventEmitter {
+  /**
+   * Broadcasts a goal event to all listeners.
+   * @param {string} goalId - The unique identifier of the goal.
+   * @param {GoalEventType} type - The type of goal event.
+   * @param {unknown} data - Additional payload data for the event.
+   */
   broadcast(goalId, type, data) {
     const event = {
       type,
@@ -8919,6 +9223,11 @@ var GoalOrchestrator = class {
   timeoutTimer;
   totalTokensEstimate = 0;
   saveTimeout;
+  /**
+   * Creates a new GoalOrchestrator instance.
+   * @param {GoalConfig} config - The goal configuration including description, criteria, and limits.
+   * @param {GoalOrchestratorOptions} options - Runtime options including the think function and permission engine.
+   */
   constructor(config, options) {
     const id = crypto.randomUUID();
     this.state = {
@@ -8955,16 +9264,32 @@ var GoalOrchestrator = class {
     }
     this.loop = new AgentLoop(config.goal, loopOpts);
   }
+  /**
+   * Returns a shallow copy of the current goal state.
+   * @returns {GoalState} The current goal state snapshot.
+   */
   getState() {
     return { ...this.state };
   }
+  /**
+   * Returns the event broadcaster for subscribing to goal events.
+   * @returns {GoalEventBroadcaster} The broadcaster instance.
+   */
   getBroadcaster() {
     return this.broadcaster;
   }
+  /**
+   * Aborts the current goal execution gracefully.
+   */
   abort() {
     this._abort = true;
     this.loop.abort();
   }
+  /**
+   * Runs the goal orchestration loop until completion, error, or abort.
+   * Delegates to the agent loop for step execution and the judge for progress evaluation.
+   * @returns {Promise<GoalState>} The final goal state after the run concludes.
+   */
   async run() {
     this.broadcaster.broadcast(this.state.id, "goal.started", { goal: this.state.goal });
     this.debouncedSave();

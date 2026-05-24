@@ -2,11 +2,23 @@ import express from "express";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 
+/** Options for configuring the security middleware. */
 interface SecurityMiddlewareOptions {
+  /** Set to false to disable Content-Security-Policy headers. */
   contentSecurityPolicy?: boolean;
+  /** Set to false to disable the X-Frame-Options header. */
   frameguard?: boolean;
 }
 
+/**
+ * Applies security best-practice middleware to the Express app:
+ * - Hides the X-Powered-By header
+ * - Sets Helmet security headers (CSP, frameguard, etc.)
+ * - Enables rate limiting (120 req/min in production, 10000 in dev)
+ *
+ * @param app - The Express application instance.
+ * @param options - Optional overrides for Helmet configuration.
+ */
 export function setupSecurityMiddleware(
   app: express.Application,
   options: SecurityMiddlewareOptions = {}
@@ -39,6 +51,15 @@ export function setupSecurityMiddleware(
   app.use(limiter);
 }
 
+/**
+ * Creates Express middleware that blocks requests from untrusted origins.
+ * Only allows requests with no origin/referer header, or from:
+ * - Trusted hostnames (default: "127.0.0.1", "localhost")
+ * - Trusted protocols (vscode-webview:, vscode-file:, file:)
+ *
+ * @param allowedHosts - Array of hostnames to allow (case-insensitive). Defaults to localhost variants.
+ * @returns Express request handler middleware.
+ */
 export function createTrustedLocalOriginMiddleware(
   allowedHosts: string[] = ["127.0.0.1", "localhost"]
 ): express.RequestHandler {
@@ -76,6 +97,13 @@ export function createTrustedLocalOriginMiddleware(
   };
 }
 
+/**
+ * Creates Express middleware that enforces API key authentication via the X-API-Key header.
+ * In non-production environments, requests pass through without a key.
+ * In production, the CVR_API_KEY environment variable must be set.
+ *
+ * @returns Express request handler middleware.
+ */
 export function createApiKeyMiddleware(): express.RequestHandler {
   const API_KEY = process.env.CVR_API_KEY;
 

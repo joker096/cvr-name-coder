@@ -1,13 +1,27 @@
+/**
+ * @interface GamerState
+ * @description Represents the gamified developer state tracking progress, health, and rewards.
+ */
 export interface GamerState {
+  /** Current level of the developer */
   level: number;
+  /** Current XP accumulated */
   xp: number;
+  /** XP required to reach the next level */
   xpToNext: number;
+  /** Health points (0-100) representing code quality / wellbeing */
   health: number;
+  /** Focus points (0-100) representing concentration level */
   focus: number;
+  /** In-game currency earned */
   coins: number;
+  /** Consecutive tasks completed without breaking streak */
   streak: number;
+  /** Total number of tasks completed */
   tasksCompleted: number;
+  /** Total number of git commits made */
   commits: number;
+  /** Whether the developer is in optimal state (health >= 80 && focus >= 80) */
   optimal: boolean;
 }
 
@@ -52,10 +66,19 @@ function saveState() {
   } catch { /* ignore */ }
 }
 
+/**
+ * Returns a read-only copy of the current gamer state.
+ * @returns {Readonly<GamerState>} The current gamer state snapshot.
+ */
 export function getGamerState(): Readonly<GamerState> {
   return state;
 }
 
+/**
+ * Adds XP to the gamer state and handles level-ups.
+ * @param {number} amount - The amount of XP to add.
+ * @returns {boolean} `true` if a level-up occurred, `false` otherwise.
+ */
 export function addXp(amount: number): boolean {
   state.xp += amount;
   let leveled = false;
@@ -69,22 +92,38 @@ export function addXp(amount: number): boolean {
   return leveled;
 }
 
+/**
+ * Adds coins to the gamer state. Clamped to a minimum of 0.
+ * @param {number} amount - The amount of coins to add (can be negative).
+ */
 export function addCoins(amount: number): void {
   state.coins += amount;
   if (state.coins < 0) state.coins = 0;
   saveState();
 }
 
+/**
+ * Adjusts the health value within the range [0, 100].
+ * @param {number} delta - The amount to change health by (positive or negative).
+ */
 export function adjustHealth(delta: number): void {
   state.health = Math.min(100, Math.max(0, state.health + delta));
   saveState();
 }
 
+/**
+ * Adjusts the focus value within the range [0, 100].
+ * @param {number} delta - The amount to change focus by (positive or negative).
+ */
 export function adjustFocus(delta: number): void {
   state.focus = Math.min(100, Math.max(0, state.focus + delta));
   saveState();
 }
 
+/**
+ * Records a completed task, awards XP/coins, updates streak, and adjusts stats.
+ * @param {number} [commits] - Optional number of commits associated with the task.
+ */
 export function completeTask(commits?: number): void {
   state.tasksCompleted++;
   if (commits) state.commits += commits;
@@ -97,6 +136,9 @@ export function completeTask(commits?: number): void {
   saveState();
 }
 
+/**
+ * Records a code commit, awards XP, and boosts focus slightly.
+ */
 export function commitCode(): void {
   state.commits++;
   addXp(5 + Math.floor(Math.random() * 5));
@@ -105,6 +147,9 @@ export function commitCode(): void {
   saveState();
 }
 
+/**
+ * Resets the gamer state to default values.
+ */
 export function resetGamerState(): void {
   state = { ...DEFAULT_STATE };
   saveState();

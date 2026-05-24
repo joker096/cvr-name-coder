@@ -14,6 +14,7 @@ import { buildDualModelConfig } from "../dualModel.js";
 import { validateBody, ChatRequestSchema } from "../validation.js";
 import { log } from "../logger.js";
 
+/** Configuration for AI chat provider and model settings. */
 interface ChatConfig {
   aiProvider?: string;
   localUrl?: string;
@@ -34,11 +35,13 @@ interface ChatConfig {
   thinkingLocalUrl?: string;
 }
 
+/** Configuration for the kernel/thinking AI provider. */
 interface KernelConfig {
   aiProvider?: string;
   [key: string]: unknown;
 }
 
+/** Request body structure for the /api/chat endpoint. */
 interface ChatRequestBody {
   message: string;
   images?: string[];
@@ -47,10 +50,14 @@ interface ChatRequestBody {
   agent?: string;
 }
 
+/** Directory path for persistent storage (.opencode-infinite). */
 export const STORAGE_DIR = path.join(process.cwd(), ".opencode-infinite");
+/** File path for chat history JSON storage. */
 export const HISTORY_FILE = path.join(STORAGE_DIR, "history.json");
+/** File path for memory/summary JSON storage. */
 export const MEMORY_FILE = path.join(STORAGE_DIR, "memory.json");
 
+/** Creates the storage directory and initializes history/memory files if they don't exist. */
 export async function ensureStorage() {
   try {
     await mkdir(STORAGE_DIR, { recursive: true });
@@ -98,6 +105,18 @@ function invalidateMemoryCache(): void {
   _memoryCacheTime = 0;
 }
 
+/**
+ * Generates a compressed summary of recent conversation history via AI.
+ * Uses the "Dreamer Engine" to extract key facts, invariant rules, progress state,
+ * and pending goals from the last 10 messages.
+ * @param messages - Full chat history entries
+ * @param provider - AI provider identifier
+ * @param localUrl - Base URL for local LLM providers
+ * @param modelName - Model name to use for summarization
+ * @param apiKey - API key for the provider
+ * @param dualConfig - Dual model configuration (thinking model)
+ * @returns A summary string or null if messages < 5 or summarization fails
+ */
 export async function summarizeLongHistory(messages: HistoryEntry[], provider?: string, localUrl?: string, modelName?: string, apiKey?: string, dualConfig?: DualModelConfig) {
   if (messages.length < 5) return null;
   
@@ -137,6 +156,16 @@ function scheduleSummary(updatedHistory: HistoryEntry[], kConfig: ChatConfig) {
   });
 }
 
+/**
+ * Registers all chat-related API routes on the Express application.
+ * 
+ * Routes:
+ * - POST /api/chat - Main chat endpoint (SSE streaming or JSON response)
+ * - GET /api/models - Fetches available models for a given provider
+ * - GET /api/history - Returns chat history and memories
+ * - POST /api/clear - Clears all history and memories
+ * @param app - Express application instance
+ */
 export function registerRoutes(app: Application) {
   app.post("/api/chat", validateBody(ChatRequestSchema), async (req: Request, res: Response) => {
     incrementRequestCount();

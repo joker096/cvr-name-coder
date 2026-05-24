@@ -1,6 +1,7 @@
 import type { Application, Request, Response } from "express";
 import { validateBody, BrowserNavigateSchema, BrowserActionSchema, BrowserCloseSchema, BrowserEvaluateSchema } from "../validation.js";
 
+/** Module interface for Playwright-based browser automation tools. */
 interface BrowserToolsModule {
   browserNavigate: (sessionId: string, url: string, headless: boolean) => Promise<{ success: boolean; output?: string; error?: string }>;
   browserClick: (sessionId: string, selector: string, headless: boolean) => Promise<{ success: boolean; output?: string; error?: string }>;
@@ -25,6 +26,21 @@ async function getBrowserTools(): Promise<BrowserToolsModule | null> {
   return browserTools;
 }
 
+/**
+ * Registers all browser automation API routes on the Express application.
+ * Requires playwright-core to be installed; returns 503 otherwise.
+ * 
+ * Routes:
+ * - POST /api/browser/navigate - Navigates a browser session to a URL
+ * - POST /api/browser/click - Clicks an element by CSS selector
+ * - POST /api/browser/type - Types text into an element by CSS selector
+ * - GET /api/browser/screenshot - Takes a screenshot of the current page
+ * - POST /api/browser/evaluate - Evaluates arbitrary JavaScript on the page
+ * - GET /api/browser/html - Returns the current page's HTML
+ * - POST /api/browser/close - Closes a browser session
+ * - GET /api/browser/sessions - Lists active browser session IDs
+ * @param app - Express application instance
+ */
 export function registerRoutes(app: Application) {
   app.post("/api/browser/navigate", validateBody(BrowserNavigateSchema), async (req: Request, res: Response) => {
     try {

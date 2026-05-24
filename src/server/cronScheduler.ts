@@ -1,6 +1,9 @@
 import { randomUUID } from "crypto";
 import { log } from "./logger.js";
 
+/**
+ * A scheduled task that runs at a defined interval.
+ */
 export interface CronTask {
   id: string;
   name: string;
@@ -12,7 +15,13 @@ export interface CronTask {
   isRunning?: boolean;
 }
 
-// Simple cron parser supporting: "* * * * *" (min hour day month dow) or "every N minutes"
+/**
+ * Parses a schedule expression into a millisecond interval.
+ * Supports cron-like `&#42;/N * * * *` syntax and `every N minutes/hours/days`.
+ *
+ * @param schedule - The schedule expression string.
+ * @returns The interval in milliseconds, or `null` if the expression is invalid.
+ */
 export function parseSchedule(schedule: string): number | null {
   if (schedule.startsWith("every ")) {
     const match = schedule.match(/every (\d+) (minute|minutes|hour|hours|day|days)/);
@@ -31,11 +40,22 @@ export function parseSchedule(schedule: string): number | null {
   return null;
 }
 
+/**
+ * A lightweight cron-like scheduler for running periodic tasks in-process.
+ * Tasks are stored in memory and executed via `setInterval`.
+ */
 class CronScheduler {
   private tasks = new Map<string, CronTask>();
   private timers = new Map<string, ReturnType<typeof setInterval>>();
   private runCallbacks = new Map<string, (task: CronTask) => void | Promise<void>>();
 
+  /**
+   * Registers a new scheduled task and starts it if enabled.
+   *
+   * @param task - Task definition without an ID (auto-generated).
+   * @returns The full task record including its generated ID.
+   * @throws {Error} If the schedule expression is invalid.
+   */
   addTask(task: Omit<CronTask, "id">): CronTask {
     const interval = parseSchedule(task.schedule);
     if (!interval) {
@@ -50,11 +70,19 @@ class CronScheduler {
     return fullTask;
   }
 
+  /**
+   * Removes a task and stops its timer.
+   * @param id - The task ID.
+   */
   removeTask(id: string): void {
     this.stopTask(id);
     this.tasks.delete(id);
   }
 
+  /**
+   * Enables a disabled task and schedules its next run.
+   * @param id - The task ID.
+   */
   enableTask(id: string): void {
     const task = this.tasks.get(id);
     if (!task) return;
@@ -62,6 +90,10 @@ class CronScheduler {
     this.startTask(id);
   }
 
+  /**
+   * Disables a task without removing it.
+   * @param id - The task ID.
+   */
   disableTask(id: string): void {
     const task = this.tasks.get(id);
     if (!task) return;
@@ -69,10 +101,19 @@ class CronScheduler {
     this.stopTask(id);
   }
 
+  /**
+   * Returns all registered tasks.
+   * @returns Array of task records.
+   */
   getTasks(): CronTask[] {
     return Array.from(this.tasks.values());
   }
 
+  /**
+   * Finds a task by ID.
+   * @param id - The task ID.
+   * @returns The task record, or `undefined`.
+   */
   getTask(id: string): CronTask | undefined {
     return this.tasks.get(id);
   }
@@ -124,6 +165,13 @@ class CronScheduler {
     }
   }
 
+  /**
+   * Registers a callback to execute when the task runs.
+   * If the task is enabled, it also starts the timer.
+   *
+   * @param id - The task ID.
+   * @param callback - Function invoked with the task record on each run.
+   */
   onTaskRun(id: string, callback: (task: CronTask) => void): void {
     const task = this.tasks.get(id);
     if (!task) return;
@@ -133,6 +181,9 @@ class CronScheduler {
     }
   }
 
+  /**
+   * Stops all timers and clears all task/callback registrations.
+   */
   dispose(): void {
     for (const [id] of this.timers) {
       this.stopTask(id);
@@ -142,4 +193,7 @@ class CronScheduler {
   }
 }
 
+/**
+ * Shared singleton instance of {@link CronScheduler} for application-wide use.
+ */
 export const cronScheduler = new CronScheduler();

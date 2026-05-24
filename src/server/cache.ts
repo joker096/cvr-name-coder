@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import { log } from './logger.js';
 import type { Database } from '../types/database';
 
+/** In-memory cache entry with TTL and hit tracking. */
 interface CacheEntry {
   value: string;
   timestamp: number;
@@ -11,6 +12,7 @@ interface CacheEntry {
   hits: number;
 }
 
+/** Aggregated cache metrics. */
 interface CacheStats {
   hits: number;
   misses: number;
@@ -18,6 +20,7 @@ interface CacheStats {
   hitRate: number;
 }
 
+/** Row shape stored in the cache database / JSON fallback. */
 interface CacheRow {
   key: string;
   value: string;
@@ -108,6 +111,11 @@ function fallbackGetDb(): Database {
   };
 }
 
+/**
+ * Sets the directory for cache database storage. Resets internal state
+ * so a new database connection is established on next access.
+ * @param dir - Absolute directory path for cache.db
+ */
 export function setCacheDbPath(dir: string): void {
   _dbPath = path.join(dir, 'cache.db');
   _db = null;
@@ -148,6 +156,11 @@ function initSchema(db: Database): void {
   `);
 }
 
+/**
+ * Dual-layer AI response cache: in-memory LRU map backed by persistent
+ * SQLite storage (with JSON fallback). Supports request coalescing, TTL
+ * expiry, automatic background pruning, and hit/miss statistics.
+ */
 export class AIResponseCache {
   private cache: Map<string, CacheEntry> = new Map();
   private _keys: string[] = [];
@@ -158,6 +171,11 @@ export class AIResponseCache {
   private _pendingRequests = new Map<string, Promise<string>>();
   private _pruneInterval: ReturnType<typeof setInterval> | null = null;
 
+  /**
+   * Creates a new AIResponseCache with background pruning.
+   * @param defaultTTL - Default time-to-live in milliseconds (default: 300000)
+   * @param maxSize - Maximum number of in-memory entries (default: 500)
+   */
   constructor(defaultTTL = 300000, maxSize = 500) {
     this.defaultTTL = defaultTTL;
     this.maxSize = maxSize;
@@ -210,6 +228,15 @@ export class AIResponseCache {
     }
   }
 
+  /**
+   * Retrieves a cached response by key components. Checks in-memory cache first,
+   * falls back to persistent storage. Returns null on miss or expired entry.
+   * @param prompt - User prompt text
+   * @param contents - Conversation contents array
+   * @param provider - AI provider name
+   * @param model - Optional model name
+   * @returns Cached response string or null
+   */
   get(prompt: string, contents: unknown[], provider: string, model?: string): string | null {
     this.warmFromDb();
 
@@ -245,6 +272,15 @@ export class AIResponseCache {
     return entry.value;
   }
 
+  /**
+   * Stores a response in the cache (in-memory and persistent).
+   * @param prompt - User prompt text
+   * @param contents - Conversation contents array
+   * @param provider - AI provider name
+   * @param response - AI response string to cache
+   * @param model - Optional model name
+   * @param ttl - Optional TTL override in milliseconds
+   */
   set(prompt: string, contents: unknown[], provider: string, response: string, model?: string, ttl?: number): void {
     this.warmFromDb();
 
@@ -265,6 +301,16 @@ export class AIResponseCache {
     this.saveToDb(key, entry);
   }
 
+  /**
+   * Request coalescing: returns existing cached value, waits on in-flight
+   * request for the same key, or invokes the factory to produce a result.
+   * @param prompt - User prompt text
+   * @param contents - Conversation contents array
+   * @param provider - AI provider name
+   * @param model - Optional model name
+   * @param factory - Async function that produces the response when cache misses
+   * @returns Promise resolving to the cached or freshly computed response
+   */
   coalesce(prompt: string, contents: unknown[], provider: string, model: string | undefined, factory: () => Promise<string>): Promise<string> {
     const key = this.hashKey(prompt, contents, provider, model);
     const cached = this.get(prompt, contents, provider, model);
@@ -350,6 +396,9 @@ export class AIResponseCache {
     }
   }
 
+  /**
+   * Clears all in-memory and persistent cache entries and resets statistics.
+   */
   clear(): void {
     this.cache.clear();
     this._keys = [];
@@ -370,6 +419,10 @@ export class AIResponseCache {
     log.info('Cache cleared');
   }
 
+  /**
+   * Returns aggregated cache performance metrics.
+   * @returns CacheStats with hits, misses, size, and hitRate
+   */
   getStats(): CacheStats {
     return {
       hits: this.stats.hits,
@@ -381,6 +434,10 @@ export class AIResponseCache {
     };
   }
 
+  /**
+   * Removes all expired entries from both in-memory and persistent storage.
+   * @returns Total number of entries pruned
+   */
   prune(): number {
     const now = Date.now();
     let pruned = 0;
@@ -413,6 +470,9 @@ export class AIResponseCache {
     return pruned;
   }
 
+  /**
+   * Stops background pruning interval. Call before discarding the cache instance.
+   */
   dispose(): void {
     if (this._pruneInterval) {
       clearInterval(this._pruneInterval);
@@ -421,4 +481,5 @@ export class AIResponseCache {
   }
 }
 
+/** Shared singleton AI response cache instance. */
 export const aiCache = new AIResponseCache();
