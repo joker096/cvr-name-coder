@@ -2,7 +2,7 @@ import type { Application, Request, Response } from "express";
 import * as path from "path";
 import { readFile, writeFile, mkdir, access } from "fs/promises";
 import { buildSystemPrompt } from "../prompts.js";
-import { generateAIContent, generateWithDualModel } from "../providers.js";
+import { generateAIResponse, generateStreamResponse, generateAIContent, generateWithDualModel } from "../providers.js";
 import type { DualModelConfig } from "../providers.js";
 import { ContextWindow, Priority } from "../contextWindow.js";
 import { processImages, type ProcessedImage } from "../imageProcessor.js";
@@ -123,6 +123,20 @@ export async function summarizeLongHistory(messages: HistoryEntry[], provider?: 
   }
 }
 
+function scheduleSummary(updatedHistory: HistoryEntry[], kConfig: ChatConfig) {
+  if (updatedHistory.length % 5 !== 0) return;
+  const kConfigTyped = kConfig;
+  const dualCfg: DualModelConfig = buildDualModelConfig(kConfigTyped);
+  const summaryKey = kConfigTyped.providerKeys?.[kConfigTyped.aiProvider || ""] || kConfigTyped.apiKey;
+  summarizeLongHistory(updatedHistory, kConfigTyped.aiProvider, kConfigTyped.localUrl, kConfigTyped.aiProvider === "local" ? (kConfigTyped.localModelName || kConfigTyped.aiModel) : kConfigTyped.aiModel, summaryKey, dualCfg).then(async (summary) => {
+    if (summary) {
+      const currentMemories = JSON.parse(await readFile(MEMORY_FILE, "utf-8")) as MemoryEntry[];
+      await writeFile(MEMORY_FILE, JSON.stringify([...currentMemories, { content: summary, createdAt: new Date() }]));
+      invalidateMemoryCache();
+    }
+  });
+}
+
 export function registerRoutes(app: Application) {
   app.post("/api/chat", validateBody(ChatRequestSchema), async (req: Request, res: Response) => {
     incrementRequestCount();
@@ -196,10 +210,133 @@ export function registerRoutes(app: Application) {
         return { role: m.role, parts };
       });
 
-      const responseText = await generateAIContent(systemPrompt, [
+      const acceptSSE = (req.headers.accept || "").includes("text/event-stream");
+      const { multiModelEnabled, thinkingProvider, thinkingModel, thinkingLocalUrl } = config;
+      const useDualModel = multiModelEnabled && thinkingProvider && thinkingModel;
+
+      if (useDualModel) {
+        const thinkPrompt = `[THINKING PHASE]\nAnalyze the user's request and provide a detailed plan/analysis. Your output will be given as context to a code-generation model.\n\nUser request:\n${message}`;
+        const thinkResponse = await generateAIResponse(thinkPrompt, [
+          ...historyContents,
+        ], thinkingProvider, thinkingLocalUrl || localUrl, thinkingModel, resolvedApiKey, temperature, maxTokens, false);
+        const reasoning = thinkResponse.text;
+
+        const finalPrompt = `${systemPrompt}\n\n[PLANNING CONTEXT]\nThe following is a detailed analysis of the user request:\n\n${reasoning}\n\n[/PLANNING CONTEXT]\n\nNow respond to the user request: ${message}`;
+
+        if (acceptSSE) {
+          res.setHeader("Content-Type", "text/event-stream");
+          res.setHeader("Cache-Control", "no-cache");
+          res.setHeader("Connection", "keep-alive");
+          res.setHeader("X-Accel-Buffering", "no");
+
+          res.write(`data: ${JSON.stringify({ reasoning })}\n\n`);
+
+          const aiResponse = await generateStreamResponse(finalPrompt, [
+            ...historyContents,
+            { role: 'user', parts: buildParts(message, processedImages) }
+          ], aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, {
+            onToken: (token: string) => {
+              res.write(`data: ${JSON.stringify({ content: token })}\n\n`);
+            },
+          });
+
+          const estimatedInputTokens = Math.ceil((finalPrompt + message).length / 4);
+          const estimatedOutputTokens = Math.ceil((aiResponse.text + (aiResponse.reasoning || "")).length / 4);
+
+          res.write(`data: ${JSON.stringify({
+            done: true,
+            continueNeeded: aiResponse.text.includes("CONTINUE_NEEDED"),
+            tokenUsage: { input: estimatedInputTokens, output: estimatedOutputTokens }
+          })}\n\n`);
+          res.end();
+
+          const userHistoryEntry: HistoryEntry = { role: 'user', content: message, createdAt: new Date() };
+          if (processedImages.length > 0) {
+            userHistoryEntry.images = processedImages.map(img => `data:${img.mimeType};base64,${img.base64}`);
+          }
+          const updatedHistory: HistoryEntry[] = [...history, userHistoryEntry, { role: 'assistant' as const, content: aiResponse.text, createdAt: new Date() }];
+          await writeFile(HISTORY_FILE, JSON.stringify(updatedHistory));
+          invalidateHistoryCache();
+
+          scheduleSummary(updatedHistory, kConfig as ChatConfig);
+          trackCost(aiProvider, resolvedModel || 'unknown', estimatedInputTokens, estimatedOutputTokens).catch(() => {});
+          return;
+        }
+
+        const aiResponse = await generateAIResponse(finalPrompt, [
+          ...historyContents,
+          { role: 'user', parts: buildParts(message, processedImages) }
+        ], aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, true);
+        const responseText = aiResponse.text;
+
+        const estimatedInputTokens = Math.ceil((finalPrompt + message).length / 4);
+        const estimatedOutputTokens = Math.ceil(responseText.length / 4);
+
+        const userHistoryEntry: HistoryEntry = { role: 'user', content: message, createdAt: new Date() };
+        if (processedImages.length > 0) {
+          userHistoryEntry.images = processedImages.map(img => `data:${img.mimeType};base64,${img.base64}`);
+        }
+        const updatedHistory: HistoryEntry[] = [...history, userHistoryEntry, { role: 'assistant' as const, content: responseText, createdAt: new Date() }];
+        await writeFile(HISTORY_FILE, JSON.stringify(updatedHistory));
+        invalidateHistoryCache();
+
+        scheduleSummary(updatedHistory, kConfig as ChatConfig);
+        trackCost(aiProvider, resolvedModel || 'unknown', estimatedInputTokens, estimatedOutputTokens).catch(() => {});
+
+        res.json({ 
+          content: responseText,
+          reasoning: reasoning ?? undefined,
+          continueNeeded: responseText.includes("CONTINUE_NEEDED"),
+          tokenUsage: { input: estimatedInputTokens, output: estimatedOutputTokens }
+        });
+        return;
+      }
+
+      if (acceptSSE) {
+        res.setHeader("Content-Type", "text/event-stream");
+        res.setHeader("Cache-Control", "no-cache");
+        res.setHeader("Connection", "keep-alive");
+        res.setHeader("X-Accel-Buffering", "no");
+
+        const aiResponse = await generateStreamResponse(systemPrompt, [
+          ...historyContents,
+          { role: 'user', parts: buildParts(message, processedImages) }
+        ], aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, {
+          onToken: (token: string) => {
+            res.write(`data: ${JSON.stringify({ content: token })}\n\n`);
+          },
+        });
+
+        const estimatedInputTokens = Math.ceil((systemPrompt + message).length / 4);
+        const estimatedOutputTokens = Math.ceil((aiResponse.text + (aiResponse.reasoning || "")).length / 4);
+
+        res.write(`data: ${JSON.stringify({
+          done: true,
+          continueNeeded: aiResponse.text.includes("CONTINUE_NEEDED"),
+          tokenUsage: { input: estimatedInputTokens, output: estimatedOutputTokens }
+        })}\n\n`);
+        res.end();
+
+        const userHistoryEntry: HistoryEntry = { role: 'user', content: message, createdAt: new Date() };
+        if (processedImages.length > 0) {
+          userHistoryEntry.images = processedImages.map(img => `data:${img.mimeType};base64,${img.base64}`);
+        }
+        const updatedHistory: HistoryEntry[] = [...history, userHistoryEntry, { role: 'assistant' as const, content: aiResponse.text, createdAt: new Date() }];
+        await writeFile(HISTORY_FILE, JSON.stringify(updatedHistory));
+        invalidateHistoryCache();
+
+        scheduleSummary(updatedHistory, kConfig as ChatConfig);
+
+        trackCost(aiProvider, resolvedModel || 'unknown', estimatedInputTokens, estimatedOutputTokens).catch(() => {});
+        return;
+      }
+
+      const aiResponse = await generateAIResponse(systemPrompt, [
         ...historyContents,
         { role: 'user', parts: buildParts(message, processedImages) }
       ], aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, true);
+      const responseText = aiResponse.text;
+      const reasoning = aiResponse.reasoning;
 
       const estimatedInputTokens = Math.ceil((systemPrompt + message).length / 4);
       const estimatedOutputTokens = Math.ceil(responseText.length / 4);
@@ -212,21 +349,11 @@ export function registerRoutes(app: Application) {
       await writeFile(HISTORY_FILE, JSON.stringify(updatedHistory));
       invalidateHistoryCache();
 
-      if (updatedHistory.length % 5 === 0) {
-        const kConfigTyped = kConfig as ChatConfig;
-        const dualCfg: DualModelConfig = buildDualModelConfig(kConfigTyped);
-        const summaryKey = kConfigTyped.providerKeys?.[kConfigTyped.aiProvider || ""] || kConfigTyped.apiKey;
-        summarizeLongHistory(updatedHistory, kConfigTyped.aiProvider, kConfigTyped.localUrl, kConfigTyped.aiProvider === "local" ? (kConfigTyped.localModelName || kConfigTyped.aiModel) : kConfigTyped.aiModel, summaryKey, dualCfg).then(async (summary) => {
-          if (summary) {
-            const currentMemories = JSON.parse(await readFile(MEMORY_FILE, "utf-8")) as MemoryEntry[];
-            await writeFile(MEMORY_FILE, JSON.stringify([...currentMemories, { content: summary, createdAt: new Date() }]));
-            invalidateMemoryCache();
-          }
-        });
-      }
+      scheduleSummary(updatedHistory, kConfig as ChatConfig);
 
       res.json({ 
-        content: responseText, 
+        content: responseText,
+        reasoning: reasoning ?? undefined, 
         continueNeeded: responseText.includes("CONTINUE_NEEDED"),
         tokenUsage: { input: estimatedInputTokens, output: estimatedOutputTokens }
       });

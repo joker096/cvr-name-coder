@@ -152,6 +152,7 @@ export const useChat = (config: ChatConfig) => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "Accept": "text/event-stream",
         },
         body: JSON.stringify({
           message: messageContent,
@@ -170,13 +171,14 @@ export const useChat = (config: ChatConfig) => {
       const isJson = contentType.includes("application/json");
 
       if (isJson) {
-        const data = await response.json();
+        const data = await response.json() as { content?: string; reasoning?: string; continueNeeded?: boolean; tokenUsage?: { input: number; output: number } };
         const assistantMessage: Message = {
           id: toMessageId(crypto.randomUUID()),
           role: "assistant",
           content: data.content || "",
+          reasoning: data.reasoning ?? undefined,
           timestamp: Date.now(),
-          tokenUsage: data.tokenUsage ?? undefined,
+          ...(data.tokenUsage ? { tokenUsage: data.tokenUsage } : {}),
         };
         setState((prev) => ({
           ...prev,
@@ -196,6 +198,7 @@ export const useChat = (config: ChatConfig) => {
         id: toMessageId(crypto.randomUUID()),
         role: "assistant",
         content: "",
+        reasoning: undefined,
         timestamp: Date.now(),
       };
 
@@ -208,6 +211,7 @@ export const useChat = (config: ChatConfig) => {
       const decoder = new TextDecoder();
       let buffer = "";
       let fullContent = "";
+      let fullReasoning = "";
       let continueNeeded = false;
       let batchedToken = "";
       let lastBatchTime = 0;
@@ -242,7 +246,7 @@ export const useChat = (config: ChatConfig) => {
           }
 
           try {
-            const parsed = JSON.parse(data);
+            const parsed = JSON.parse(data) as Record<string, unknown>;
             if (typeof parsed === "string") {
               fullContent += parsed;
               batchedToken += parsed;
@@ -258,17 +262,28 @@ export const useChat = (config: ChatConfig) => {
                 }, SSE_BATCH_MS - (now - lastBatchTime));
               }
             } else if (parsed.error) {
-              fullContent += `\n\n⚠ ${parsed.error}`;
+              const errStr = `\n\n⚠ ${parsed.error}`;
+              fullContent += errStr;
               flushBatch(assistantMessage.id);
               setState((prev) => ({
                 ...prev,
                 messages: prev.messages.map((msg) =>
                   msg.id === assistantMessage.id
-                    ? { ...msg, content: msg.content + `\n\n⚠ ${parsed.error}` }
+                    ? { ...msg, content: msg.content + errStr }
                     : msg
                 ),
               }));
-            } else if (parsed.content) {
+            } else if (parsed.reasoning && typeof parsed.reasoning === "string") {
+              fullReasoning += parsed.reasoning;
+              setState((prev) => ({
+                ...prev,
+                messages: prev.messages.map((msg) =>
+                  msg.id === assistantMessage.id
+                    ? { ...msg, reasoning: (msg.reasoning || "") + parsed.reasoning }
+                    : msg
+                ),
+              }));
+            } else if (parsed.content && typeof parsed.content === "string") {
               fullContent += parsed.content;
               batchedToken += parsed.content;
               const now = Date.now();

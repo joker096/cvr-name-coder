@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from "react";
 import { motion } from "motion/react";
-import { User, Brain, Copy, Check } from "lucide-react";
+import { User, Brain, Copy, Check, ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "../../utils/cn";
 import type { Message } from "../../types/chat";
 import { ReviewMessage } from "./ReviewMessage";
@@ -23,6 +23,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
 }) => {
   const tt = t as Record<string, string>;
   const [copied, setCopied] = useState(false);
+  const [thinkingExpanded, setThinkingExpanded] = useState(false);
 
   const handleCopy = useCallback(async () => {
     try {
@@ -141,6 +142,22 @@ export const MessageItem: React.FC<MessageItemProps> = ({
             "p-2 bg-dash-surface/30 rounded border border-dash-border"
         )}
       >
+        {message.reasoning && message.role !== "user" && (
+          <div className="mb-1 rounded border border-dash-accent/20 bg-dash-accent-soft/10 overflow-hidden">
+            <button
+              onClick={() => setThinkingExpanded(!thinkingExpanded)}
+              className="w-full flex items-center gap-1.5 px-2 py-1 text-[10px] font-medium text-dash-accent hover:bg-dash-accent-soft/10 transition-colors"
+            >
+              {thinkingExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+              {tt.thinkLabel || "Thoughts"}
+            </button>
+            {thinkingExpanded && (
+              <div className="px-2 pb-1.5 text-[11px] text-dash-text-secondary leading-relaxed whitespace-pre-wrap border-t border-dash-accent/10">
+                {message.reasoning}
+              </div>
+            )}
+          </div>
+        )}
         <MarkdownRenderer content={message.content} />
         {message.role !== "user" && (
           <button

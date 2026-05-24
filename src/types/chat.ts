@@ -21,6 +21,7 @@ export interface Message {
   id: MessageId;
   role: 'user' | 'model' | 'assistant' | 'review' | 'tool_call';
   content: string;
+  reasoning?: string | undefined;
   images?: string[] | undefined;
   timestamp: number;
   reviewData?: {

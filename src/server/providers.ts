@@ -5,8 +5,23 @@ import { aiCache } from "./cache.js";
 
 export interface AIResponse {
   text: string;
+  reasoning?: string | undefined;
   inputTokens: number;
   outputTokens: number;
+}
+
+export interface StreamCallbacks {
+  onToken: (token: string) => void;
+  onReasoning?: (token: string) => void;
+}
+
+export abstract class AIProvider {
+  abstract generate(options: AIGenerateOptions): Promise<AIResponse>;
+  abstract generateStream(options: AIGenerateOptions, callbacks: StreamCallbacks): Promise<AIResponse>;
+
+  protected resolveApiKey(envVar: string, override?: string): string {
+    return override || process.env[envVar] || "";
+  }
 }
 
 export interface ContentPart {
@@ -31,14 +46,6 @@ export interface AIGenerateOptions {
   maxTokens?: number | undefined;
   localUrl?: string | undefined;
   useCache?: boolean | undefined;
-}
-
-export abstract class AIProvider {
-  abstract generate(options: AIGenerateOptions): Promise<AIResponse>;
-
-  protected resolveApiKey(envVar: string, override?: string): string {
-    return override || process.env[envVar] || "";
-  }
 }
 
 class GeminiProvider extends AIProvider {
@@ -67,9 +74,43 @@ class GeminiProvider extends AIProvider {
         ...contents,
       ],
     });
-    const text = result.text || "";
+    const candidates = result.candidates || [];
+    const candidate = candidates[0] as Record<string, unknown> | undefined;
+    const parts = (candidate?.content as { parts?: Array<{ text?: string; thought?: boolean }> })?.parts || [];
+    const reasoning = parts.filter((p) => (p as Record<string, unknown>).thought).map((p) => p.text || "").join("\n") || undefined;
+    const text = parts.filter((p) => !(p as Record<string, unknown>).thought).map((p) => p.text || "").join("") || result.text || "";
     return {
       text,
+      reasoning,
+      inputTokens: estimateTokens(prompt),
+      outputTokens: estimateTokens(text),
+    };
+  }
+
+  async generateStream(options: AIGenerateOptions, callbacks: StreamCallbacks): Promise<AIResponse> {
+    const { prompt, contents, modelName, apiKey } = options;
+    const client = this.getClient(apiKey);
+    const model = modelName || PROVIDER_DEFAULT_MODELS.gemini;
+    const streamResult = await client.models.generateContentStream({
+      model: model as string,
+      contents: [
+        { role: "user", parts: [{ text: prompt }] },
+        ...contents,
+      ],
+    });
+    const allParts: Array<{ text?: string; thought?: boolean }> = [];
+    for await (const chunk of streamResult) {
+      const text = chunk.text;
+      if (text) {
+        allParts.push({ text, thought: false });
+        callbacks.onToken(text);
+      }
+    }
+    const reasoning = allParts.filter((p) => p.thought).map((p) => p.text || "").join("\n") || undefined;
+    const text = allParts.filter((p) => !p.thought).map((p) => p.text || "").join("");
+    return {
+      text,
+      reasoning,
       inputTokens: estimateTokens(prompt),
       outputTokens: estimateTokens(text),
     };
@@ -165,7 +206,7 @@ interface OpenAIResponse {
 
 interface AnthropicResponse {
   error?: { message?: string };
-  content?: Array<{ text?: string }>;
+  content?: Array<{ type?: string; text?: string; thinking?: string }>;
   usage?: { input_tokens?: number; output_tokens?: number };
 }
 
@@ -233,18 +274,77 @@ class OpenAICompatibleProvider extends AIProvider {
     const data = (await response.json()) as OpenAIResponse;
     const choice = data.choices?.[0];
     const msg = choice?.message || choice?.delta;
-    const text = msg
-      ? [
-          extractOpenAIText(msg.reasoning_content),
-          extractOpenAIText(msg.reasoning),
-          extractOpenAIText(msg.content),
-        ]
-          .filter(Boolean)
-          .join("\n")
-      : "";
+    const reasoning = extractOpenAIText(msg?.reasoning_content || msg?.reasoning) || undefined;
+    const text = extractOpenAIText(msg?.content) || "";
     const inputTokens = data.usage?.prompt_tokens || estimateTokens(prompt + contents.map((c) => c.parts?.[0]?.text || "").join(" "));
-    const outputTokens = data.usage?.completion_tokens || estimateTokens(text);
-    return { text, inputTokens, outputTokens };
+    const outputTokens = data.usage?.completion_tokens || estimateTokens(text + (reasoning || ""));
+    return { text, reasoning, inputTokens, outputTokens };
+  }
+
+  async generateStream(options: AIGenerateOptions, callbacks: StreamCallbacks): Promise<AIResponse> {
+    const { prompt, contents, localUrl, apiKey, modelName, temperature, maxTokens } = options;
+    const urlError = validateLocalUrl(localUrl, this.provider);
+    if (urlError) throw new Error(urlError);
+
+    if ((this.provider === "openai" || this.provider === "groq") && modelName?.toLowerCase().includes("claude")) {
+      throw new Error(`Model "${modelName}" is an Anthropic Claude model, but provider is ${this.provider}.`);
+    }
+
+    const baseUrl = localUrl || PROVIDER_BASE_URLS[this.provider] || "";
+    const key = this.resolveApiKey(getEnvVarForProvider(this.provider), apiKey);
+    const body = buildOpenAICompatibleBody({ prompt, contents, modelName, temperature, maxTokens }, this.provider);
+    (body as Record<string, unknown>).stream = true;
+
+    const response = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      const t = await response.text();
+      let msg: string;
+      try { const e = JSON.parse(t); msg = e.error?.message || `API error: HTTP ${response.status}`; } catch { msg = `API error: HTTP ${response.status} — ${t.slice(0, 200)}`; }
+      throw new Error(msg);
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("No response body");
+    const decoder = new TextDecoder();
+    let buf = "";
+    let fullText = "";
+    let fullReasoning = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split("\n");
+      buf = lines.pop() || "";
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || !trimmed.startsWith("data: ")) continue;
+        const jsonStr = trimmed.slice(6);
+        if (jsonStr === "[DONE]") break;
+        try {
+          const chunk = JSON.parse(jsonStr) as OpenAIResponse;
+          const delta = chunk.choices?.[0]?.delta;
+          const rs = extractOpenAIText(delta?.reasoning_content || delta?.reasoning);
+          if (rs) {
+            fullReasoning += rs;
+            if (callbacks.onReasoning) callbacks.onReasoning(rs);
+            else callbacks.onToken(rs);
+          }
+          const cs = extractOpenAIText(delta?.content);
+          if (cs) { fullText += cs; callbacks.onToken(cs); }
+        } catch { /* skip */ }
+      }
+    }
+
+    return {
+      text: fullText,
+      reasoning: fullReasoning || undefined,
+      inputTokens: estimateTokens(prompt),
+      outputTokens: estimateTokens(fullText + fullReasoning),
+    };
   }
 }
 
@@ -299,10 +399,75 @@ class AnthropicProvider extends AIProvider {
     });
     const data = (await response.json()) as AnthropicResponse;
     if (data.error) throw new Error(data.error.message || "Anthropic error");
-    const text = data.content?.[0]?.text ?? "";
+    const contentBlocks = data.content || [];
+    const reasoning = contentBlocks.filter((c) => c.type === "thinking" || c.type === "redacted_thinking").map((c) => c.thinking || c.text || "").join("\n") || undefined;
+    const text = contentBlocks.filter((c) => c.type === "text" || (!c.type && c.text)).map((c) => c.text || "").join("") || "";
     const inputTokens = data.usage?.input_tokens || estimateTokens(prompt);
-    const outputTokens = data.usage?.output_tokens || estimateTokens(text);
-    return { text, inputTokens, outputTokens };
+    const outputTokens = data.usage?.output_tokens || estimateTokens(text + (reasoning || ""));
+    return { text, reasoning, inputTokens, outputTokens };
+  }
+
+  async generateStream(options: AIGenerateOptions, callbacks: StreamCallbacks): Promise<AIResponse> {
+    const { prompt, contents, apiKey, modelName, maxTokens } = options;
+    const key = this.resolveApiKey("ANTHROPIC_API_KEY", apiKey);
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": key,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: modelName || "claude-sonnet-4-20250514",
+        max_tokens: maxTokens || 4096,
+        stream: true,
+        system: prompt,
+        messages: contents.map((c) => ({
+          role: c.role === "model" ? "assistant" : c.role,
+          content: c.parts[0]?.text ?? "",
+        })),
+      }),
+    });
+    if (!response.ok) {
+      const e = await response.json() as Record<string, unknown>;
+      throw new Error((e.error as { message?: string })?.message || "Anthropic stream error");
+    }
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("No response body");
+    const decoder = new TextDecoder();
+    let buf = "";
+    let fullText = "";
+    let fullReasoning = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split("\n");
+      buf = lines.pop() || "";
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || !trimmed.startsWith("data: ")) continue;
+        const jsonStr = trimmed.slice(6);
+        try {
+          const chunk = JSON.parse(jsonStr) as Record<string, unknown>;
+          if (chunk.type === "content_block_delta" && chunk.delta) {
+            const d = chunk.delta as Record<string, unknown>;
+            if (typeof d.text === "string") { fullText += d.text; callbacks.onToken(d.text); }
+            if (typeof d.thinking === "string") {
+              fullReasoning += d.thinking;
+              if (callbacks.onReasoning) callbacks.onReasoning(d.thinking);
+              else callbacks.onToken(d.thinking);
+            }
+          }
+        } catch { /* skip */ }
+      }
+    }
+    return {
+      text: fullText,
+      reasoning: fullReasoning || undefined,
+      inputTokens: estimateTokens(prompt),
+      outputTokens: estimateTokens(fullText + fullReasoning),
+    };
   }
 }
 
@@ -321,7 +486,7 @@ const providers: Record<string, AIProvider> = {
   anthropic: new AnthropicProvider(),
 };
 
-export async function generateAIContent(
+export async function generateAIResponse(
   prompt: string,
   contents: Content[] = [],
   provider?: string,
@@ -331,13 +496,13 @@ export async function generateAIContent(
   temperature?: number,
   maxTokens?: number,
   useCache?: boolean
-): Promise<string> {
+): Promise<AIResponse> {
   if (!provider) {
     throw new Error("AI provider not configured.");
   }
   if (useCache) {
     const cached = aiCache.get(prompt, contents, provider, modelName);
-    if (cached) return cached;
+    if (cached) return { text: cached, inputTokens: estimateTokens(prompt), outputTokens: estimateTokens(cached) };
   }
 
   const p = providers[provider];
@@ -350,6 +515,43 @@ export async function generateAIContent(
     aiCache.set(prompt, contents, provider, result.text, modelName);
   }
 
+  return result;
+}
+
+export async function generateStreamResponse(
+  prompt: string,
+  contents: Content[] = [],
+  provider?: string,
+  localUrl?: string,
+  modelName?: string,
+  apiKey?: string,
+  temperature?: number,
+  maxTokens?: number,
+  callbacks?: StreamCallbacks
+): Promise<AIResponse> {
+  if (!provider) {
+    throw new Error("AI provider not configured.");
+  }
+
+  const p = providers[provider];
+  if (!p) {
+    throw new Error(`Unknown provider: ${provider}`);
+  }
+  return p.generateStream({ prompt, contents, localUrl, modelName, apiKey, temperature, maxTokens }, callbacks || { onToken: () => {} });
+}
+
+export async function generateAIContent(
+  prompt: string,
+  contents: Content[] = [],
+  provider?: string,
+  localUrl?: string,
+  modelName?: string,
+  apiKey?: string,
+  temperature?: number,
+  maxTokens?: number,
+  useCache?: boolean
+): Promise<string> {
+  const result = await generateAIResponse(prompt, contents, provider, localUrl, modelName, apiKey, temperature, maxTokens, useCache);
   return result.text;
 }
 
@@ -365,17 +567,17 @@ export interface DualModelConfig {
   maxTokens?: number;
 }
 
-export async function generateWithDualModel(
+export async function generateWithDualModelResponse(
   prompt: string,
   contents: Content[] = [],
   config: DualModelConfig,
   purpose: 'think' | 'code' | 'auto' = 'auto'
-): Promise<string> {
+): Promise<AIResponse> {
   const useThinking = purpose === 'think' ||
     (purpose === 'auto' && config.thinkingProvider && config.thinkingModel);
 
   if (useThinking && config.thinkingProvider && config.thinkingModel) {
-    return generateAIContent(
+    return generateAIResponse(
       prompt, contents,
       config.thinkingProvider!,
       config.thinkingLocalUrl || config.primaryLocalUrl,
@@ -386,7 +588,7 @@ export async function generateWithDualModel(
     );
   }
 
-  return generateAIContent(
+  return generateAIResponse(
     prompt, contents,
     config.primaryProvider,
     config.primaryLocalUrl,
@@ -395,6 +597,16 @@ export async function generateWithDualModel(
     config.temperature,
     config.maxTokens
   );
+}
+
+export async function generateWithDualModel(
+  prompt: string,
+  contents: Content[] = [],
+  config: DualModelConfig,
+  purpose: 'think' | 'code' | 'auto' = 'auto'
+): Promise<string> {
+  const result = await generateWithDualModelResponse(prompt, contents, config, purpose);
+  return result.text;
 }
 
 export async function generateEmbeddings(texts: string[]): Promise<number[][]> {

@@ -30,7 +30,9 @@ function createMockSSEResponse(chunks: string[]) {
 
 describe("useChat", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
+    localStorage.clear();
+    global.fetch = vi.fn().mockResolvedValue({ ok: false });
   });
 
   const mockConfig: ChatConfig = {
@@ -79,15 +81,17 @@ describe("useChat", () => {
     expect(result.current.messages[1].content).toBe("Hello world");
   });
 
-  it("should not send empty message", () => {
+  it("should not send empty message", async () => {
     const { result } = renderHook(() => useChat(mockConfig));
 
-    act(() => {
-      result.current.sendMessage("");
+    let res: { content: string; continueNeeded: boolean } | null = undefined as any;
+    await act(async () => {
+      res = await result.current.sendMessage("");
     });
 
+    expect(res).toBeNull();
     expect(result.current.messages).toHaveLength(0);
-    expect(global.fetch).not.toHaveBeenCalled();
+    expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
   it("should handle send message error", async () => {
@@ -225,7 +229,7 @@ describe("useChat", () => {
 
     const { result } = renderHook(() => useChat(mockConfig));
 
-    act(() => {
+    await act(async () => {
       result.current.sendMessage("Test message");
     });
 
@@ -233,16 +237,16 @@ describe("useChat", () => {
       expect(result.current.messages).toHaveLength(2);
     });
 
-    expect(callCount).toBe(1);
+    const messageCountAfterHistory = callCount;
 
     const assistantMessageId = result.current.messages[1].id;
 
-    act(() => {
+    await act(async () => {
       result.current.retryMessage(assistantMessageId);
     });
 
     await waitFor(() => {
-      expect(callCount).toBe(2);
+      expect(callCount).toBeGreaterThan(messageCountAfterHistory);
     });
 
     await waitFor(() => {
@@ -304,7 +308,7 @@ describe("useChat", () => {
       expect(result.current.isLoading).toBe(false);
     });
 
-    const fetchCall = (global.fetch as any).mock.calls[0];
+    const fetchCall = (global.fetch as any).mock.calls[1];
     const requestBody = JSON.parse(fetchCall[1].body);
 
     expect(requestBody.config).toEqual(

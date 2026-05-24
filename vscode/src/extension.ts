@@ -285,7 +285,7 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
     return full;
   }
 
-  async function generateContentStream(prompt: string, contents: any[], onToken: (token: string) => void, provider?: string, localUrl?: string, modelName?: string, apiKey?: string, temperature?: number, maxTokens?: number, signal?: AbortSignal): Promise<void> {
+  async function generateContentStream(prompt: string, contents: any[], onToken: (token: string) => void, provider?: string, localUrl?: string, modelName?: string, apiKey?: string, temperature?: number, maxTokens?: number, signal?: AbortSignal, onReasoning?: (token: string) => void): Promise<void> {
     if (!provider) throw new Error('No AI provider configured. Set it in Settings.');
     const msgs = [
       { role: 'system', content: prompt },
@@ -323,7 +323,9 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
           if (jsonStr === '[DONE]') return;
           try {
             const chunk = JSON.parse(jsonStr);
-            const text = chunk.choices?.[0]?.delta?.content || chunk.choices?.[0]?.text || '';
+            const delta = chunk.choices?.[0]?.delta;
+            if (delta?.reasoning_content && onReasoning) onReasoning(delta.reasoning_content);
+            const text = delta?.content || chunk.choices?.[0]?.text || '';
             if (text) onToken(text);
           } catch {}
         }
@@ -384,7 +386,9 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
           try {
             const chunk = JSON.parse(jsonStr);
             const delta = chunk.choices?.[0]?.delta;
-            const text = delta?.reasoning_content || delta?.content || chunk.choices?.[0]?.text || '';
+            const reasoningText = delta?.reasoning_content || chunk?.choices?.[0]?.text?.reasoning_content;
+            if (reasoningText && onReasoning) onReasoning(reasoningText);
+            const text = delta?.content || chunk.choices?.[0]?.text || '';
             if (text) onToken(text);
           } catch {}
         }
@@ -424,7 +428,10 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
           const jsonStr = trimmed.slice(6);
           try {
             const chunk = JSON.parse(jsonStr);
-            if (chunk.type === 'content_block_delta' && chunk.delta?.text) onToken(chunk.delta.text);
+            if (chunk.type === 'content_block_delta') {
+              if (chunk.delta?.text) onToken(chunk.delta.text);
+              if (chunk.delta?.thinking && onReasoning) onReasoning(chunk.delta.thinking);
+            }
           } catch {}
         }
       }
@@ -559,15 +566,17 @@ ${contextParts || 'No previous knowledge clusters found. Cold-start mode.'}
       let fullText = '';
       const onToken = (token: string) => {
         fullText += token;
-        const escaped = JSON.stringify(token);
-        res.write(`data: ${escaped}\n\n`);
+        res.write(`data: ${JSON.stringify({ content: token })}\n\n`);
+      };
+      const onReasoning = (token: string) => {
+        res.write(`data: ${JSON.stringify({ reasoning: token })}\n\n`);
       };
 
       try {
         await generateContentStream(systemPrompt, [
           ...history.slice(-10).map((m: any) => ({ role: m.role, parts: [{ text: m.content }] })),
           { role: 'user', parts: [{ text: message }] }
-        ], onToken, aiProvider, localUrl, resolvedModel, apiKey, temperature, maxTokens, req.signal);
+        ], onToken, aiProvider, localUrl, resolvedModel, apiKey, temperature, maxTokens, req.signal, onReasoning);
       } catch (e: any) {
         res.write(`data: ${JSON.stringify({ error: e.message })}\n\n`);
         res.end();

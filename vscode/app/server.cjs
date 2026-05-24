@@ -5439,9 +5439,42 @@ var GeminiProvider = class extends AIProvider {
         ...contents
       ]
     });
-    const text = result.text || "";
+    const candidates = result.candidates || [];
+    const candidate = candidates[0];
+    const parts = candidate?.content?.parts || [];
+    const reasoning = parts.filter((p) => p.thought).map((p) => p.text || "").join("\n") || void 0;
+    const text = parts.filter((p) => !p.thought).map((p) => p.text || "").join("") || result.text || "";
     return {
       text,
+      reasoning,
+      inputTokens: estimateTokens(prompt),
+      outputTokens: estimateTokens(text)
+    };
+  }
+  async generateStream(options, callbacks) {
+    const { prompt, contents, modelName, apiKey } = options;
+    const client = this.getClient(apiKey);
+    const model = modelName || PROVIDER_DEFAULT_MODELS.gemini;
+    const streamResult = await client.models.generateContentStream({
+      model,
+      contents: [
+        { role: "user", parts: [{ text: prompt }] },
+        ...contents
+      ]
+    });
+    const allParts = [];
+    for await (const chunk of streamResult) {
+      const text2 = chunk.text;
+      if (text2) {
+        allParts.push({ text: text2, thought: false });
+        callbacks.onToken(text2);
+      }
+    }
+    const reasoning = allParts.filter((p) => p.thought).map((p) => p.text || "").join("\n") || void 0;
+    const text = allParts.filter((p) => !p.thought).map((p) => p.text || "").join("");
+    return {
+      text,
+      reasoning,
       inputTokens: estimateTokens(prompt),
       outputTokens: estimateTokens(text)
     };
@@ -5566,14 +5599,80 @@ var OpenAICompatibleProvider = class extends AIProvider {
     const data = await response.json();
     const choice = data.choices?.[0];
     const msg = choice?.message || choice?.delta;
-    const text = msg ? [
-      extractOpenAIText(msg.reasoning_content),
-      extractOpenAIText(msg.reasoning),
-      extractOpenAIText(msg.content)
-    ].filter(Boolean).join("\n") : "";
+    const reasoning = extractOpenAIText(msg?.reasoning_content || msg?.reasoning) || void 0;
+    const text = extractOpenAIText(msg?.content) || "";
     const inputTokens = data.usage?.prompt_tokens || estimateTokens(prompt + contents.map((c) => c.parts?.[0]?.text || "").join(" "));
-    const outputTokens = data.usage?.completion_tokens || estimateTokens(text);
-    return { text, inputTokens, outputTokens };
+    const outputTokens = data.usage?.completion_tokens || estimateTokens(text + (reasoning || ""));
+    return { text, reasoning, inputTokens, outputTokens };
+  }
+  async generateStream(options, callbacks) {
+    const { prompt, contents, localUrl, apiKey, modelName, temperature, maxTokens } = options;
+    const urlError = validateLocalUrl(localUrl, this.provider);
+    if (urlError) throw new Error(urlError);
+    if ((this.provider === "openai" || this.provider === "groq") && modelName?.toLowerCase().includes("claude")) {
+      throw new Error(`Model "${modelName}" is an Anthropic Claude model, but provider is ${this.provider}.`);
+    }
+    const baseUrl = localUrl || PROVIDER_BASE_URLS[this.provider] || "";
+    const key = this.resolveApiKey(getEnvVarForProvider(this.provider), apiKey);
+    const body = buildOpenAICompatibleBody({ prompt, contents, modelName, temperature, maxTokens }, this.provider);
+    body.stream = true;
+    const response = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+      body: JSON.stringify(body)
+    });
+    if (!response.ok) {
+      const t = await response.text();
+      let msg;
+      try {
+        const e = JSON.parse(t);
+        msg = e.error?.message || `API error: HTTP ${response.status}`;
+      } catch {
+        msg = `API error: HTTP ${response.status} \u2014 ${t.slice(0, 200)}`;
+      }
+      throw new Error(msg);
+    }
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("No response body");
+    const decoder = new TextDecoder();
+    let buf = "";
+    let fullText = "";
+    let fullReasoning = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split("\n");
+      buf = lines.pop() || "";
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || !trimmed.startsWith("data: ")) continue;
+        const jsonStr = trimmed.slice(6);
+        if (jsonStr === "[DONE]") break;
+        try {
+          const chunk = JSON.parse(jsonStr);
+          const delta = chunk.choices?.[0]?.delta;
+          const rs = extractOpenAIText(delta?.reasoning_content || delta?.reasoning);
+          if (rs) {
+            fullReasoning += rs;
+            if (callbacks.onReasoning) callbacks.onReasoning(rs);
+            else callbacks.onToken(rs);
+          }
+          const cs = extractOpenAIText(delta?.content);
+          if (cs) {
+            fullText += cs;
+            callbacks.onToken(cs);
+          }
+        } catch {
+        }
+      }
+    }
+    return {
+      text: fullText,
+      reasoning: fullReasoning || void 0,
+      inputTokens: estimateTokens(prompt),
+      outputTokens: estimateTokens(fullText + fullReasoning)
+    };
   }
 };
 function extractOpenAIText(value) {
@@ -5622,10 +5721,78 @@ var AnthropicProvider = class extends AIProvider {
     });
     const data = await response.json();
     if (data.error) throw new Error(data.error.message || "Anthropic error");
-    const text = data.content?.[0]?.text ?? "";
+    const contentBlocks = data.content || [];
+    const reasoning = contentBlocks.filter((c) => c.type === "thinking" || c.type === "redacted_thinking").map((c) => c.thinking || c.text || "").join("\n") || void 0;
+    const text = contentBlocks.filter((c) => c.type === "text" || !c.type && c.text).map((c) => c.text || "").join("") || "";
     const inputTokens = data.usage?.input_tokens || estimateTokens(prompt);
-    const outputTokens = data.usage?.output_tokens || estimateTokens(text);
-    return { text, inputTokens, outputTokens };
+    const outputTokens = data.usage?.output_tokens || estimateTokens(text + (reasoning || ""));
+    return { text, reasoning, inputTokens, outputTokens };
+  }
+  async generateStream(options, callbacks) {
+    const { prompt, contents, apiKey, modelName, maxTokens } = options;
+    const key = this.resolveApiKey("ANTHROPIC_API_KEY", apiKey);
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": key,
+        "anthropic-version": "2023-06-01"
+      },
+      body: JSON.stringify({
+        model: modelName || "claude-sonnet-4-20250514",
+        max_tokens: maxTokens || 4096,
+        stream: true,
+        system: prompt,
+        messages: contents.map((c) => ({
+          role: c.role === "model" ? "assistant" : c.role,
+          content: c.parts[0]?.text ?? ""
+        }))
+      })
+    });
+    if (!response.ok) {
+      const e = await response.json();
+      throw new Error(e.error?.message || "Anthropic stream error");
+    }
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("No response body");
+    const decoder = new TextDecoder();
+    let buf = "";
+    let fullText = "";
+    let fullReasoning = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split("\n");
+      buf = lines.pop() || "";
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || !trimmed.startsWith("data: ")) continue;
+        const jsonStr = trimmed.slice(6);
+        try {
+          const chunk = JSON.parse(jsonStr);
+          if (chunk.type === "content_block_delta" && chunk.delta) {
+            const d = chunk.delta;
+            if (typeof d.text === "string") {
+              fullText += d.text;
+              callbacks.onToken(d.text);
+            }
+            if (typeof d.thinking === "string") {
+              fullReasoning += d.thinking;
+              if (callbacks.onReasoning) callbacks.onReasoning(d.thinking);
+              else callbacks.onToken(d.thinking);
+            }
+          }
+        } catch {
+        }
+      }
+    }
+    return {
+      text: fullText,
+      reasoning: fullReasoning || void 0,
+      inputTokens: estimateTokens(prompt),
+      outputTokens: estimateTokens(fullText + fullReasoning)
+    };
   }
 };
 var providers = {
@@ -5642,13 +5809,13 @@ var providers = {
   custom: new OpenAICompatibleProvider("custom"),
   anthropic: new AnthropicProvider()
 };
-async function generateAIContent(prompt, contents = [], provider, localUrl, modelName, apiKey, temperature, maxTokens, useCache) {
+async function generateAIResponse(prompt, contents = [], provider, localUrl, modelName, apiKey, temperature, maxTokens, useCache) {
   if (!provider) {
     throw new Error("AI provider not configured.");
   }
   if (useCache) {
     const cached = aiCache.get(prompt, contents, provider, modelName);
-    if (cached) return cached;
+    if (cached) return { text: cached, inputTokens: estimateTokens(prompt), outputTokens: estimateTokens(cached) };
   }
   const p = providers[provider];
   if (!p) {
@@ -5658,12 +5825,27 @@ async function generateAIContent(prompt, contents = [], provider, localUrl, mode
   if (useCache) {
     aiCache.set(prompt, contents, provider, result.text, modelName);
   }
+  return result;
+}
+async function generateStreamResponse(prompt, contents = [], provider, localUrl, modelName, apiKey, temperature, maxTokens, callbacks) {
+  if (!provider) {
+    throw new Error("AI provider not configured.");
+  }
+  const p = providers[provider];
+  if (!p) {
+    throw new Error(`Unknown provider: ${provider}`);
+  }
+  return p.generateStream({ prompt, contents, localUrl, modelName, apiKey, temperature, maxTokens }, callbacks || { onToken: () => {
+  } });
+}
+async function generateAIContent(prompt, contents = [], provider, localUrl, modelName, apiKey, temperature, maxTokens, useCache) {
+  const result = await generateAIResponse(prompt, contents, provider, localUrl, modelName, apiKey, temperature, maxTokens, useCache);
   return result.text;
 }
-async function generateWithDualModel(prompt, contents = [], config, purpose = "auto") {
+async function generateWithDualModelResponse(prompt, contents = [], config, purpose = "auto") {
   const useThinking = purpose === "think" || purpose === "auto" && config.thinkingProvider && config.thinkingModel;
   if (useThinking && config.thinkingProvider && config.thinkingModel) {
-    return generateAIContent(
+    return generateAIResponse(
       prompt,
       contents,
       config.thinkingProvider,
@@ -5674,7 +5856,7 @@ async function generateWithDualModel(prompt, contents = [], config, purpose = "a
       config.maxTokens
     );
   }
-  return generateAIContent(
+  return generateAIResponse(
     prompt,
     contents,
     config.primaryProvider,
@@ -5684,6 +5866,10 @@ async function generateWithDualModel(prompt, contents = [], config, purpose = "a
     config.temperature,
     config.maxTokens
   );
+}
+async function generateWithDualModel(prompt, contents = [], config, purpose = "auto") {
+  const result = await generateWithDualModelResponse(prompt, contents, config, purpose);
+  return result.text;
 }
 async function generateEmbeddings(texts) {
   const gemini = providers.gemini;
@@ -6469,6 +6655,19 @@ async function summarizeLongHistory(messages, provider, localUrl, modelName, api
     return null;
   }
 }
+function scheduleSummary(updatedHistory, kConfig) {
+  if (updatedHistory.length % 5 !== 0) return;
+  const kConfigTyped = kConfig;
+  const dualCfg = buildDualModelConfig(kConfigTyped);
+  const summaryKey = kConfigTyped.providerKeys?.[kConfigTyped.aiProvider || ""] || kConfigTyped.apiKey;
+  summarizeLongHistory(updatedHistory, kConfigTyped.aiProvider, kConfigTyped.localUrl, kConfigTyped.aiProvider === "local" ? kConfigTyped.localModelName || kConfigTyped.aiModel : kConfigTyped.aiModel, summaryKey, dualCfg).then(async (summary) => {
+    if (summary) {
+      const currentMemories = JSON.parse(await (0, import_promises16.readFile)(MEMORY_FILE, "utf-8"));
+      await (0, import_promises16.writeFile)(MEMORY_FILE, JSON.stringify([...currentMemories, { content: summary, createdAt: /* @__PURE__ */ new Date() }]));
+      invalidateMemoryCache();
+    }
+  });
+}
 function registerRoutes(app2) {
   app2.post("/api/chat", validateBody(ChatRequestSchema), async (req, res) => {
     incrementRequestCount();
@@ -6531,10 +6730,137 @@ function registerRoutes(app2) {
         }
         return { role: m.role, parts };
       });
-      const responseText = await generateAIContent(systemPrompt, [
+      const acceptSSE = (req.headers.accept || "").includes("text/event-stream");
+      const { multiModelEnabled, thinkingProvider, thinkingModel, thinkingLocalUrl } = config;
+      const useDualModel = multiModelEnabled && thinkingProvider && thinkingModel;
+      if (useDualModel) {
+        const thinkPrompt = `[THINKING PHASE]
+Analyze the user's request and provide a detailed plan/analysis. Your output will be given as context to a code-generation model.
+
+User request:
+${message}`;
+        const thinkResponse = await generateAIResponse(thinkPrompt, [
+          ...historyContents
+        ], thinkingProvider, thinkingLocalUrl || localUrl, thinkingModel, resolvedApiKey, temperature, maxTokens, false);
+        const reasoning2 = thinkResponse.text;
+        const finalPrompt = `${systemPrompt}
+
+[PLANNING CONTEXT]
+The following is a detailed analysis of the user request:
+
+${reasoning2}
+
+[/PLANNING CONTEXT]
+
+Now respond to the user request: ${message}`;
+        if (acceptSSE) {
+          res.setHeader("Content-Type", "text/event-stream");
+          res.setHeader("Cache-Control", "no-cache");
+          res.setHeader("Connection", "keep-alive");
+          res.setHeader("X-Accel-Buffering", "no");
+          res.write(`data: ${JSON.stringify({ reasoning: reasoning2 })}
+
+`);
+          const aiResponse3 = await generateStreamResponse(finalPrompt, [
+            ...historyContents,
+            { role: "user", parts: buildParts(message, processedImages) }
+          ], aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, {
+            onToken: (token) => {
+              res.write(`data: ${JSON.stringify({ content: token })}
+
+`);
+            }
+          });
+          const estimatedInputTokens3 = Math.ceil((finalPrompt + message).length / 4);
+          const estimatedOutputTokens3 = Math.ceil((aiResponse3.text + (aiResponse3.reasoning || "")).length / 4);
+          res.write(`data: ${JSON.stringify({
+            done: true,
+            continueNeeded: aiResponse3.text.includes("CONTINUE_NEEDED"),
+            tokenUsage: { input: estimatedInputTokens3, output: estimatedOutputTokens3 }
+          })}
+
+`);
+          res.end();
+          const userHistoryEntry3 = { role: "user", content: message, createdAt: /* @__PURE__ */ new Date() };
+          if (processedImages.length > 0) {
+            userHistoryEntry3.images = processedImages.map((img) => `data:${img.mimeType};base64,${img.base64}`);
+          }
+          const updatedHistory3 = [...history, userHistoryEntry3, { role: "assistant", content: aiResponse3.text, createdAt: /* @__PURE__ */ new Date() }];
+          await (0, import_promises16.writeFile)(HISTORY_FILE, JSON.stringify(updatedHistory3));
+          invalidateHistoryCache();
+          scheduleSummary(updatedHistory3, kConfig);
+          trackCost(aiProvider, resolvedModel || "unknown", estimatedInputTokens3, estimatedOutputTokens3).catch(() => {
+          });
+          return;
+        }
+        const aiResponse2 = await generateAIResponse(finalPrompt, [
+          ...historyContents,
+          { role: "user", parts: buildParts(message, processedImages) }
+        ], aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, true);
+        const responseText2 = aiResponse2.text;
+        const estimatedInputTokens2 = Math.ceil((finalPrompt + message).length / 4);
+        const estimatedOutputTokens2 = Math.ceil(responseText2.length / 4);
+        const userHistoryEntry2 = { role: "user", content: message, createdAt: /* @__PURE__ */ new Date() };
+        if (processedImages.length > 0) {
+          userHistoryEntry2.images = processedImages.map((img) => `data:${img.mimeType};base64,${img.base64}`);
+        }
+        const updatedHistory2 = [...history, userHistoryEntry2, { role: "assistant", content: responseText2, createdAt: /* @__PURE__ */ new Date() }];
+        await (0, import_promises16.writeFile)(HISTORY_FILE, JSON.stringify(updatedHistory2));
+        invalidateHistoryCache();
+        scheduleSummary(updatedHistory2, kConfig);
+        trackCost(aiProvider, resolvedModel || "unknown", estimatedInputTokens2, estimatedOutputTokens2).catch(() => {
+        });
+        res.json({
+          content: responseText2,
+          reasoning: reasoning2 ?? void 0,
+          continueNeeded: responseText2.includes("CONTINUE_NEEDED"),
+          tokenUsage: { input: estimatedInputTokens2, output: estimatedOutputTokens2 }
+        });
+        return;
+      }
+      if (acceptSSE) {
+        res.setHeader("Content-Type", "text/event-stream");
+        res.setHeader("Cache-Control", "no-cache");
+        res.setHeader("Connection", "keep-alive");
+        res.setHeader("X-Accel-Buffering", "no");
+        const aiResponse2 = await generateStreamResponse(systemPrompt, [
+          ...historyContents,
+          { role: "user", parts: buildParts(message, processedImages) }
+        ], aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, {
+          onToken: (token) => {
+            res.write(`data: ${JSON.stringify({ content: token })}
+
+`);
+          }
+        });
+        const estimatedInputTokens2 = Math.ceil((systemPrompt + message).length / 4);
+        const estimatedOutputTokens2 = Math.ceil((aiResponse2.text + (aiResponse2.reasoning || "")).length / 4);
+        res.write(`data: ${JSON.stringify({
+          done: true,
+          continueNeeded: aiResponse2.text.includes("CONTINUE_NEEDED"),
+          tokenUsage: { input: estimatedInputTokens2, output: estimatedOutputTokens2 }
+        })}
+
+`);
+        res.end();
+        const userHistoryEntry2 = { role: "user", content: message, createdAt: /* @__PURE__ */ new Date() };
+        if (processedImages.length > 0) {
+          userHistoryEntry2.images = processedImages.map((img) => `data:${img.mimeType};base64,${img.base64}`);
+        }
+        const updatedHistory2 = [...history, userHistoryEntry2, { role: "assistant", content: aiResponse2.text, createdAt: /* @__PURE__ */ new Date() }];
+        await (0, import_promises16.writeFile)(HISTORY_FILE, JSON.stringify(updatedHistory2));
+        invalidateHistoryCache();
+        scheduleSummary(updatedHistory2, kConfig);
+        trackCost(aiProvider, resolvedModel || "unknown", estimatedInputTokens2, estimatedOutputTokens2).catch(() => {
+        });
+        return;
+      }
+      const aiResponse = await generateAIResponse(systemPrompt, [
         ...historyContents,
         { role: "user", parts: buildParts(message, processedImages) }
       ], aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, true);
+      const responseText = aiResponse.text;
+      const reasoning = aiResponse.reasoning;
       const estimatedInputTokens = Math.ceil((systemPrompt + message).length / 4);
       const estimatedOutputTokens = Math.ceil(responseText.length / 4);
       const userHistoryEntry = { role: "user", content: message, createdAt: /* @__PURE__ */ new Date() };
@@ -6544,20 +6870,10 @@ function registerRoutes(app2) {
       const updatedHistory = [...history, userHistoryEntry, { role: "assistant", content: responseText, createdAt: /* @__PURE__ */ new Date() }];
       await (0, import_promises16.writeFile)(HISTORY_FILE, JSON.stringify(updatedHistory));
       invalidateHistoryCache();
-      if (updatedHistory.length % 5 === 0) {
-        const kConfigTyped = kConfig;
-        const dualCfg = buildDualModelConfig(kConfigTyped);
-        const summaryKey = kConfigTyped.providerKeys?.[kConfigTyped.aiProvider || ""] || kConfigTyped.apiKey;
-        summarizeLongHistory(updatedHistory, kConfigTyped.aiProvider, kConfigTyped.localUrl, kConfigTyped.aiProvider === "local" ? kConfigTyped.localModelName || kConfigTyped.aiModel : kConfigTyped.aiModel, summaryKey, dualCfg).then(async (summary) => {
-          if (summary) {
-            const currentMemories = JSON.parse(await (0, import_promises16.readFile)(MEMORY_FILE, "utf-8"));
-            await (0, import_promises16.writeFile)(MEMORY_FILE, JSON.stringify([...currentMemories, { content: summary, createdAt: /* @__PURE__ */ new Date() }]));
-            invalidateMemoryCache();
-          }
-        });
-      }
+      scheduleSummary(updatedHistory, kConfig);
       res.json({
         content: responseText,
+        reasoning: reasoning ?? void 0,
         continueNeeded: responseText.includes("CONTINUE_NEEDED"),
         tokenUsage: { input: estimatedInputTokens, output: estimatedOutputTokens }
       });

@@ -1,7 +1,26 @@
 import "@testing-library/jest-dom";
 import { vi } from "vitest";
 
-// Auto-mock hooks
+Element.prototype.scrollIntoView = vi.fn();
+
+if (!globalThis.navigator?.clipboard) {
+  Object.defineProperty(globalThis.navigator, "clipboard", {
+    value: { writeText: vi.fn(() => Promise.resolve()) },
+    configurable: true,
+  });
+}
+
+if (!globalThis.CSS) {
+  (globalThis as any).CSS = { supports: () => false };
+}
+
+vi.mock("./components/chat/MarkdownRenderer", () => ({
+  MarkdownRenderer: ({ content }: { content: string }) => {
+    const React = require("react");
+    return React.createElement("div", { "data-testid": "markdown" }, content);
+  },
+}));
+
 vi.mock("./hooks/usePersistentMemory", async () => {
   const actual = await vi.importActual("./hooks/__mocks__/usePersistentMemory");
   return actual;
