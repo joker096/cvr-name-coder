@@ -1,11 +1,33 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { cn } from "../../utils/cn";
+import { DesignPreviewRender } from "./DesignPreviewRender";
 
 interface DesignSystemInfo {
   id: string;
   name: string;
   category: string;
   description: string;
+}
+
+interface DesignPreviewStyles {
+  background: string;
+  surface: string;
+  textPrimary: string;
+  textSecondary: string;
+  brand: string;
+  brandHover: string;
+  border: string;
+  accent: string;
+  success: string;
+  warning: string;
+  error: string;
+  buttonRadius: string;
+  cardRadius: string;
+  inputRadius: string;
+  shadowCard: string;
+  shadowHover: string;
+  fontFamily: string;
+  buttonPadding: string;
 }
 
 interface DesignPreviewData {
@@ -18,6 +40,7 @@ interface DesignPreviewData {
   visualTheme: string;
   dos: string[];
   donts: string[];
+  styles: DesignPreviewStyles;
 }
 
 const DESIGN_SYSTEMS: DesignSystemInfo[] = [
@@ -41,7 +64,7 @@ const DesignPreviewTooltip: React.FC<{
   style: React.CSSProperties;
 }> = ({ data, style }) => (
   <div
-    className="absolute z-50 w-64 bg-dash-elevated border border-dash-border rounded-xl shadow-2xl p-4 pointer-events-none"
+    className="absolute z-50 w-72 bg-dash-elevated border border-dash-border rounded-xl shadow-2xl p-4 pointer-events-none"
     style={style}
   >
     <div className="flex items-center gap-2 mb-3">
@@ -51,59 +74,41 @@ const DesignPreviewTooltip: React.FC<{
       </span>
     </div>
 
+    <div className="mb-3">
+      <span className="text-[10px] font-semibold text-dash-text-muted uppercase tracking-wider">
+        Live Preview
+      </span>
+      <div className="mt-1.5">
+        <DesignPreviewRender styles={data.styles} name={data.name} />
+      </div>
+    </div>
+
     {data.colors.length > 0 && (
-      <div className="mb-3">
-        <span className="text-[10px] font-semibold text-dash-text-muted uppercase tracking-wider">
-          Palette
-        </span>
-        <div className="flex flex-wrap gap-1 mt-1">
-          {data.colors.slice(0, 10).map((c) => (
-            <div key={c} className="flex items-center gap-1 group/swatch">
+      <div className="mt-3 pt-3 border-t border-dash-border">
+        <div className="flex flex-wrap gap-1">
+          {data.colors.slice(0, 8).map((c) => (
+            <div key={c} className="flex items-center gap-0.5">
               <div
-                className="w-4 h-4 rounded-sm border border-white/10"
+                className="w-3 h-3 rounded-full border border-white/10"
                 style={{ backgroundColor: c }}
               />
-              <span className="text-[9px] text-dash-text-muted font-mono">{c}</span>
             </div>
           ))}
         </div>
       </div>
     )}
 
-    {data.fontFamily && (
-      <div className="mb-3">
-        <span className="text-[10px] font-semibold text-dash-text-muted uppercase tracking-wider">
-          Font
-        </span>
-        <p className="text-[11px] text-dash-text-secondary mt-0.5">{data.fontFamily}</p>
-      </div>
-    )}
-
-    {data.visualTheme && (
-      <div className="mb-3">
-        <span className="text-[10px] font-semibold text-dash-text-muted uppercase tracking-wider">
-          Theme
-        </span>
-        <p className="text-[11px] text-dash-text-secondary mt-0.5 leading-relaxed line-clamp-3">
-          {data.visualTheme}
-        </p>
-      </div>
-    )}
-
     {(data.dos.length > 0 || data.donts.length > 0) && (
-      <div>
-        <span className="text-[10px] font-semibold text-dash-text-muted uppercase tracking-wider">
-          Rules
-        </span>
-        <ul className="mt-1 space-y-0.5">
+      <div className="mt-2 pt-2 border-t border-dash-border">
+        <ul className="space-y-0.5">
           {data.dos.slice(0, 2).map((d, i) => (
-            <li key={`do-${i}`} className="text-[10px] text-green-400 flex gap-1">
+            <li key={`do-${i}`} className="text-[9px] text-green-400 flex gap-1">
               <span className="flex-shrink-0">✅</span>
               <span className="truncate">{d}</span>
             </li>
           ))}
           {data.donts.slice(0, 2).map((d, i) => (
-            <li key={`dont-${i}`} className="text-[10px] text-red-400 flex gap-1">
+            <li key={`dont-${i}`} className="text-[9px] text-red-400 flex gap-1">
               <span className="flex-shrink-0">❌</span>
               <span className="truncate">{d}</span>
             </li>
@@ -210,7 +215,7 @@ export const DesignSystemsTab: React.FC = () => {
           Design Systems
         </h3>
         <p className="text-xs text-dash-text-muted mb-3 leading-relaxed">
-          Select a design system. Hover to preview colors, fonts, and rules. The AI will use these for all generated code.
+          Select a design system. Hover to preview how components will look. The AI will use these for all generated code.
         </p>
 
         {status && (

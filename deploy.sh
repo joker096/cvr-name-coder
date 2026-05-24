@@ -39,6 +39,12 @@ server {
     listen 80;
     server_name localhost;
 
+    # Security headers
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy "no-referrer" always;
+
     location /api/ {
         proxy_pass http://cvr:3000;
         proxy_http_version 1.1;

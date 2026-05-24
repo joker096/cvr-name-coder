@@ -9,7 +9,7 @@ RUN npm run build
 # Production stage
 FROM node:20-alpine
 WORKDIR /app
-RUN apk add --no-cache git
+RUN apk add --no-cache git wget
 
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/server.ts ./
@@ -17,6 +17,10 @@ COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/tsconfig.json ./
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/src ./src
+
+RUN addgroup -S cvr && adduser -S cvr -G cvr && chown -R cvr:cvr /app
+
+USER cvr
 
 ENV NODE_ENV=production
 ENV PORT=3000

@@ -35,6 +35,14 @@ function migrateSettings(settings: Settings): Settings {
     storageService.set(STORAGE_KEY, migrated);
     return migrated;
   }
+  // Migrate old cvr_lang → settings.lang
+  const oldLang = localStorage.getItem("cvr_lang");
+  if (oldLang && oldLang !== settings.lang) {
+    const migrated = { ...settings, lang: oldLang };
+    localStorage.removeItem("cvr_lang");
+    storageService.set(STORAGE_KEY, migrated);
+    return migrated;
+  }
   return settings;
 }
 
@@ -136,7 +144,8 @@ export const useSettings = () => {
   useEffect(() => {
     if (!isInitialized.current) return;
     storageService.set(STORAGE_KEY, settings);
-    persistToServer(settings);
+    const timer = setTimeout(() => persistToServer(settings), 300);
+    return () => clearTimeout(timer);
   }, [settings]);
 
   const updateChatConfig = (config: Partial<ChatConfig>) => {

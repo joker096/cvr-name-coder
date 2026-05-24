@@ -3279,6 +3279,7 @@ async function getDesignPreviewData(id) {
       else if (trimmed.startsWith("- \u274C")) donts.push(trimmed.replace(/^- ❌\s*/, ""));
     }
   }
+  const styles = parseDesignStyles(content);
   return {
     id: system.id,
     name: system.name,
@@ -3288,8 +3289,132 @@ async function getDesignPreviewData(id) {
     fontFamily,
     visualTheme,
     dos,
-    donts
+    donts,
+    styles
   };
+}
+function parseDesignStyles(content) {
+  const styles = {
+    background: "#FAFAFA",
+    surface: "#FFFFFF",
+    textPrimary: "#111111",
+    textSecondary: "#555555",
+    brand: "#3B82F6",
+    brandHover: "#2563EB",
+    border: "#E5E7EB",
+    accent: "#8B5CF6",
+    success: "#10B981",
+    warning: "#F59E0B",
+    error: "#EF4444",
+    buttonRadius: "8px",
+    cardRadius: "12px",
+    inputRadius: "8px",
+    shadowCard: "0 1px 3px rgba(0,0,0,0.08)",
+    shadowHover: "0 4px 12px rgba(0,0,0,0.1)",
+    fontFamily: "Inter, system-ui, sans-serif",
+    buttonPadding: "12px 24px"
+  };
+  const paletteMatch = content.match(/## 2\. Color Palette.*?\n([\s\S]*?)(?=## 3\.)/);
+  if (paletteMatch?.[1]) {
+    const colorMap = parseColorTable(paletteMatch[1]);
+    if (colorMap["Background"]) styles.background = colorMap["Background"];
+    else if (colorMap["Background Dark"]) styles.background = colorMap["Background Dark"];
+    if (colorMap["Surface"]) styles.surface = colorMap["Surface"];
+    else if (colorMap["Elevated"]) styles.surface = colorMap["Elevated"];
+    if (colorMap["Text Primary"]) styles.textPrimary = colorMap["Text Primary"];
+    if (colorMap["Text Secondary"]) styles.textSecondary = colorMap["Text Secondary"];
+    if (colorMap["Brand Primary"]) styles.brand = colorMap["Brand Primary"];
+    else if (colorMap["Brand Blue"]) styles.brand = colorMap["Brand Blue"];
+    if (colorMap["Brand Hover"]) styles.brandHover = colorMap["Brand Hover"];
+    else if (colorMap["Brand Purple"]) styles.brandHover = colorMap["Brand Purple"];
+    if (colorMap["Border"]) styles.border = colorMap["Border"];
+    if (colorMap["Accent"]) styles.accent = colorMap["Accent"];
+    if (colorMap["Success"]) styles.success = colorMap["Success"];
+    if (colorMap["Warning"]) styles.warning = colorMap["Warning"];
+    if (colorMap["Error"]) styles.error = colorMap["Error"];
+  }
+  const compMatch = content.match(/## 4\. Component Stylings\n([\s\S]*?)(?=## 5\.)/);
+  if (compMatch?.[1]) {
+    const btnMatch = compMatch[1].match(/\*\*Buttons:\*\*\s*(.+)/);
+    if (btnMatch?.[1]) {
+      const btnText = btnMatch[1];
+      const radMatch = btnText.match(/(\d+)px\s*(radius|border-radius)/);
+      if (radMatch) styles.buttonRadius = `${radMatch[1]}px`;
+      const padMatch = btnText.match(/(\d+px\s+\d+px)\s*(padding)/);
+      if (padMatch && padMatch[1]) styles.buttonPadding = padMatch[1];
+    }
+    const cardMatch = compMatch[1].match(/\*\*Cards:\*\*\s*(.+)/);
+    if (cardMatch?.[1]) {
+      const radMatch = cardMatch[1].match(/(\d+)px\s*radius/);
+      if (radMatch) styles.cardRadius = `${radMatch[1]}px`;
+    }
+    const inpMatch = compMatch[1].match(/\*\*Inputs:\*\*\s*(.+)/);
+    if (inpMatch?.[1]) {
+      const radMatch = inpMatch[1].match(/(\d+)px\s*radius/);
+      if (radMatch) styles.inputRadius = `${radMatch[1]}px`;
+    }
+  }
+  const elevMatch = content.match(/## 6\. Depth & Elevation\n([\s\S]*?)(?=## 7\.)/);
+  if (elevMatch?.[1]) {
+    const level1Match = elevMatch[1].match(/Level 1:\s*`(.+?)`/);
+    const level2Match = elevMatch[1].match(/Level 2:\s*`(.+?)`/);
+    const cardShadowMatch = elevMatch[1].match(/Cards:\s*`(.+?)`/);
+    const hoverShadowMatch = elevMatch[1].match(/Hover:\s*`(.+?)`/);
+    if (cardShadowMatch && cardShadowMatch[1]) {
+      styles.shadowCard = cardShadowMatch[1];
+    } else if (level1Match && level1Match[1]) {
+      styles.shadowCard = level1Match[1];
+    }
+    if (hoverShadowMatch && hoverShadowMatch[1]) {
+      const hoverPart = hoverShadowMatch[1].split("\u2192").pop()?.trim();
+      styles.shadowHover = hoverPart || (level2Match?.[1] ?? styles.shadowHover);
+    } else if (level2Match && level2Match[1]) {
+      styles.shadowHover = level2Match[1];
+    }
+  }
+  const fontMatch = content.match(/\*\*Primary:\*\*\s*(.+)/);
+  if (fontMatch?.[1]) {
+    styles.fontFamily = `${fontMatch[1].trim()}, system-ui, sans-serif`;
+  }
+  const brightness = hexBrightness(styles.background);
+  if (brightness < 60) {
+    const hoverRgb = hexToRgb(styles.brand);
+    if (hoverRgb) {
+      const [r, g, b] = hoverRgb;
+      styles.brandHover = rgbToHex(Math.min(255, r + 25), Math.min(255, g + 25), Math.min(255, b + 25));
+    }
+  } else {
+    const hoverRgb = hexToRgb(styles.brand);
+    if (hoverRgb) {
+      const [r, g, b] = hoverRgb;
+      styles.brandHover = rgbToHex(Math.max(0, r - 25), Math.max(0, g - 25), Math.max(0, b - 25));
+    }
+  }
+  return styles;
+}
+function parseColorTable(table) {
+  const map = {};
+  for (const line of table.split("\n")) {
+    const match = line.match(/\|\s*(.+?)\s*\|\s*`(#[\dA-Fa-f]{6})`\s*\|/);
+    if (match && match[1] && match[2]) {
+      map[match[1].trim()] = match[2];
+    }
+  }
+  return map;
+}
+function hexBrightness(hex) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return (r * 299 + g * 587 + b * 114) / 1e3;
+}
+function hexToRgb(hex) {
+  const m = hex.match(/^#([\dA-Fa-f]{2})([\dA-Fa-f]{2})([\dA-Fa-f]{2})$/);
+  if (!m || !m[1] || !m[2] || !m[3]) return null;
+  return [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)];
+}
+function rgbToHex(r, g, b) {
+  return `#${[r, g, b].map((c) => Math.max(0, Math.min(255, c)).toString(16).padStart(2, "0")).join("")}`;
 }
 
 // src/server/tools.ts
@@ -5893,33 +6018,59 @@ var BrowserCloseSchema = import_zod.z.object({
   sessionId: import_zod.z.string().optional()
 });
 var SettingsSchema = import_zod.z.object({
-  aiProvider: import_zod.z.string().optional(),
-  aiModel: import_zod.z.string().optional(),
-  localUrl: import_zod.z.string().optional(),
-  customUrl: import_zod.z.string().optional(),
-  temperature: import_zod.z.number().optional(),
-  maxTokens: import_zod.z.number().optional(),
-  systemPrompt: import_zod.z.string().optional(),
-  agent: import_zod.z.string().optional(),
-  mode: import_zod.z.union([import_zod.z.literal("plan"), import_zod.z.literal("build"), import_zod.z.literal("review")]).optional(),
-  visionEnabled: import_zod.z.boolean().optional(),
-  maxImageSize: import_zod.z.number().optional(),
-  apiKey: import_zod.z.string().optional(),
-  geminiApiKey: import_zod.z.string().optional(),
-  openaiApiKey: import_zod.z.string().optional(),
-  anthropicApiKey: import_zod.z.string().optional(),
-  deepseekApiKey: import_zod.z.string().optional(),
-  groqApiKey: import_zod.z.string().optional(),
-  xaiApiKey: import_zod.z.string().optional(),
-  basetenApiKey: import_zod.z.string().optional(),
-  openrouterApiKey: import_zod.z.string().optional(),
-  togetherApiKey: import_zod.z.string().optional(),
-  mistralApiKey: import_zod.z.string().optional(),
-  customApiKey: import_zod.z.string().optional(),
-  localModelName: import_zod.z.string().optional(),
-  thinkingProvider: import_zod.z.string().optional(),
-  thinkingModel: import_zod.z.string().optional(),
-  thinkingLocalUrl: import_zod.z.string().optional()
+  chat: import_zod.z.object({
+    aiProvider: import_zod.z.string().optional(),
+    aiModel: import_zod.z.string().optional(),
+    apiKey: import_zod.z.string().optional(),
+    providerKeys: import_zod.z.record(import_zod.z.string(), import_zod.z.string()).optional(),
+    localUrl: import_zod.z.string().optional(),
+    localModelName: import_zod.z.string().optional(),
+    customUrl: import_zod.z.string().optional(),
+    temperature: import_zod.z.number().optional(),
+    maxTokens: import_zod.z.number().optional(),
+    systemPrompt: import_zod.z.string().optional(),
+    agent: import_zod.z.string().optional(),
+    mode: import_zod.z.union([import_zod.z.literal("plan"), import_zod.z.literal("build"), import_zod.z.literal("review")]).optional(),
+    visionEnabled: import_zod.z.boolean().optional(),
+    maxImageSize: import_zod.z.number().optional(),
+    multiModelEnabled: import_zod.z.boolean().optional(),
+    thinkingProvider: import_zod.z.string().optional(),
+    thinkingModel: import_zod.z.string().optional(),
+    thinkingLocalUrl: import_zod.z.string().optional()
+  }).passthrough(),
+  presets: import_zod.z.array(import_zod.z.object({
+    id: import_zod.z.string(),
+    name: import_zod.z.string(),
+    description: import_zod.z.string(),
+    config: import_zod.z.object({
+      aiProvider: import_zod.z.string().optional(),
+      aiModel: import_zod.z.string().optional(),
+      apiKey: import_zod.z.string().optional(),
+      providerKeys: import_zod.z.record(import_zod.z.string(), import_zod.z.string()).optional(),
+      localUrl: import_zod.z.string().optional(),
+      localModelName: import_zod.z.string().optional(),
+      customUrl: import_zod.z.string().optional(),
+      temperature: import_zod.z.number().optional(),
+      maxTokens: import_zod.z.number().optional(),
+      systemPrompt: import_zod.z.string().optional(),
+      agent: import_zod.z.string().optional(),
+      mode: import_zod.z.union([import_zod.z.literal("plan"), import_zod.z.literal("build"), import_zod.z.literal("review")]).optional(),
+      visionEnabled: import_zod.z.boolean().optional(),
+      maxImageSize: import_zod.z.number().optional(),
+      multiModelEnabled: import_zod.z.boolean().optional(),
+      thinkingProvider: import_zod.z.string().optional(),
+      thinkingModel: import_zod.z.string().optional(),
+      thinkingLocalUrl: import_zod.z.string().optional()
+    }).passthrough(),
+    createdAt: import_zod.z.number()
+  })).optional(),
+  autoLoopDelay: import_zod.z.number().optional(),
+  isAutonomous: import_zod.z.boolean().optional(),
+  autoCommit: import_zod.z.boolean().optional(),
+  lang: import_zod.z.string().optional(),
+  voiceEnabled: import_zod.z.boolean().optional(),
+  voiceLanguage: import_zod.z.string().optional(),
+  voiceAutoSend: import_zod.z.boolean().optional()
 }).passthrough();
 
 // src/server/routes/chat.ts

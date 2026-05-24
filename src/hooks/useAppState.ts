@@ -21,12 +21,9 @@ export function useAppState() {
   const [input, setInput] = useState("");
   const inputRef = useRef(input);
   inputRef.current = input;
-  const [lang, setLang] = useState<Lang>(() => {
-    const saved = localStorage.getItem("cvr_lang");
-    return saved && (ALL_LANGS as readonly string[]).includes(saved) ? (saved as Lang) : "en";
-  });
+  const [lang, setLang] = useState<Lang>("en");
 
-  const { settings, isLoading: settingsLoading, updateChatConfig, toggleAutonomous, updateAutoLoopDelay, toggleAutoCommit, toggleVoiceEnabled, setVoiceLanguage, toggleVoiceAutoSend, setLanguage } = useSettings();
+  const { settings, isLoading: settingsLoading, updateChatConfig, toggleAutonomous, updateAutoLoopDelay, toggleAutoCommit, toggleVoiceEnabled, setVoiceLanguage, toggleVoiceAutoSend, setLanguage, addPreset, deletePreset, loadPreset } = useSettings();
   const { state: agentState, isRunning: isAgentRunning, startLoop, abortLoop } = useAgentLoop();
   const { messages, isLoading, error: chatError, sendMessage, cancelMessage, addMessage, deleteMessage, clearHistory } = useChat(settings.chat);
   const { memories } = useMemory();
@@ -245,5 +242,8 @@ export function useAppState() {
     memoryCount,
     agentsCount,
     ALL_LANGS,
+    addPreset,
+    deletePreset,
+    loadPreset,
   };
 }

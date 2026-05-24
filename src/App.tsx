@@ -97,16 +97,15 @@ export default function App() {
             voiceLanguage={s.settings.voiceLanguage}
             voiceAutoSend={s.settings.voiceAutoSend}
             onSave={(cfg) => s.updateChatConfig(cfg)}
-            onPresetSave={() => {}}
-            onPresetApply={() => {}}
-            onPresetDelete={() => {}}
+            onPresetSave={(preset) => s.addPreset(preset)}
+            onPresetApply={(preset) => s.loadPreset(preset.id)}
+            onPresetDelete={(id) => s.deletePreset(id)}
             onToggleAutonomous={s.toggleAutonomous}
             onToggleAutoCommit={s.toggleAutoCommit}
             onChangeAutoLoopDelay={s.updateAutoLoopDelay}
             onLanguageChange={(newLang) => {
               if ((s.ALL_LANGS as readonly string[]).includes(newLang)) {
                 s.setLang(newLang as typeof s.ALL_LANGS[number]);
-                localStorage.setItem("cvr_lang", newLang);
                 s.setLanguage(newLang as "en" | "ru");
               }
             }}

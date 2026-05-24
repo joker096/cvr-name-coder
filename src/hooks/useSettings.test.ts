@@ -406,9 +406,11 @@ describe("useSettings", () => {
       result.current.updateChatConfig({ aiModel: "gpt-4" });
     });
 
-    expect(global.fetch).toHaveBeenCalledWith(
-      "/api/settings",
-      expect.objectContaining({ method: "POST" })
-    );
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/settings",
+        expect.objectContaining({ method: "POST" })
+      );
+    });
   });
 });
