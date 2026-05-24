@@ -36,13 +36,11 @@ interface ChatConfig {
   thinkingLocalUrl?: string;
 }
 
-/** Configuration for the kernel/thinking AI provider. */
 interface KernelConfig {
   aiProvider?: string;
   [key: string]: unknown;
 }
 
-/** Request body structure for the /api/chat endpoint. */
 interface ChatRequestBody {
   message: string;
   images?: string[];
@@ -51,14 +49,29 @@ interface ChatRequestBody {
   agent?: string;
 }
 
+interface ChatContext {
+  systemPrompt: string;
+  historyContents: Content[];
+  history: HistoryEntry[];
+  buildParts: (text: string, imgs?: ProcessedImage[]) => Array<{ text: string } | { inlineData: { mimeType: string; data: string } }>;
+  processedImages: ProcessedImage[];
+  message: string;
+  agent: string;
+  mode: string;
+  aiProvider: string;
+  localUrl: string | undefined;
+  resolvedModel: string | undefined;
+  resolvedApiKey: string | undefined;
+  temperature: number | undefined;
+  maxTokens: number | undefined;
+  kConfig: ChatConfig;
+}
+
 /** Directory path for persistent storage (.opencode-infinite). */
 export const STORAGE_DIR = path.join(process.cwd(), ".opencode-infinite");
-/** File path for chat history JSON storage. */
 export const HISTORY_FILE = path.join(STORAGE_DIR, "history.json");
-/** File path for memory/summary JSON storage. */
 export const MEMORY_FILE = path.join(STORAGE_DIR, "memory.json");
 
-/** Creates the storage directory and initializes history/memory files if they don't exist. */
 export async function ensureStorage() {
   try {
     await mkdir(STORAGE_DIR, { recursive: true });
@@ -106,32 +119,20 @@ function invalidateMemoryCache(): void {
   _memoryCacheTime = 0;
 }
 
-/**
- * Generates a compressed summary of recent conversation history via AI.
- * Uses the "Dreamer Engine" to extract key facts, invariant rules, progress state,
- * and pending goals from the last 10 messages.
- * @param messages - Full chat history entries
- * @param provider - AI provider identifier
- * @param localUrl - Base URL for local LLM providers
- * @param modelName - Model name to use for summarization
- * @param apiKey - API key for the provider
- * @param dualConfig - Dual model configuration (thinking model)
- * @returns A summary string or null if messages < 5 or summarization fails
- */
 export async function summarizeLongHistory(messages: HistoryEntry[], provider?: string, localUrl?: string, modelName?: string, apiKey?: string, dualConfig?: DualModelConfig) {
   if (messages.length < 5) return null;
-  
+
   const instruction = `You are the "cvr.name Dreamer Engine". Examine the conversation below and extract:
   1. KEY_FACTS: Fundamental project decisions or requirements.
   2. INVARIANT_RULES: Coding standards or logic that MUST not change.
   3. PROGRESS_STATE: What was just finished.
   4. PENDING_GOALS: What the agent is currently working towards.
-  
+
   Format as a strict technical manifest (max 150 words). Focus on architectural integrity.
-  
+
   Conversation:
   ${messages.slice(-10).map(m => `${m.role}: ${m.content}`).join('\n')}`;
-  
+
   try {
     if (dualConfig?.thinkingProvider && dualConfig?.thinkingModel) {
       return await generateWithDualModel(instruction, [], dualConfig, 'think');
@@ -145,10 +146,9 @@ export async function summarizeLongHistory(messages: HistoryEntry[], provider?: 
 
 function scheduleSummary(updatedHistory: HistoryEntry[], kConfig: ChatConfig) {
   if (updatedHistory.length % 5 !== 0) return;
-  const kConfigTyped = kConfig;
-  const dualCfg: DualModelConfig = buildDualModelConfig(kConfigTyped);
-  const summaryKey = kConfigTyped.providerKeys?.[kConfigTyped.aiProvider || ""] || kConfigTyped.apiKey;
-  summarizeLongHistory(updatedHistory, kConfigTyped.aiProvider, kConfigTyped.localUrl, kConfigTyped.aiProvider === "local" ? (kConfigTyped.localModelName || kConfigTyped.aiModel) : kConfigTyped.aiModel, summaryKey, dualCfg).then(async (summary) => {
+  const dualCfg: DualModelConfig = buildDualModelConfig(kConfig);
+  const summaryKey = kConfig.providerKeys?.[kConfig.aiProvider || ""] || kConfig.apiKey;
+  summarizeLongHistory(updatedHistory, kConfig.aiProvider, kConfig.localUrl, kConfig.aiProvider === "local" ? (kConfig.localModelName || kConfig.aiModel) : kConfig.aiModel, summaryKey, dualCfg).then(async (summary) => {
     if (summary) {
       const currentMemories = JSON.parse(await readFile(MEMORY_FILE, "utf-8")) as MemoryEntry[];
       await writeFile(MEMORY_FILE, JSON.stringify([...currentMemories, { content: summary, createdAt: new Date() }]));
@@ -182,16 +182,117 @@ async function executeToolCalls(
   return results;
 }
 
-/**
- * Registers all chat-related API routes on the Express application.
- * 
- * Routes:
- * - POST /api/chat - Main chat endpoint (SSE streaming or JSON response)
- * - GET /api/models - Fetches available models for a given provider
- * - GET /api/history - Returns chat history and memories
- * - POST /api/clear - Clears all history and memories
- * @param app - Express application instance
- */
+function appendToolResults(contents: Content[], response: { text?: string | undefined; toolCalls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }> | undefined }, toolResults: Array<{ role: string; tool_call_id: string; content: string }>) {
+  if (response.toolCalls) {
+    contents.push({
+      role: "assistant",
+      parts: [{ text: response.text || `Tool call: ${response.toolCalls.map((tc) => tc.name).join(", ")}` }],
+      _toolCalls: response.toolCalls.map((tc) => ({
+        id: tc.id, type: "function" as const, function: { name: tc.name, arguments: JSON.stringify(tc.arguments) },
+      })),
+    });
+  }
+  for (const tr of toolResults) {
+    contents.push({ role: "tool", parts: [{ text: tr.content }], _toolCallId: tr.tool_call_id, _isToolResult: true });
+  }
+}
+
+async function runToolLoop(
+  systemPrompt: string,
+  contents: Content[],
+  ctx: ChatContext,
+  onToolResult?: (step: number, response: { text?: string | undefined; reasoning?: string | undefined; toolCalls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }> | undefined }) => void
+): Promise<{ text: string; reasoning: string | undefined; steps: number }> {
+  const tools = getOpenAITools();
+  const MAX_STEPS = 20;
+  let step = 0;
+
+  let response = await generateAIResponse(systemPrompt, contents, ctx.aiProvider, ctx.localUrl, ctx.resolvedModel, ctx.resolvedApiKey, ctx.temperature, ctx.maxTokens, step === 0, tools);
+
+  while (response.toolCalls && response.toolCalls.length > 0 && step < MAX_STEPS) {
+    step++;
+    const toolResults = await executeToolCalls(response.toolCalls, ctx.mode, ctx.agent);
+    appendToolResults(contents, response, toolResults);
+    if (onToolResult) onToolResult(step, response);
+    response = await generateAIResponse(systemPrompt, contents, ctx.aiProvider, ctx.localUrl, ctx.resolvedModel, ctx.resolvedApiKey, ctx.temperature, ctx.maxTokens, false, tools);
+  }
+
+  return { text: response.text || "", reasoning: response.reasoning, steps: step };
+}
+
+async function buildHistoryContents(history: HistoryEntry[]): Promise<Content[]> {
+  const ctxWindow = new ContextWindow({ maxTokens: 128000, tokenBuffer: 16000 });
+  for (const m of history.slice(-20)) {
+    const priority = m.role === 'user' && m.content.startsWith('/')
+      ? Priority.HIGH
+      : Priority.NORMAL;
+    ctxWindow.add(m.role, m.content, priority);
+  }
+  const visibleHistory = ctxWindow.getMessages();
+
+  const historyLookup = new Map<string, HistoryEntry>();
+  for (const h of history) {
+    historyLookup.set(`${h.role}:${h.content}`, h);
+  }
+
+  return visibleHistory.map((m) => {
+    const hEntry = historyLookup.get(`${m.role}:${m.content}`);
+    const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [{ text: m.content }];
+    if (hEntry?.images && Array.isArray(hEntry.images)) {
+      for (const img of hEntry.images) {
+        const match = typeof img === 'string' ? img.match(/^data:([^;]+);base64,(.+)$/) : null;
+        if (match && match[1] && match[2]) {
+          parts.push({ inlineData: { mimeType: match[1], data: match[2] } });
+        }
+      }
+    }
+    return { role: m.role, parts };
+  });
+}
+
+function makeHistoryEntry(message: string, images?: ProcessedImage[]): HistoryEntry {
+  const entry: HistoryEntry = { role: 'user', content: message, createdAt: new Date() };
+  if (images && images.length > 0) {
+    entry.images = images.map(img => `data:${img.mimeType};base64,${img.base64}`);
+  }
+  return entry;
+}
+
+async function finalizeChat(
+  history: HistoryEntry[],
+  userEntry: HistoryEntry,
+  responseText: string,
+  ctx: ChatContext,
+  extra?: { reasoning?: string | undefined; steps?: number | undefined; toolOutputs?: string[] | undefined }
+) {
+  const updatedHistory: HistoryEntry[] = [...history, userEntry, { role: 'assistant' as const, content: responseText, createdAt: new Date() }];
+  await writeFile(HISTORY_FILE, JSON.stringify(updatedHistory));
+  invalidateHistoryCache();
+  scheduleSummary(updatedHistory, ctx.kConfig);
+  trackCost(ctx.aiProvider, ctx.resolvedModel || 'unknown', Math.ceil(responseText.length / 2.5), Math.ceil(responseText.length / 2.5)).catch(() => {});
+  return {
+    updatedHistory,
+    response: {
+      content: responseText,
+      reasoning: extra?.reasoning ?? undefined,
+      toolCalls: extra?.toolOutputs,
+      continueNeeded: false,
+      tokenUsage: { input: Math.ceil((ctx.systemPrompt + ctx.message).length / 2.5), output: Math.ceil(responseText.length / 2.5) },
+    },
+  };
+}
+
+function setSSEHeaders(res: Response) {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+}
+
+function sseWrite(res: Response, data: Record<string, unknown>) {
+  res.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
 export function registerRoutes(app: Application) {
   app.post("/api/chat", validateBody(ChatRequestSchema), async (req: Request, res: Response) => {
     incrementRequestCount();
@@ -237,37 +338,20 @@ export function registerRoutes(app: Application) {
         return parts;
       };
 
-      const ctxWindow = new ContextWindow({ maxTokens: 128000, tokenBuffer: 16000 });
-      for (const m of history.slice(-20)) {
-        const priority = m.role === 'user' && m.content.startsWith('/')
-          ? Priority.HIGH
-          : Priority.NORMAL;
-        ctxWindow.add(m.role, m.content, priority);
-      }
-      const visibleHistory = ctxWindow.getMessages();
+      const historyContents = await buildHistoryContents(history);
 
-      const historyLookup = new Map<string, HistoryEntry>();
-      for (const h of history) {
-        historyLookup.set(`${h.role}:${h.content}`, h);
-      }
-
-      const historyContents = visibleHistory.map((m) => {
-        const hEntry = historyLookup.get(`${m.role}:${m.content}`);
-        const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [{ text: m.content }];
-        if (hEntry?.images && Array.isArray(hEntry.images)) {
-          for (const img of hEntry.images) {
-            const match = typeof img === 'string' ? img.match(/^data:([^;]+);base64,(.+)$/) : null;
-            if (match && match[1] && match[2]) {
-              parts.push({ inlineData: { mimeType: match[1], data: match[2] } });
-            }
-          }
-        }
-        return { role: m.role, parts };
-      });
+      const ctx: ChatContext = {
+        systemPrompt, historyContents, history, buildParts, processedImages, message,
+        agent, mode, aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, kConfig: kConfig as ChatConfig,
+      };
 
       const acceptSSE = (req.headers.accept || "").includes("text/event-stream");
       const { multiModelEnabled, thinkingProvider, thinkingModel, thinkingLocalUrl } = config;
       const useDualModel = multiModelEnabled && thinkingProvider && thinkingModel;
+
+      // SSE cleanup on client disconnect
+      let clientDisconnected = false;
+      req.on('close', () => { clientDisconnected = true; });
 
       if (useDualModel) {
         const thinkPrompt = `Analyze the user's request and provide a detailed plan/analysis.`;
@@ -278,211 +362,94 @@ export function registerRoutes(app: Application) {
         const reasoning = thinkResponse.text;
 
         const finalPrompt = `${systemPrompt}\n\n[CONTEXT]\n${reasoning?.slice(0, 2000) || ""}\n\nNow respond to: ${message}`;
-
-        const dmTools = getOpenAITools();
         const dmUserContent: Content = { role: 'user', parts: buildParts(message, processedImages) };
         const dmContents: Content[] = [...historyContents, dmUserContent];
-        const MAX_DM_STEPS = 20;
-        let dmStep = 0;
 
-        let dmAiResponse = await generateAIResponse(finalPrompt, dmContents, aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, false, dmTools);
+        const result = await runToolLoop(finalPrompt, dmContents, ctx);
 
-        while (dmAiResponse.toolCalls && dmAiResponse.toolCalls.length > 0 && dmStep < MAX_DM_STEPS) {
-          dmStep++;
-          const toolResults = await executeToolCalls(dmAiResponse.toolCalls, mode, agent);
-          dmContents.push({
-            role: "assistant",
-            parts: [{ text: dmAiResponse.text || "" }],
-            _toolCalls: dmAiResponse.toolCalls.map((tc) => ({
-              id: tc.id, type: "function", function: { name: tc.name, arguments: JSON.stringify(tc.arguments) },
-            })),
-          });
-          for (const tr of toolResults) {
-            dmContents.push({ role: "tool", parts: [{ text: tr.content }], _toolCallId: tr.tool_call_id, _isToolResult: true });
-          }
-          dmAiResponse = await generateAIResponse(finalPrompt, dmContents, aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, false, dmTools);
-        }
-
-        const responseText = dmAiResponse.text;
+        if (clientDisconnected) return;
+        const userEntry = makeHistoryEntry(message, processedImages);
 
         if (acceptSSE) {
-          res.setHeader("Content-Type", "text/event-stream");
-          res.setHeader("Cache-Control", "no-cache");
-          res.setHeader("Connection", "keep-alive");
-          res.setHeader("X-Accel-Buffering", "no");
-          res.write(`data: ${JSON.stringify({ reasoning })}\n\n`);
-          if (dmStep > 0) res.write(`data: ${JSON.stringify({ toolSteps: dmStep })}\n\n`);
+          setSSEHeaders(res);
+          sseWrite(res, { reasoning });
+          if (result.steps > 0) sseWrite(res, { toolSteps: result.steps });
 
-          const finalStream = await generateStreamResponse(finalPrompt, dmContents, aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, {
-            onToken: (token: string) => { res.write(`data: ${JSON.stringify({ content: token })}\n\n`); },
+          const finalStream = await generateStreamResponse(finalPrompt, dmContents, ctx.aiProvider, ctx.localUrl, ctx.resolvedModel, ctx.resolvedApiKey, ctx.temperature, ctx.maxTokens, {
+            onToken: (token: string) => { if (!clientDisconnected) sseWrite(res, { content: token }); },
           });
-          const estIn = Math.ceil((finalPrompt + message).length / 4);
-          const estOut = Math.ceil((finalStream.text + (finalStream.reasoning || "")).length / 4);
-          res.write(`data: ${JSON.stringify({ done: true, continueNeeded: false, tokenUsage: { input: estIn, output: estOut } })}\n\n`);
-          res.end();
 
-          const histEntry: HistoryEntry = { role: 'user', content: message, createdAt: new Date() };
-          if (processedImages.length > 0) histEntry.images = processedImages.map(img => `data:${img.mimeType};base64,${img.base64}`);
-          await writeFile(HISTORY_FILE, JSON.stringify([...history, histEntry, { role: 'assistant' as const, content: finalStream.text, createdAt: new Date() }]));
-          invalidateHistoryCache();
-          scheduleSummary([...history, histEntry, { role: 'assistant' as const, content: finalStream.text, createdAt: new Date() }], kConfig as ChatConfig);
-          trackCost(aiProvider, resolvedModel || 'unknown', estIn, estOut).catch(() => {});
+          if (!clientDisconnected) {
+            sseWrite(res, { done: true, continueNeeded: false, tokenUsage: { input: Math.ceil((finalPrompt + message).length / 2.5), output: Math.ceil(finalStream.text.length / 2.5) } });
+            res.end();
+          }
+
+          await finalizeChat(history, userEntry, finalStream.text, ctx, {
+            ...(reasoning ? { reasoning } : {}),
+            steps: result.steps,
+          });
           return;
         }
 
-        const estIn = Math.ceil((finalPrompt + message).length / 4);
-        const estOut = Math.ceil(responseText.length / 4);
-        const histEntry: HistoryEntry = { role: 'user', content: message, createdAt: new Date() };
-        if (processedImages.length > 0) histEntry.images = processedImages.map(img => `data:${img.mimeType};base64,${img.base64}`);
-        await writeFile(HISTORY_FILE, JSON.stringify([...history, histEntry, { role: 'assistant' as const, content: responseText, createdAt: new Date() }]));
-        invalidateHistoryCache();
-        scheduleSummary([...history, histEntry, { role: 'assistant' as const, content: responseText, createdAt: new Date() }], kConfig as ChatConfig);
-        trackCost(aiProvider, resolvedModel || 'unknown', estIn, estOut).catch(() => {});
-        res.json({ content: responseText, reasoning: reasoning ?? undefined, continueNeeded: false, tokenUsage: { input: estIn, output: estOut } });
+        const finalized = await finalizeChat(history, userEntry, result.text, ctx, {
+          ...(reasoning ? { reasoning } : {}),
+          steps: result.steps,
+        });
+        res.json(finalized.response);
         return;
       }
+
+      const userContent: Content = { role: 'user', parts: buildParts(message, processedImages) };
+      const allContents: Content[] = [...historyContents, userContent];
+      const userEntry = makeHistoryEntry(message, processedImages);
 
       if (acceptSSE) {
-        res.setHeader("Content-Type", "text/event-stream");
-        res.setHeader("Cache-Control", "no-cache");
-        res.setHeader("Connection", "keep-alive");
-        res.setHeader("X-Accel-Buffering", "no");
+        setSSEHeaders(res);
 
-        const oaiToolsSSE = getOpenAITools();
-        const userContentSSE: Content = { role: 'user', parts: buildParts(message, processedImages) };
-        const sseContents: Content[] = [...historyContents, userContentSSE];
-
-        const MAX_SSE_STEPS = 20;
-        let sseStep = 0;
-        let sseAiResponse = await generateAIResponse(systemPrompt, sseContents, aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, false, oaiToolsSSE);
-
-        while (sseAiResponse.toolCalls && sseAiResponse.toolCalls.length > 0 && sseStep < MAX_SSE_STEPS) {
-          sseStep++;
-          res.write(`data: ${JSON.stringify({ toolCalls: sseAiResponse.toolCalls.map((tc) => ({ name: tc.name, args: tc.arguments })) })}\n\n`);
-
-          const toolResults = await executeToolCalls(sseAiResponse.toolCalls, mode, agent);
-
-          sseContents.push({
-            role: "assistant",
-            parts: [{ text: sseAiResponse.text || "" }],
-            _toolCalls: sseAiResponse.toolCalls.map((tc) => ({
-              id: tc.id,
-              type: "function",
-              function: { name: tc.name, arguments: JSON.stringify(tc.arguments) },
-            })),
-          });
-
-          for (const tr of toolResults) {
-            sseContents.push({
-              role: "tool",
-              parts: [{ text: tr.content }],
-              _toolCallId: tr.tool_call_id,
-              _isToolResult: true,
-            });
+        const toolOutputs: string[] = [];
+        const result = await runToolLoop(systemPrompt, allContents, ctx, (_step, response) => {
+          if (!clientDisconnected && response.toolCalls) {
+            sseWrite(res, { toolCalls: response.toolCalls.map((tc) => ({ name: tc.name, args: tc.arguments })) });
           }
-
-          sseAiResponse = await generateAIResponse(systemPrompt, sseContents, aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, false, oaiToolsSSE);
-          if (sseAiResponse.reasoning) {
-            res.write(`data: ${JSON.stringify({ reasoning: sseAiResponse.reasoning.slice(0, 500) })}\n\n`);
+          if (!clientDisconnected && response.reasoning) {
+            sseWrite(res, { reasoning: response.reasoning.slice(0, 500) });
           }
-        }
-
-        const finalStreamResponse = await generateStreamResponse(systemPrompt, sseContents, aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, {
-          onToken: (token: string) => {
-            res.write(`data: ${JSON.stringify({ content: token })}\n\n`);
-          },
         });
 
-        const estimatedInputTokens = Math.ceil((systemPrompt + message).length / 4);
-        const estimatedOutputTokens = Math.ceil((finalStreamResponse.text + (finalStreamResponse.reasoning || "")).length / 4);
+        if (clientDisconnected) return;
 
-        res.write(`data: ${JSON.stringify({
-          done: true,
-          continueNeeded: false,
-          tokenUsage: { input: estimatedInputTokens, output: estimatedOutputTokens }
-        })}\n\n`);
-        res.end();
+        const finalStreamResponse = await generateStreamResponse(systemPrompt, allContents, ctx.aiProvider, ctx.localUrl, ctx.resolvedModel, ctx.resolvedApiKey, ctx.temperature, ctx.maxTokens, {
+          onToken: (token: string) => { if (!clientDisconnected) sseWrite(res, { content: token }); },
+        });
 
-        const userHistoryEntry: HistoryEntry = { role: 'user', content: message, createdAt: new Date() };
-        if (processedImages.length > 0) {
-          userHistoryEntry.images = processedImages.map(img => `data:${img.mimeType};base64,${img.base64}`);
+        if (!clientDisconnected) {
+          sseWrite(res, { done: true, continueNeeded: false, tokenUsage: { input: Math.ceil((systemPrompt + message).length / 2.5), output: Math.ceil(finalStreamResponse.text.length / 2.5) } });
+          res.end();
         }
-        const updatedHistory: HistoryEntry[] = [...history, userHistoryEntry, { role: 'assistant' as const, content: finalStreamResponse.text, createdAt: new Date() }];
-        await writeFile(HISTORY_FILE, JSON.stringify(updatedHistory));
-        invalidateHistoryCache();
 
-        scheduleSummary(updatedHistory, kConfig as ChatConfig);
-
-        trackCost(aiProvider, resolvedModel || 'unknown', estimatedInputTokens, estimatedOutputTokens).catch(() => {});
+        await finalizeChat(history, userEntry, finalStreamResponse.text, ctx, {
+          steps: result.steps,
+          ...(toolOutputs.length > 0 ? { toolOutputs } : {}),
+        });
         return;
       }
 
-      const oaiTools = getOpenAITools();
-      const userContent: Content = { role: 'user', parts: buildParts(message, processedImages) };
-
-      const MAX_TOOL_STEPS = 20;
-      let step = 0;
-      let fullReasoning = "";
-      const allContents: Content[] = [...historyContents, userContent];
+      // Non-SSE JSON path
       const toolOutputs: string[] = [];
-
-      let aiResponse = await generateAIResponse(systemPrompt, allContents, aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, true, oaiTools);
-
-      while (aiResponse.toolCalls && aiResponse.toolCalls.length > 0 && step < MAX_TOOL_STEPS) {
-        step++;
-        const toolResults = await executeToolCalls(aiResponse.toolCalls, mode, agent);
-
-        allContents.push({
-          role: "assistant",
-          parts: [{ text: aiResponse.text || `Tool call: ${aiResponse.toolCalls.map((tc) => tc.name).join(", ")}` }],
-          _toolCalls: aiResponse.toolCalls.map((tc) => ({
-            id: tc.id,
-            type: "function",
-            function: { name: tc.name, arguments: JSON.stringify(tc.arguments) },
-          })),
-        });
-
-        for (const tr of toolResults) {
-          allContents.push({
-            role: "tool",
-            parts: [{ text: tr.content }],
-            _toolCallId: tr.tool_call_id,
-            _isToolResult: true,
-          });
-          toolOutputs.push(`[${tr.tool_call_id}]: ${tr.content.slice(0, 500)}`);
+      const result = await runToolLoop(systemPrompt, allContents, ctx, (_step, response) => {
+        if (response.toolCalls) {
+          for (const tc of response.toolCalls) {
+            toolOutputs.push(`[${tc.id}]: tool ${tc.name}`);
+          }
         }
-
-        if (aiResponse.reasoning && !fullReasoning) fullReasoning = aiResponse.reasoning;
-
-        aiResponse = await generateAIResponse(systemPrompt, allContents, aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, false, oaiTools);
-      }
-
-      const responseText = aiResponse.text || "";
-      const reasoning = fullReasoning || aiResponse.reasoning;
-
-      const estimatedInputTokens = Math.ceil((systemPrompt + message).length / 4);
-      const estimatedOutputTokens = Math.ceil(responseText.length / 4);
-
-      const userHistoryEntry: HistoryEntry = { role: 'user', content: message, createdAt: new Date() };
-      if (processedImages.length > 0) {
-        userHistoryEntry.images = processedImages.map(img => `data:${img.mimeType};base64,${img.base64}`);
-      }
-      const updatedHistory: HistoryEntry[] = [...history, userHistoryEntry, { role: 'assistant' as const, content: responseText, createdAt: new Date() }];
-      await writeFile(HISTORY_FILE, JSON.stringify(updatedHistory));
-      invalidateHistoryCache();
-
-      scheduleSummary(updatedHistory, kConfig as ChatConfig);
-
-      res.json({ 
-        content: responseText,
-        reasoning: reasoning ?? undefined,
-        toolCalls: step > 0 ? toolOutputs : undefined,
-        continueNeeded: false,
-        tokenUsage: { input: estimatedInputTokens, output: estimatedOutputTokens }
       });
 
-      // Track cost (fire-and-forget)
-      trackCost(aiProvider, resolvedModel || 'unknown', estimatedInputTokens, estimatedOutputTokens).catch(() => {});
+      const finalized = await finalizeChat(history, userEntry, result.text, ctx, {
+        ...(result.reasoning ? { reasoning: result.reasoning } : {}),
+        steps: result.steps,
+        ...(toolOutputs.length > 0 ? { toolOutputs } : {}),
+      });
+      res.json(finalized.response);
 
     } catch (error: unknown) {
       log.error("API Error", error instanceof Error ? error : undefined);

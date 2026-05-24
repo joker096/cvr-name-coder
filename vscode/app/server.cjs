@@ -404,6 +404,155 @@ var init_browserTools = __esm({
   }
 });
 
+// src/server/jsonFallbackDb.ts
+function createJsonFallbackDb(options) {
+  const { rows, saveFn } = options;
+  return {
+    prepare: (sql) => {
+      const trimmed = sql.trim().toLowerCase();
+      if (trimmed.startsWith("insert")) {
+        const columnMatch = trimmed.match(/insert into \w+\s*\(([^)]+)\)\s*values\s*\(([^)]+)\)/i);
+        const colNames = columnMatch?.[1]?.split(",").map((c) => c.trim()) ?? [];
+        return {
+          run: (...args) => {
+            const row = {};
+            colNames.forEach((col, i) => {
+              row[col] = args[i];
+            });
+            rows.push(row);
+            saveFn();
+            return { lastInsertRowid: rows.length, changes: 1 };
+          }
+        };
+      }
+      if (trimmed.startsWith("insert or replace")) {
+        const columnMatch = trimmed.match(/insert or replace into \w+\s*\(([^)]+)\)\s*values\s*\(([^)]+)\)/i);
+        const colNames = columnMatch?.[1]?.split(",").map((c) => c.trim()) ?? [];
+        return {
+          run: (...args) => {
+            const row = {};
+            colNames.forEach((col, i) => {
+              row[col] = args[i];
+            });
+            const keyCol = colNames[0];
+            const idx = rows.findIndex((r) => r[keyCol] === args[0]);
+            if (idx !== -1) rows[idx] = row;
+            else rows.push(row);
+            saveFn();
+            return { lastInsertRowid: rows.length, changes: 1 };
+          }
+        };
+      }
+      if (trimmed.startsWith("select") && trimmed.includes("where") && trimmed.includes("=")) {
+        const whereMatch = trimmed.match(/where\s+(\w+)\s*=\s*\?/);
+        const colName = whereMatch?.[1];
+        return {
+          get: (key) => rows.find((r) => r[colName] === key),
+          all: (...args) => {
+            if (args[0] !== void 0) return rows.filter((r) => r[colName] === args[0]);
+            return rows;
+          },
+          run: (...args) => {
+            if (args[0] !== void 0) {
+              const idx = rows.findIndex((r) => r[colName] === args[0]);
+              if (idx !== -1) rows.splice(idx, 1);
+              saveFn();
+            }
+            return { lastInsertRowid: 0, changes: 1 };
+          }
+        };
+      }
+      if (trimmed.startsWith("select") && trimmed.includes("order by")) {
+        const orderMatch = trimmed.match(/order by\s+(\w+)\s+(\w+)/i);
+        const orderCol = orderMatch?.[1];
+        const orderDir = orderMatch?.[2];
+        return {
+          all: () => {
+            const sorted = [...rows];
+            if (orderCol) {
+              sorted.sort((a, b) => {
+                const av = a[orderCol];
+                const bv = b[orderCol];
+                return orderDir === "desc" ? bv - av : av - bv;
+              });
+            }
+            return sorted;
+          },
+          run: () => ({ lastInsertRowid: 0, changes: 0 })
+        };
+      }
+      if (trimmed.startsWith("select") && !trimmed.includes("where")) {
+        return {
+          all: () => rows,
+          get: () => void 0,
+          run: () => ({ lastInsertRowid: 0, changes: 0 })
+        };
+      }
+      if (trimmed.startsWith("delete")) {
+        return {
+          run: () => {
+            rows.length = 0;
+            saveFn();
+            return { lastInsertRowid: 0, changes: 0 };
+          }
+        };
+      }
+      if (trimmed.startsWith("update") && trimmed.includes("where")) {
+        return {
+          run: (value, key) => {
+            const whereMatch = trimmed.match(/where\s+(\w+)\s*=\s*\?/);
+            const whereCol = whereMatch?.[1];
+            if (whereCol) {
+              const setMatch = trimmed.match(/set\s+(\w+)\s*=\s*\?/i);
+              const setCol = setMatch?.[1];
+              const row = rows.find((r) => r[whereCol] === key);
+              if (row && setCol) {
+                row[setCol] = value;
+                saveFn();
+              }
+            }
+            return { lastInsertRowid: 0, changes: 1 };
+          }
+        };
+      }
+      return {
+        run: () => ({ lastInsertRowid: 0, changes: 0 }),
+        get: () => void 0,
+        all: () => []
+      };
+    },
+    exec: () => {
+    },
+    pragma: () => {
+    }
+  };
+}
+function loadJsonData(jsonPath, fallback) {
+  try {
+    if (fs3.existsSync(jsonPath)) {
+      const raw = fs3.readFileSync(jsonPath, "utf-8");
+      return JSON.parse(raw);
+    }
+  } catch {
+  }
+  return fallback;
+}
+function saveJsonDataSync(jsonPath, data) {
+  try {
+    fs3.mkdirSync(path8.dirname(jsonPath), { recursive: true });
+    fs3.writeFileSync(jsonPath, JSON.stringify(data, null, 2));
+  } catch {
+  }
+}
+var path8, fs3;
+var init_jsonFallbackDb = __esm({
+  "src/server/jsonFallbackDb.ts"() {
+    "use strict";
+    path8 = __toESM(require("path"), 1);
+    fs3 = __toESM(require("fs"), 1);
+  }
+});
+
 // src/server/sessionStore.ts
 var sessionStore_exports = {};
 __export(sessionStore_exports, {
@@ -416,133 +565,30 @@ __export(sessionStore_exports, {
   searchSessions: () => searchSessions,
   setSessionDbPath: () => setSessionDbPath
 });
-function loadJson2() {
-  try {
-    if (fs3.existsSync(_jsonPath2)) {
-      const raw = fs3.readFileSync(_jsonPath2, "utf-8");
-      const data = JSON.parse(raw);
-      _sessions = data.sessions || [];
-      _messages = data.messages || [];
-    }
-  } catch {
-  }
+function loadFallback() {
+  _jsonPath2 = _dbPath2.replace(/\.db$/, "") + "-fallback.json";
+  const data = loadJsonData(_jsonPath2, { sessions: [], messages: [] });
+  _sessions = data.sessions || [];
+  _messages = data.messages || [];
 }
-function saveJson2() {
-  try {
-    fs3.mkdirSync(path8.dirname(_jsonPath2), { recursive: true });
-    const data = { sessions: _sessions, messages: _messages };
-    fs3.writeFileSync(_jsonPath2, JSON.stringify(data, null, 2));
-  } catch {
-  }
+function saveFallback() {
+  saveJsonDataSync(_jsonPath2, { sessions: _sessions, messages: _messages });
 }
 function fallbackGetDb2() {
-  if (!_jsonPath2) {
-    _jsonPath2 = path8.join(_dbPath2.replace(/\.db$/, "") + "-fallback.json");
-    loadJson2();
-  }
-  return {
-    prepare: (sql) => {
-      const trimmed = sql.trim().toLowerCase();
-      if (trimmed.startsWith("insert into sessions")) {
-        const stmt2 = {
-          run: (...args) => {
-            const id = args[0];
-            const title = args[1];
-            const createdAt = args[2];
-            const updatedAt = args[3];
-            _sessions.push({ id, title, createdAt, updatedAt });
-            saveJson2();
-            return { lastInsertRowid: _sessions.length, changes: 1 };
-          }
-        };
-        return stmt2;
-      }
-      if (trimmed.startsWith("insert into messages")) {
-        const stmt2 = {
-          run: (...args) => {
-            const id = args[0];
-            const sessionId = args[1];
-            const role = args[2];
-            const content = args[3];
-            const createdAt = args[4];
-            _messages.push({ id, sessionId, role, content, createdAt });
-            saveJson2();
-            return { lastInsertRowid: _messages.length, changes: 1 };
-          }
-        };
-        return stmt2;
-      }
-      if (trimmed.startsWith("insert into messages_fts")) {
-        const stmt2 = {
-          run: () => ({ lastInsertRowid: 0, changes: 0 })
-        };
-        return stmt2;
-      }
-      if (trimmed.startsWith("select") && trimmed.includes("from sessions where id =")) {
-        const stmt2 = {
-          get: (id) => _sessions.find((s) => s.id === id) || void 0
-        };
-        return stmt2;
-      }
-      if (trimmed.startsWith("select") && trimmed.includes("from messages where session_id =")) {
-        const stmt2 = {
-          all: (sessionId) => _messages.filter((m) => m.sessionId === sessionId)
-        };
-        return stmt2;
-      }
-      if (trimmed.startsWith("select") && trimmed.includes("from sessions order by updated_at desc")) {
-        const stmt2 = {
-          all: () => [..._sessions].sort((a, b) => b.updatedAt - a.updatedAt)
-        };
-        return stmt2;
-      }
-      if (trimmed.startsWith("update sessions set updated_at")) {
-        const stmt2 = {
-          run: (updatedAt, id) => {
-            const s = _sessions.find((s2) => s2.id === id);
-            if (s) s.updatedAt = updatedAt;
-            saveJson2();
-            return { lastInsertRowid: 0, changes: 1 };
-          }
-        };
-        return stmt2;
-      }
-      if (trimmed.startsWith("delete from sessions where id =")) {
-        const stmt2 = {
-          run: (id) => {
-            _sessions = _sessions.filter((s) => s.id !== id);
-            _messages = _messages.filter((m) => m.sessionId !== id);
-            saveJson2();
-            return { lastInsertRowid: 0, changes: 1 };
-          }
-        };
-        return stmt2;
-      }
-      if (trimmed.startsWith("select name from sqlite_master")) {
-        const stmt2 = {
-          get: () => void 0
-        };
-        return stmt2;
-      }
-      const stmt = {
-        run: () => ({ lastInsertRowid: 0, changes: 0 }),
-        get: () => void 0,
-        all: () => []
-      };
-      return stmt;
-    },
-    exec: () => {
-    },
-    pragma: () => {
+  if (!_jsonPath2) loadFallback();
+  return createJsonFallbackDb({
+    dbPath: _dbPath2,
+    rows: [],
+    saveFn: () => {
     }
-  };
+  });
 }
 function setSessionDbPath(dir) {
-  _dbPath2 = path8.join(dir, "sessions.db");
+  _dbPath2 = path9.join(dir, "sessions.db");
   _db2 = null;
   if (_useFallback2) {
-    _jsonPath2 = path8.join(dir, "sessions-fallback.json");
-    loadJson2();
+    _jsonPath2 = path9.join(dir, "sessions-fallback.json");
+    loadFallback();
   }
 }
 function getDb2() {
@@ -598,28 +644,42 @@ function createSession(title) {
   const id = (0, import_crypto2.randomUUID)();
   const now = Date.now();
   const session = { id, title, createdAt: now, updatedAt: now };
+  if (_useFallback2) {
+    _sessions.push(session);
+    saveFallback();
+    return session;
+  }
   db.prepare("INSERT INTO sessions (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)").run(id, title, now, now);
-  if (_useFallback2) saveJson2();
   return session;
 }
 function addMessage(sessionId, role, content) {
   const db = getDb2();
   const id = (0, import_crypto2.randomUUID)();
   const now = Date.now();
-  const insertResult = db.prepare("INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)").run(id, sessionId, role, content, now);
-  if (!_useFallback2) {
-    db.prepare("INSERT INTO messages_fts (rowid, content, session_id) VALUES (?, ?, ?)").run(
-      insertResult.lastInsertRowid,
-      content,
-      sessionId
-    );
+  if (_useFallback2) {
+    _messages.push({ id, sessionId, role, content, createdAt: now });
+    const s = _sessions.find((s2) => s2.id === sessionId);
+    if (s) s.updatedAt = now;
+    saveFallback();
+    return { id, sessionId, role, content, createdAt: now };
   }
+  const insertResult = db.prepare("INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)").run(id, sessionId, role, content, now);
+  db.prepare("INSERT INTO messages_fts (rowid, content, session_id) VALUES (?, ?, ?)").run(
+    insertResult.lastInsertRowid,
+    content,
+    sessionId
+  );
   db.prepare("UPDATE sessions SET updated_at = ? WHERE id = ?").run(now, sessionId);
-  if (_useFallback2) saveJson2();
   return { id, sessionId, role, content, createdAt: now };
 }
 function getSession(sessionId) {
   const db = getDb2();
+  if (_useFallback2) {
+    const session2 = _sessions.find((s) => s.id === sessionId);
+    if (!session2) return null;
+    const msgs = _messages.filter((m) => m.sessionId === sessionId).sort((a, b) => a.createdAt - b.createdAt);
+    return { session: session2, messages: msgs };
+  }
   const session = db.prepare("SELECT id, title, created_at, updated_at FROM sessions WHERE id = ?").get(sessionId);
   if (!session) return null;
   const rows = db.prepare("SELECT id, session_id, role, content, created_at FROM messages WHERE session_id = ? ORDER BY created_at ASC").all(sessionId);
@@ -641,6 +701,9 @@ function getSession(sessionId) {
 }
 function listSessions() {
   const db = getDb2();
+  if (_useFallback2) {
+    return [..._sessions].sort((a, b) => b.updatedAt - a.updatedAt);
+  }
   const rows = db.prepare("SELECT id, title, created_at, updated_at FROM sessions ORDER BY updated_at DESC").all();
   return rows.map((r) => ({
     id: r.id,
@@ -677,7 +740,6 @@ function searchSessions(query, limit = 20) {
     SELECT
       m.session_id AS sessionId,
       s.title AS sessionTitle,
-      m.rowid AS messageRowId,
       msg.id AS messageId,
       msg.role AS role,
       msg.created_at AS createdAt,
@@ -704,24 +766,24 @@ function deleteSession(sessionId) {
   if (_useFallback2) {
     _sessions = _sessions.filter((s) => s.id !== sessionId);
     _messages = _messages.filter((m) => m.sessionId !== sessionId);
-    saveJson2();
+    saveFallback();
     return;
   }
-  db.prepare("DELETE FROM sessions WHERE id = ?").run(sessionId);
   const messageRowids = db.prepare("SELECT rowid FROM messages WHERE session_id = ?").all(sessionId);
   for (const { rowid } of messageRowids) {
     db.prepare("DELETE FROM messages_fts WHERE rowid = ?").run(rowid);
   }
   db.prepare("DELETE FROM messages WHERE session_id = ?").run(sessionId);
+  db.prepare("DELETE FROM sessions WHERE id = ?").run(sessionId);
 }
-var path8, import_crypto2, fs3, _dbPath2, _db2, _useFallback2, _sessions, _messages, _jsonPath2;
+var path9, import_crypto2, _dbPath2, _db2, _useFallback2, _sessions, _messages, _jsonPath2;
 var init_sessionStore = __esm({
   "src/server/sessionStore.ts"() {
     "use strict";
-    path8 = __toESM(require("path"), 1);
+    path9 = __toESM(require("path"), 1);
     import_crypto2 = require("crypto");
-    fs3 = __toESM(require("fs"), 1);
-    _dbPath2 = path8.resolve(process.cwd(), ".opencode-infinite", "sessions.db");
+    init_jsonFallbackDb();
+    _dbPath2 = path9.resolve(process.cwd(), ".opencode-infinite", "sessions.db");
     _db2 = null;
     _useFallback2 = false;
     _sessions = [];
@@ -791,7 +853,7 @@ async function loadSharedStore() {
   }
 }
 async function saveSharedStore() {
-  await (0, import_promises14.mkdir)(path18.dirname(STORAGE_FILE), { recursive: true });
+  await (0, import_promises14.mkdir)(path19.dirname(STORAGE_FILE), { recursive: true });
   const items2 = Array.from(sharedStore.values());
   await (0, import_promises14.writeFile)(STORAGE_FILE, JSON.stringify(items2, null, 2), "utf-8");
 }
@@ -933,26 +995,26 @@ function closeP2PSync() {
 function isP2PActive() {
   return wss !== null;
 }
-var import_ws, import_crypto6, import_promises14, path18, wss, p2pConfig, peers, peerInfo, sharedStore, STORAGE_FILE;
+var import_ws, import_crypto6, import_promises14, path19, wss, p2pConfig, peers, peerInfo, sharedStore, STORAGE_FILE;
 var init_p2pSync = __esm({
   "src/server/p2pSync.ts"() {
     "use strict";
     import_ws = require("ws");
     import_crypto6 = require("crypto");
     import_promises14 = require("fs/promises");
-    path18 = __toESM(require("path"), 1);
+    path19 = __toESM(require("path"), 1);
     wss = null;
     p2pConfig = null;
     peers = /* @__PURE__ */ new Map();
     peerInfo = /* @__PURE__ */ new Map();
     sharedStore = /* @__PURE__ */ new Map();
-    STORAGE_FILE = path18.join(process.cwd(), ".opencode-infinite", "p2p-store.json");
+    STORAGE_FILE = path19.join(process.cwd(), ".opencode-infinite", "p2p-store.json");
   }
 });
 
 // server.ts
 var import_express = __toESM(require("express"), 1);
-var path23 = __toESM(require("path"), 1);
+var path24 = __toESM(require("path"), 1);
 var import_fs2 = require("fs");
 var import_vite = require("vite");
 var import_dotenv = __toESM(require("dotenv"), 1);
@@ -1757,8 +1819,8 @@ async function addComment(issueKey, body) {
       throw new Error(`Unknown tracker: ${trackerConfig.type}`);
   }
 }
-async function githubRequest(path24, method = "GET", body) {
-  const url = path24.startsWith("http") ? path24 : `https://api.github.com${path24}`;
+async function githubRequest(path25, method = "GET", body) {
+  const url = path25.startsWith("http") ? path25 : `https://api.github.com${path25}`;
   const res = await fetch(url, {
     method,
     headers: {
@@ -1821,9 +1883,9 @@ async function getGitHubIssue(number) {
     updatedAt: i.updated_at
   };
 }
-async function jiraRequest(path24, method = "GET", body) {
+async function jiraRequest(path25, method = "GET", body) {
   const base = trackerConfig.baseUrl.replace(/\/$/, "");
-  const res = await fetch(`${base}/rest/api/3${path24}`, {
+  const res = await fetch(`${base}/rest/api/3${path25}`, {
     method,
     headers: {
       Authorization: `Basic ${Buffer.from(`${trackerConfig.token}:`).toString("base64")}`,
@@ -3512,6 +3574,65 @@ function rgbToHex(r, g, b) {
 }
 
 // src/server/tools.ts
+var TOOL_REGISTRY = {
+  read_file: executeReadFile,
+  list_directory: executeListDirectory,
+  search_files: executeSearchFiles,
+  write_file: (p, s) => executeWriteFile(p, s || ""),
+  edit_file: (p, s) => executeEditFile(p, s || ""),
+  execute_command: executeCommand,
+  memory_read: executeMemoryRead,
+  memory_write: executeMemoryWrite,
+  skill_list: executeSkillList,
+  skill_read: executeSkillRead,
+  skill_run: executeSkillRun,
+  rag_search: executeRagSearch,
+  git_status: executeGitStatus,
+  git_diff: executeGitDiff,
+  git_commit: executeGitCommit,
+  git_push: executeGitPush,
+  git_log: executeGitLog,
+  git_branch: executeGitBranch,
+  git_branches: executeGitBranches,
+  git_switch_branch: executeGitSwitchBranch,
+  git_pr_context: executeGitPRContext,
+  git_list_prs: executeGitListPRs,
+  git_create_pr: executeGitCreatePR,
+  browser_navigate: (p, s) => executeBrowserNavigate(p, s || ""),
+  browser_click: (p, s) => executeBrowserClick(p, s || ""),
+  browser_type: (p, s) => executeBrowserType(p, s || ""),
+  browser_screenshot: (p, s) => executeBrowserScreenshot(p, s || ""),
+  browser_evaluate: (p, s) => executeBrowserEvaluate(p, s || ""),
+  browser_get_html: (p, s) => executeBrowserGetHtml(p, s || ""),
+  browser_close: (_p, s) => executeBrowserClose(s || ""),
+  design_list: executeDesignList,
+  design_apply: executeDesignApply,
+  design_preview: executeDesignPreview,
+  issue_create: async (params) => {
+    const issue = await createIssue({
+      title: String(params.title),
+      ...params.description !== void 0 ? { description: String(params.description) } : {},
+      ...params.priority !== void 0 ? { priority: String(params.priority) } : {},
+      ...params.labels !== void 0 ? { labels: Array.isArray(params.labels) ? params.labels : [params.labels] } : {}
+    });
+    return { success: true, output: JSON.stringify(issue, null, 2) };
+  },
+  issue_list: async (params) => ({
+    success: true,
+    output: JSON.stringify(await listIssues(
+      params.status,
+      typeof params.limit === "number" ? params.limit : 20
+    ), null, 2)
+  }),
+  issue_view: async (params) => ({
+    success: true,
+    output: JSON.stringify(await getIssue(params.key), null, 2)
+  }),
+  issue_comment: async (params) => {
+    await addComment(params.key, params.body);
+    return { success: true, output: `Comment added to ${params.key}` };
+  }
+};
 async function executeTool(toolCall, mode = "build", permissionEngine2, sessionId = "default") {
   const { name, params } = toolCall;
   await hookRegistry.execute("tool.before", { tool: name, params }, sessionId);
@@ -3564,140 +3685,16 @@ async function executeTool(toolCall, mode = "build", permissionEngine2, sessionI
     }
   }
   try {
-    switch (name) {
-      case "read_file":
-        result = await executeReadFile(params);
-        break;
-      case "list_directory":
-        result = await executeListDirectory(params);
-        break;
-      case "search_files":
-        result = await executeSearchFiles(params);
-        break;
-      case "write_file":
-        result = await executeWriteFile(params, sessionId);
-        break;
-      case "edit_file":
-        result = await executeEditFile(params, sessionId);
-        break;
-      case "execute_command":
-        result = await executeCommand(params);
-        break;
-      case "memory_read":
-        result = await executeMemoryRead(params);
-        break;
-      case "memory_write":
-        result = await executeMemoryWrite(params);
-        break;
-      case "skill_list":
-        result = await executeSkillList();
-        break;
-      case "skill_read":
-        result = await executeSkillRead(params);
-        break;
-      case "skill_run":
-        result = await executeSkillRun(params);
-        break;
-      case "rag_search":
-        result = await executeRagSearch(params);
-        break;
-      case "git_status":
-        result = await executeGitStatus();
-        break;
-      case "git_diff":
-        result = await executeGitDiff(params);
-        break;
-      case "git_commit":
-        result = await executeGitCommit(params);
-        break;
-      case "git_push":
-        result = await executeGitPush();
-        break;
-      case "git_log":
-        result = await executeGitLog(params);
-        break;
-      case "git_branch":
-        result = await executeGitBranch(params);
-        break;
-      case "git_branches":
-        result = await executeGitBranches();
-        break;
-      case "git_switch_branch":
-        result = await executeGitSwitchBranch(params);
-        break;
-      case "git_pr_context":
-        result = await executeGitPRContext();
-        break;
-      case "git_list_prs":
-        result = await executeGitListPRs();
-        break;
-      case "git_create_pr":
-        result = await executeGitCreatePR(params);
-        break;
-      case "issue_create": {
-        const issueInput = {
-          title: String(params.title),
-          ...params.description !== void 0 ? { description: String(params.description) } : {},
-          ...params.priority !== void 0 ? { priority: String(params.priority) } : {},
-          ...params.labels !== void 0 ? { labels: Array.isArray(params.labels) ? params.labels : [params.labels] } : {}
-        };
-        const issue = await createIssue(issueInput);
-        result = { success: true, output: JSON.stringify(issue, null, 2) };
-        break;
-      }
-      case "issue_list":
-        result = { success: true, output: JSON.stringify(await listIssues(
-          params.status,
-          typeof params.limit === "number" ? params.limit : 20
-        ), null, 2) };
-        break;
-      case "issue_view":
-        result = { success: true, output: JSON.stringify(await getIssue(params.key), null, 2) };
-        break;
-      case "issue_comment": {
-        await addComment(params.key, params.body);
-        result = { success: true, output: `Comment added to ${params.key}` };
-        break;
-      }
-      case "browser_navigate":
-        result = await executeBrowserNavigate(params, sessionId);
-        break;
-      case "browser_click":
-        result = await executeBrowserClick(params, sessionId);
-        break;
-      case "browser_type":
-        result = await executeBrowserType(params, sessionId);
-        break;
-      case "browser_screenshot":
-        result = await executeBrowserScreenshot(params, sessionId);
-        break;
-      case "browser_evaluate":
-        result = await executeBrowserEvaluate(params, sessionId);
-        break;
-      case "browser_get_html":
-        result = await executeBrowserGetHtml(params, sessionId);
-        break;
-      case "browser_close":
-        result = await executeBrowserClose(sessionId);
-        break;
-      case "design_list":
-        result = await executeDesignList(params);
-        break;
-      case "design_apply":
-        result = await executeDesignApply(params);
-        break;
-      case "design_preview":
-        result = await executeDesignPreview(params);
-        break;
-      default: {
-        const customTools = await loadCustomTools();
-        const customTool = customTools.find((t) => t.id === name);
-        if (customTool) {
-          result = await executeCustomTool(customTool, params);
-        } else {
-          result = { success: false, output: "", error: `Unknown tool: ${name}` };
-        }
-        break;
+    const executor = TOOL_REGISTRY[name];
+    if (executor) {
+      result = await executor(params, sessionId);
+    } else {
+      const customTools = await loadCustomTools();
+      const customTool = customTools.find((t) => t.id === name);
+      if (customTool) {
+        result = await executeCustomTool(customTool, params);
+      } else {
+        result = { success: false, output: "", error: `Unknown tool: ${name}` };
       }
     }
   } catch (err) {
@@ -3779,9 +3776,9 @@ init_sessionStore();
 
 // src/server/skillCreator.ts
 var import_promises6 = require("fs/promises");
-var path9 = __toESM(require("path"), 1);
+var path10 = __toESM(require("path"), 1);
 init_errors();
-var _skillsDir2 = path9.resolve(process.cwd(), ".cvr", "skills");
+var _skillsDir2 = path10.resolve(process.cwd(), ".cvr", "skills");
 function setSkillCreatorDir(dir) {
   _skillsDir2 = dir;
 }
@@ -3811,7 +3808,7 @@ triggers: ${JSON.stringify(triggers)}
 ---
 
 ${content}`;
-  const filePath = path9.join(_skillsDir2, `${id}.md`);
+  const filePath = path10.join(_skillsDir2, `${id}.md`);
   try {
     await (0, import_promises6.mkdir)(_skillsDir2, { recursive: true });
     await (0, import_promises6.writeFile)(filePath, frontmatter, "utf-8");
@@ -3905,93 +3902,36 @@ async function listGoalStates() {
 
 // src/server/cache.ts
 var import_crypto3 = require("crypto");
-var path10 = __toESM(require("path"), 1);
-var fs4 = __toESM(require("fs"), 1);
+var path11 = __toESM(require("path"), 1);
 init_logger();
-var _dbPath3 = path10.resolve(process.cwd(), ".opencode-infinite", "cache.db");
+init_jsonFallbackDb();
+var _dbPath3 = path11.resolve(process.cwd(), ".opencode-infinite", "cache.db");
 var _db3 = null;
 var _useFallback3 = false;
-var _jsonEntries = [];
+var _jsonRows = [];
 var _jsonPath3 = "";
-function loadJson3() {
-  try {
-    if (fs4.existsSync(_jsonPath3)) {
-      const raw = fs4.readFileSync(_jsonPath3, "utf-8");
-      _jsonEntries = JSON.parse(raw);
-    }
-  } catch {
-  }
+function loadFallback2() {
+  _jsonPath3 = _dbPath3.replace(/\.db$/, "") + "-fallback.json";
+  _jsonRows = loadJsonData(_jsonPath3, []);
 }
-function saveJson3() {
-  try {
-    fs4.mkdirSync(path10.dirname(_jsonPath3), { recursive: true });
-    fs4.writeFileSync(_jsonPath3, JSON.stringify(_jsonEntries, null, 2));
-  } catch {
-  }
+function saveFallback2() {
+  saveJsonDataSync(_jsonPath3, _jsonRows);
 }
 function fallbackGetDb3() {
-  if (!_jsonPath3) {
-    _jsonPath3 = _dbPath3.replace(/\.db$/, "") + "-fallback.json";
-    loadJson3();
-  }
-  return {
-    prepare: (sql) => {
-      const trimmed = sql.trim().toLowerCase();
-      if (trimmed.startsWith("insert into cache_entries")) {
-        return {
-          run: (key, value, timestamp, ttl, hits) => {
-            const idx = _jsonEntries.findIndex((e) => e.key === String(key));
-            if (idx !== -1) _jsonEntries.splice(idx, 1);
-            _jsonEntries.push({
-              key: String(key),
-              value: String(value),
-              timestamp: Number(timestamp),
-              ttl: Number(ttl),
-              hits: Number(hits)
-            });
-            saveJson3();
-            return { lastInsertRowid: _jsonEntries.length, changes: 1 };
-          }
-        };
-      }
-      if (trimmed.startsWith("select * from cache_entries where key =")) {
-        return {
-          get: (key) => _jsonEntries.find((e) => e.key === String(key))
-        };
-      }
-      if (trimmed.startsWith("select * from cache_entries")) {
-        return {
-          all: () => _jsonEntries
-        };
-      }
-      if (trimmed.startsWith("delete from cache_entries")) {
-        return {
-          run: () => {
-            _jsonEntries = [];
-            saveJson3();
-            return { lastInsertRowid: 0, changes: 0 };
-          }
-        };
-      }
-      return {
-        run: () => ({ lastInsertRowid: 0, changes: 0 }),
-        get: () => void 0,
-        all: () => []
-      };
-    },
-    exec: () => {
-    },
-    pragma: () => {
-    }
-  };
+  if (!_jsonPath3) loadFallback2();
+  return createJsonFallbackDb({
+    dbPath: _dbPath3,
+    rows: _jsonRows,
+    saveFn: saveFallback2
+  });
 }
 function setCacheDbPath(dir) {
-  _dbPath3 = path10.join(dir, "cache.db");
+  _dbPath3 = path11.join(dir, "cache.db");
   _db3 = null;
-  _jsonEntries = [];
+  _jsonRows = [];
   if (_useFallback3) {
     _jsonPath3 = _dbPath3.replace(/\.db$/, "") + "-fallback.json";
-    loadJson3();
+    loadFallback2();
   }
 }
 function getDb3() {
@@ -4031,11 +3971,6 @@ var AIResponseCache = class {
   _warmed = false;
   _pendingRequests = /* @__PURE__ */ new Map();
   _pruneInterval = null;
-  /**
-   * Creates a new AIResponseCache with background pruning.
-   * @param defaultTTL - Default time-to-live in milliseconds (default: 300000)
-   * @param maxSize - Maximum number of in-memory entries (default: 500)
-   */
   constructor(defaultTTL = 3e5, maxSize = 500) {
     this.defaultTTL = defaultTTL;
     this.maxSize = maxSize;
@@ -4077,15 +4012,6 @@ var AIResponseCache = class {
     } catch {
     }
   }
-  /**
-   * Retrieves a cached response by key components. Checks in-memory cache first,
-   * falls back to persistent storage. Returns null on miss or expired entry.
-   * @param prompt - User prompt text
-   * @param contents - Conversation contents array
-   * @param provider - AI provider name
-   * @param model - Optional model name
-   * @returns Cached response string or null
-   */
   get(prompt, contents, provider, model) {
     this.warmFromDb();
     const key = this.hashKey(prompt, contents, provider, model);
@@ -4116,15 +4042,6 @@ var AIResponseCache = class {
     this.stats.hits++;
     return entry.value;
   }
-  /**
-   * Stores a response in the cache (in-memory and persistent).
-   * @param prompt - User prompt text
-   * @param contents - Conversation contents array
-   * @param provider - AI provider name
-   * @param response - AI response string to cache
-   * @param model - Optional model name
-   * @param ttl - Optional TTL override in milliseconds
-   */
   set(prompt, contents, provider, response, model, ttl) {
     this.warmFromDb();
     if (this.cache.size >= this.maxSize) {
@@ -4141,16 +4058,6 @@ var AIResponseCache = class {
     this._keys.push(key);
     this.saveToDb(key, entry);
   }
-  /**
-   * Request coalescing: returns existing cached value, waits on in-flight
-   * request for the same key, or invokes the factory to produce a result.
-   * @param prompt - User prompt text
-   * @param contents - Conversation contents array
-   * @param provider - AI provider name
-   * @param model - Optional model name
-   * @param factory - Async function that produces the response when cache misses
-   * @returns Promise resolving to the cached or freshly computed response
-   */
   coalesce(prompt, contents, provider, model, factory) {
     const key = this.hashKey(prompt, contents, provider, model);
     const cached = this.get(prompt, contents, provider, model);
@@ -4193,7 +4100,6 @@ var AIResponseCache = class {
       db.prepare(
         "INSERT OR REPLACE INTO cache_entries (key, value, timestamp, ttl, hits) VALUES (?, ?, ?, ?, ?)"
       ).run(key, entry.value, entry.timestamp, entry.ttl, entry.hits);
-      if (_useFallback3) saveJson3();
     } catch {
     }
   }
@@ -4201,10 +4107,6 @@ var AIResponseCache = class {
     try {
       const db = getDb3();
       db.prepare("DELETE FROM cache_entries WHERE key = ?").run(key);
-      if (_useFallback3) {
-        _jsonEntries = _jsonEntries.filter((e) => e.key !== key);
-        saveJson3();
-      }
     } catch {
     }
   }
@@ -4222,9 +4124,6 @@ var AIResponseCache = class {
       this._keys = this._keys.filter((k) => k !== oldest);
     }
   }
-  /**
-   * Clears all in-memory and persistent cache entries and resets statistics.
-   */
   clear() {
     this.cache.clear();
     this._keys = [];
@@ -4233,18 +4132,10 @@ var AIResponseCache = class {
     try {
       const db = getDb3();
       db.prepare("DELETE FROM cache_entries").run();
-      if (_useFallback3) {
-        _jsonEntries = [];
-        saveJson3();
-      }
     } catch {
     }
     log.info("Cache cleared");
   }
-  /**
-   * Returns aggregated cache performance metrics.
-   * @returns CacheStats with hits, misses, size, and hitRate
-   */
   getStats() {
     return {
       hits: this.stats.hits,
@@ -4253,10 +4144,6 @@ var AIResponseCache = class {
       hitRate: this.stats.hits + this.stats.misses > 0 ? this.stats.hits / (this.stats.hits + this.stats.misses) : 0
     };
   }
-  /**
-   * Removes all expired entries from both in-memory and persistent storage.
-   * @returns Total number of entries pruned
-   */
   prune() {
     const now = Date.now();
     let pruned = 0;
@@ -4274,7 +4161,6 @@ var AIResponseCache = class {
       const dbPruned = result.changes;
       if (dbPruned > 0) {
         pruned += dbPruned;
-        if (_useFallback3) saveJson3();
       }
     } catch {
     }
@@ -4283,9 +4169,6 @@ var AIResponseCache = class {
     }
     return pruned;
   }
-  /**
-   * Stops background pruning interval. Call before discarding the cache instance.
-   */
   dispose() {
     if (this._pruneInterval) {
       clearInterval(this._pruneInterval);
@@ -4296,8 +4179,8 @@ var AIResponseCache = class {
 var aiCache = new AIResponseCache();
 
 // src/server/projectOracle.ts
-var fs5 = __toESM(require("fs"), 1);
-var path11 = __toESM(require("path"), 1);
+var fs4 = __toESM(require("fs"), 1);
+var path12 = __toESM(require("path"), 1);
 init_logger();
 var MAX_FILE_SIZE = 100 * 1024;
 var ORACLE_SOURCE_PREFIX = "oracle:";
@@ -4387,10 +4270,10 @@ async function indexProject(rootDir, embedFn) {
 function getAllOracleDirs(root) {
   const dirs = [root];
   try {
-    const entries = fs5.readdirSync(root, { withFileTypes: true });
+    const entries = fs4.readdirSync(root, { withFileTypes: true });
     for (const entry of entries) {
       if (entry.isDirectory() && !SKIP_DIRS.has(entry.name) && !entry.name.startsWith(".")) {
-        const fullPath = path11.join(root, entry.name);
+        const fullPath = path12.join(root, entry.name);
         dirs.push(...getAllOracleDirs(fullPath));
       }
     }
@@ -4401,20 +4284,20 @@ function getAllOracleDirs(root) {
 async function indexDirectory(dir, rootDir, embedFn) {
   let count = 0;
   try {
-    const entries = fs5.readdirSync(dir, { withFileTypes: true });
+    const entries = fs4.readdirSync(dir, { withFileTypes: true });
     for (const entry of entries) {
       if (!entry.isFile()) continue;
-      const ext = path11.extname(entry.name).toLowerCase();
+      const ext = path12.extname(entry.name).toLowerCase();
       const baseName = entry.name.toLowerCase();
       const isText = TEXT_EXTENSIONS.has(ext) || baseName === "dockerfile" || baseName === "makefile";
       if (!isText) continue;
-      const filePath = path11.join(dir, entry.name);
+      const filePath = path12.join(dir, entry.name);
       try {
-        const stat5 = fs5.statSync(filePath);
+        const stat5 = fs4.statSync(filePath);
         if (stat5.size > MAX_FILE_SIZE) continue;
-        const content = fs5.readFileSync(filePath, "utf-8");
+        const content = fs4.readFileSync(filePath, "utf-8");
         if (!content.trim()) continue;
-        const relativePath = path11.relative(rootDir, filePath).replace(/\\/g, "/");
+        const relativePath = path12.relative(rootDir, filePath).replace(/\\/g, "/");
         const source = ORACLE_SOURCE_PREFIX + relativePath;
         await ingestDocument(source, content, embedFn);
         count++;
@@ -4428,8 +4311,8 @@ async function indexDirectory(dir, rootDir, embedFn) {
 
 // src/server/instructionLoader.ts
 var import_promises8 = require("fs/promises");
-var path12 = __toESM(require("path"), 1);
-var RULES_DIR = path12.resolve(process.cwd(), ".cvr", "rules");
+var path13 = __toESM(require("path"), 1);
+var RULES_DIR = path13.resolve(process.cwd(), ".cvr", "rules");
 var _rulesDir = RULES_DIR;
 function setRulesDir(dir) {
   _rulesDir = dir;
@@ -4444,7 +4327,7 @@ async function loadInstructions() {
   const files = [];
   for (const entry of entries) {
     if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
-    const filePath = path12.join(_rulesDir, entry.name);
+    const filePath = path13.join(_rulesDir, entry.name);
     const raw = await (0, import_promises8.readFile)(filePath, "utf-8");
     let priority = 0;
     const frontmatterMatch = raw.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
@@ -4479,12 +4362,12 @@ async function saveInstruction(name, content, priority = 0) {
 priority: ${priority}
 ---
 `;
-  const filePath = path12.join(_rulesDir, `${name}.md`);
+  const filePath = path13.join(_rulesDir, `${name}.md`);
   await (0, import_promises8.writeFile)(filePath, frontmatter + content, "utf-8");
 }
 async function deleteInstruction(name) {
   try {
-    const filePath = path12.join(_rulesDir, `${name}.md`);
+    const filePath = path13.join(_rulesDir, `${name}.md`);
     await (0, import_promises8.unlink)(filePath);
   } catch {
   }
@@ -4492,9 +4375,9 @@ async function deleteInstruction(name) {
 
 // src/server/pluginManager.ts
 var import_promises9 = require("fs/promises");
-var path13 = __toESM(require("path"), 1);
+var path14 = __toESM(require("path"), 1);
 init_logger();
-var PLUGINS_DIR = path13.resolve(process.cwd(), ".cvr", "plugins");
+var PLUGINS_DIR = path14.resolve(process.cwd(), ".cvr", "plugins");
 var _pluginsDir = PLUGINS_DIR;
 var _plugins = [];
 function setPluginsDir(dir) {
@@ -4511,8 +4394,8 @@ async function loadPlugins() {
   const plugins = [];
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
-    const pluginPath = path13.join(_pluginsDir, entry.name);
-    const manifestPath = path13.join(pluginPath, "manifest.json");
+    const pluginPath = path14.join(_pluginsDir, entry.name);
+    const manifestPath = path14.join(pluginPath, "manifest.json");
     try {
       const raw = await (0, import_promises9.readFile)(manifestPath, "utf-8");
       const manifest = JSON.parse(raw);
@@ -4555,7 +4438,7 @@ var import_stdio = require("@modelcontextprotocol/sdk/server/stdio.js");
 var import_sse = require("@modelcontextprotocol/sdk/server/sse.js");
 var import_types = require("@modelcontextprotocol/sdk/types.js");
 var import_promises10 = require("fs/promises");
-var path14 = __toESM(require("path"), 1);
+var path15 = __toESM(require("path"), 1);
 init_errors();
 
 // src/server/agentLoop.ts
@@ -4914,7 +4797,7 @@ init_logger();
 var PROJECT_ROOT5 = process.cwd();
 async function loadMcpConfig() {
   try {
-    const configPath = path14.join(PROJECT_ROOT5, ".cvr", "mcp.json");
+    const configPath = path15.join(PROJECT_ROOT5, ".cvr", "mcp.json");
     const data = await (0, import_promises10.readFile)(configPath, "utf-8");
     return JSON.parse(data);
   } catch {
@@ -5001,7 +4884,7 @@ async function createMcpServer() {
       const resources = entries.filter(
         (e) => !e.name.startsWith(".") && !e.name.startsWith("node_modules") && e.isFile()
       ).map((e) => ({
-        uri: `file://${path14.join(PROJECT_ROOT5, e.name)}`,
+        uri: `file://${path15.join(PROJECT_ROOT5, e.name)}`,
         name: e.name,
         mimeType: "text/plain"
       }));
@@ -5022,7 +4905,7 @@ async function createMcpServer() {
       );
     }
     const filePath = uri.slice(7);
-    const resolved = path14.resolve(filePath);
+    const resolved = path15.resolve(filePath);
     if (!resolved.startsWith(PROJECT_ROOT5)) {
       throw new import_types.McpError(
         import_types.ErrorCode.InvalidRequest,
@@ -5111,7 +4994,7 @@ init_browserTools();
 
 // src/server/teamSync.ts
 var import_promises11 = require("fs/promises");
-var path15 = __toESM(require("path"), 1);
+var path16 = __toESM(require("path"), 1);
 var import_child_process5 = require("child_process");
 var import_util4 = require("util");
 var import_crypto4 = require("crypto");
@@ -5126,18 +5009,18 @@ var _status = {
   provider: "none"
 };
 var _intervalId = null;
-var SYNC_DIR = path15.join(process.cwd(), ".cvr");
-var CONFIG_PATH = path15.join(SYNC_DIR, "sync.json");
-var SYNC_STORAGE_DIR = path15.join(process.cwd(), ".opencode-infinite");
+var SYNC_DIR = path16.join(process.cwd(), ".cvr");
+var CONFIG_PATH = path16.join(SYNC_DIR, "sync.json");
+var SYNC_STORAGE_DIR = path16.join(process.cwd(), ".opencode-infinite");
 var SYNC_FILES = ["MEMORY.md", "USER.md", "history.json", "memory.json", "sessions.db"];
 function getSyncDir() {
   if (_config2?.provider === "git" && _config2.repo) {
-    return path15.join(process.cwd(), ".sync-clone");
+    return path16.join(process.cwd(), ".sync-clone");
   }
   if (_config2?.provider === "file" && _config2.path) {
     return _config2.path;
   }
-  return path15.join(SYNC_DIR, "sync-data");
+  return path16.join(SYNC_DIR, "sync-data");
 }
 function getKey() {
   const keyStr = _config2?.encryptionKey || process.env.SYNC_ENCRYPTION_KEY;
@@ -5242,12 +5125,12 @@ async function gitCommitAndPush(syncDir) {
 }
 function resolveSyncPath(fileName, syncDir) {
   if (_config2?.encrypt) {
-    return path15.join(syncDir, `${fileName}.enc`);
+    return path16.join(syncDir, `${fileName}.enc`);
   }
-  return path15.join(syncDir, fileName);
+  return path16.join(syncDir, fileName);
 }
 async function exportFile(fileName, syncDir) {
-  const sourcePath = path15.join(SYNC_STORAGE_DIR, fileName);
+  const sourcePath = path16.join(SYNC_STORAGE_DIR, fileName);
   let data;
   try {
     data = await (0, import_promises11.readFile)(sourcePath);
@@ -5275,7 +5158,7 @@ async function importFile(fileName, syncDir) {
       throw new Error(`Failed to decrypt ${fileName}. Check encryption key.`);
     }
   }
-  const destPath = path15.join(SYNC_STORAGE_DIR, fileName);
+  const destPath = path16.join(SYNC_STORAGE_DIR, fileName);
   await (0, import_promises11.writeFile)(destPath, data);
 }
 async function exportAll(syncDir) {
@@ -5304,7 +5187,7 @@ async function importWithConflictCheck(syncDir) {
   const conflicts = [];
   for (const file of SYNC_FILES) {
     const sourcePath = resolveSyncPath(file, syncDir);
-    const destPath = path15.join(SYNC_STORAGE_DIR, file);
+    const destPath = path16.join(SYNC_STORAGE_DIR, file);
     const shouldOverwrite = await resolveConflict(sourcePath, destPath);
     if (!shouldOverwrite) {
       conflicts.push(file);
@@ -5511,40 +5394,8 @@ function setupHealthRoute(app2) {
   });
 }
 
-// src/server/providers.ts
-var import_genai = require("@google/genai");
-
-// src/utils/constants.ts
-var TIMEOUT_PERMISSION = 5 * 60 * 1e3;
-var DEFAULT_MAX_TOKENS = 4096;
-var RATE_LIMIT_WINDOW_MS = 1 * 60 * 1e3;
-var PROVIDER_DEFAULT_MODELS = {
-  gemini: "gemini-2.5-flash",
-  openai: "gpt-4.1",
-  anthropic: "claude-sonnet-4-20250514",
-  deepseek: "deepseek-chat",
-  grok: "grok-3",
-  groq: "meta-llama/llama-4-maverick-17b-128e-instruct",
-  baseten: "deepseek-ai/DeepSeek-V4-Pro",
-  openrouter: "google/gemini-2.5-flash",
-  together: "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
-  mistral: "mistral-large-latest",
-  local: "local-model",
-  custom: "custom-model"
-};
-var PROVIDER_BASE_URLS = {
-  openai: "https://api.openai.com/v1",
-  deepseek: "https://api.deepseek.com/v1",
-  grok: "https://api.x.ai/v1",
-  groq: "https://api.groq.com/openai/v1",
-  baseten: "https://inference.baseten.co/v1",
-  openrouter: "https://openrouter.ai/api/v1",
-  together: "https://api.together.xyz/v1",
-  mistral: "https://api.mistral.ai/v1"
-};
-
 // src/server/costTracker.ts
-var path16 = __toESM(require("path"), 1);
+var path17 = __toESM(require("path"), 1);
 var import_promises12 = require("fs/promises");
 var RATE_CARDS = {
   gemini: { input: 0.075, output: 0.3 },
@@ -5553,8 +5404,8 @@ var RATE_CARDS = {
   deepseek: { input: 0.14, output: 0.28 }
 };
 var GENERIC_RATE = { input: 1, output: 1 };
-var STORAGE_DIR = path16.join(process.cwd(), ".opencode-infinite");
-var COSTS_FILE = path16.join(STORAGE_DIR, "costs.json");
+var STORAGE_DIR = path17.join(process.cwd(), ".opencode-infinite");
+var COSTS_FILE = path17.join(STORAGE_DIR, "costs.json");
 function getRateCard(provider) {
   const key = provider.toLowerCase();
   return RATE_CARDS[key] || GENERIC_RATE;
@@ -5632,18 +5483,46 @@ function estimateTokens(text) {
   return Math.ceil(text.length / 4);
 }
 
-// src/server/providers.ts
+// src/server/providers/gemini.ts
+var import_genai = require("@google/genai");
+
+// src/server/providers/types.ts
 var AIProvider = class {
-  /**
-   * Resolves an API key from environment variables or an explicit override.
-   * @param envVar - The environment variable name to check
-   * @param override - An optional explicit key that takes priority
-   * @returns The resolved API key string (empty string if not found)
-   */
   resolveApiKey(envVar, override) {
     return override || process.env[envVar] || "";
   }
 };
+
+// src/utils/constants.ts
+var TIMEOUT_PERMISSION = 5 * 60 * 1e3;
+var DEFAULT_MAX_TOKENS = 4096;
+var RATE_LIMIT_WINDOW_MS = 1 * 60 * 1e3;
+var PROVIDER_DEFAULT_MODELS = {
+  gemini: "gemini-2.5-flash",
+  openai: "gpt-4.1",
+  anthropic: "claude-sonnet-4-20250514",
+  deepseek: "deepseek-chat",
+  grok: "grok-3",
+  groq: "meta-llama/llama-4-maverick-17b-128e-instruct",
+  baseten: "deepseek-ai/DeepSeek-V4-Pro",
+  openrouter: "google/gemini-2.5-flash",
+  together: "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
+  mistral: "mistral-large-latest",
+  local: "local-model",
+  custom: "custom-model"
+};
+var PROVIDER_BASE_URLS = {
+  openai: "https://api.openai.com/v1",
+  deepseek: "https://api.deepseek.com/v1",
+  grok: "https://api.x.ai/v1",
+  groq: "https://api.groq.com/openai/v1",
+  baseten: "https://inference.baseten.co/v1",
+  openrouter: "https://openrouter.ai/api/v1",
+  together: "https://api.together.xyz/v1",
+  mistral: "https://api.mistral.ai/v1"
+};
+
+// src/server/providers/gemini.ts
 var GeminiProvider = class extends AIProvider {
   cachedClient = null;
   cachedKey = void 0;
@@ -5694,10 +5573,23 @@ var GeminiProvider = class extends AIProvider {
     let fullText = "";
     let fullReasoning = "";
     for await (const chunk of streamResult) {
-      const text2 = chunk.text;
-      if (text2) {
-        fullText += text2;
-        callbacks.onToken(text2);
+      const parts = chunk.candidates?.[0]?.content?.parts ?? [];
+      for (const part of parts) {
+        if (part.thought && part.text) {
+          fullReasoning += part.text;
+          if (callbacks.onReasoning) callbacks.onReasoning(part.text);
+          else callbacks.onToken(part.text);
+        } else if (part.text) {
+          fullText += part.text;
+          callbacks.onToken(part.text);
+        }
+      }
+      if (!parts.length) {
+        const t = chunk.text;
+        if (t) {
+          fullText += t;
+          callbacks.onToken(t);
+        }
       }
     }
     const reasoning = fullReasoning || void 0;
@@ -5724,6 +5616,8 @@ var GeminiProvider = class extends AIProvider {
     throw new Error("Unexpected embedding response format");
   }
 };
+
+// src/server/providers/openai.ts
 function buildOpenAICompatibleBody(options, providerName) {
   const { prompt, contents, modelName, temperature, maxTokens, tools, toolMessages } = options;
   const defaultModel = PROVIDER_DEFAULT_MODELS[providerName] ?? "local-model";
@@ -5817,13 +5711,23 @@ function validateLocalUrl(localUrl, provider) {
     return "Invalid localUrl";
   }
 }
+function extractOpenAIText(value) {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (!Array.isArray(value)) return "";
+  return value.map((part) => {
+    if (!part || typeof part !== "object") return "";
+    if (typeof part.text === "string") return part.text;
+    return "";
+  }).filter(Boolean).join("\n");
+}
 var OpenAICompatibleProvider = class extends AIProvider {
   constructor(provider) {
     super();
     this.provider = provider;
   }
   async generate(options) {
-    const { prompt, contents, localUrl, apiKey, modelName, temperature, maxTokens } = options;
+    const { prompt, contents, localUrl, apiKey, modelName, temperature, maxTokens, tools, toolMessages } = options;
     const urlError = validateLocalUrl(localUrl, this.provider);
     if (urlError) throw new Error(urlError);
     if ((this.provider === "openai" || this.provider === "groq") && modelName?.toLowerCase().includes("claude")) {
@@ -5831,13 +5735,12 @@ var OpenAICompatibleProvider = class extends AIProvider {
     }
     const baseUrl = localUrl || PROVIDER_BASE_URLS[this.provider] || "";
     const key = this.resolveApiKey(getEnvVarForProvider(this.provider), apiKey);
-    const body = buildOpenAICompatibleBody({ prompt, contents, modelName, temperature, maxTokens }, this.provider);
-    const authHeader = `Bearer ${key}`;
+    const body = buildOpenAICompatibleBody({ prompt, contents, modelName, temperature, maxTokens, tools, toolMessages }, this.provider);
     const response = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: authHeader
+        Authorization: `Bearer ${key}`
       },
       body: JSON.stringify(body)
     });
@@ -5869,7 +5772,7 @@ var OpenAICompatibleProvider = class extends AIProvider {
     return { text, reasoning, inputTokens, outputTokens, toolCalls, finishReason };
   }
   async generateStream(options, callbacks) {
-    const { prompt, contents, localUrl, apiKey, modelName, temperature, maxTokens } = options;
+    const { prompt, contents, localUrl, apiKey, modelName, temperature, maxTokens, tools, toolMessages } = options;
     const urlError = validateLocalUrl(localUrl, this.provider);
     if (urlError) throw new Error(urlError);
     if ((this.provider === "openai" || this.provider === "groq") && modelName?.toLowerCase().includes("claude")) {
@@ -5877,7 +5780,7 @@ var OpenAICompatibleProvider = class extends AIProvider {
     }
     const baseUrl = localUrl || PROVIDER_BASE_URLS[this.provider] || "";
     const key = this.resolveApiKey(getEnvVarForProvider(this.provider), apiKey);
-    const body = buildOpenAICompatibleBody({ prompt, contents, modelName, temperature, maxTokens }, this.provider);
+    const body = buildOpenAICompatibleBody({ prompt, contents, modelName, temperature, maxTokens, tools, toolMessages }, this.provider);
     body.stream = true;
     const response = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
       method: "POST",
@@ -5963,20 +5866,35 @@ var OpenAICompatibleProvider = class extends AIProvider {
     };
   }
 };
-function extractOpenAIText(value) {
-  if (!value) return "";
-  if (typeof value === "string") return value;
-  if (!Array.isArray(value)) return "";
-  return value.map((part) => {
-    if (!part || typeof part !== "object") return "";
-    if (typeof part.text === "string") return part.text;
-    return "";
-  }).filter(Boolean).join("\n");
-}
+
+// src/server/providers/anthropic.ts
 var AnthropicProvider = class extends AIProvider {
   async generate(options) {
-    const { prompt, contents, apiKey, modelName, maxTokens } = options;
+    const { prompt, contents, apiKey, modelName, maxTokens, temperature } = options;
     const key = this.resolveApiKey("ANTHROPIC_API_KEY", apiKey);
+    const body = {
+      model: modelName || "claude-sonnet-4-20250514",
+      max_tokens: maxTokens || 4096,
+      system: prompt,
+      messages: contents.map((c) => {
+        const hasImages = c.parts.some((p) => p.inlineData);
+        if (hasImages) {
+          return {
+            role: c.role === "model" ? "assistant" : c.role,
+            content: c.parts.map((p) => {
+              if (p.text) return { type: "text", text: p.text };
+              if (p.inlineData) return { type: "image", source: { type: "base64", media_type: p.inlineData.mimeType, data: p.inlineData.data } };
+              return null;
+            }).filter((x) => x !== null)
+          };
+        }
+        return {
+          role: c.role === "model" ? "assistant" : c.role,
+          content: c.parts[0]?.text ?? ""
+        };
+      })
+    };
+    if (temperature !== void 0) body.temperature = temperature;
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -5984,28 +5902,7 @@ var AnthropicProvider = class extends AIProvider {
         "x-api-key": key,
         "anthropic-version": "2023-06-01"
       },
-      body: JSON.stringify({
-        model: modelName || "claude-sonnet-4-20250514",
-        max_tokens: maxTokens || 4096,
-        system: prompt,
-        messages: contents.map((c) => {
-          const hasImages = c.parts.some((p) => p.inlineData);
-          if (hasImages) {
-            return {
-              role: c.role === "model" ? "assistant" : c.role,
-              content: c.parts.map((p) => {
-                if (p.text) return { type: "text", text: p.text };
-                if (p.inlineData) return { type: "image", source: { type: "base64", media_type: p.inlineData.mimeType, data: p.inlineData.data } };
-                return null;
-              }).filter((x) => x !== null)
-            };
-          }
-          return {
-            role: c.role === "model" ? "assistant" : c.role,
-            content: c.parts[0]?.text ?? ""
-          };
-        })
-      })
+      body: JSON.stringify(body)
     });
     const data = await response.json();
     if (data.error) throw new Error(data.error.message || "Anthropic error");
@@ -6017,8 +5914,34 @@ var AnthropicProvider = class extends AIProvider {
     return { text, reasoning, inputTokens, outputTokens };
   }
   async generateStream(options, callbacks) {
-    const { prompt, contents, apiKey, modelName, maxTokens } = options;
+    const { prompt, contents, apiKey, modelName, maxTokens, temperature } = options;
     const key = this.resolveApiKey("ANTHROPIC_API_KEY", apiKey);
+    const body = {
+      model: modelName || "claude-sonnet-4-20250514",
+      max_tokens: maxTokens || 4096,
+      stream: true,
+      system: prompt,
+      messages: contents.map((c) => {
+        const hasImages = c.parts.some((p) => p.inlineData);
+        if (hasImages) {
+          return {
+            role: c.role === "model" ? "assistant" : c.role,
+            content: c.parts.map((p) => {
+              if (p.text) return { type: "text", text: p.text };
+              if (p.inlineData) {
+                return { type: "image", source: { type: "base64", media_type: p.inlineData.mimeType, data: p.inlineData.data } };
+              }
+              return null;
+            }).filter((x) => x !== null)
+          };
+        }
+        return {
+          role: c.role === "model" ? "assistant" : c.role,
+          content: c.parts[0]?.text ?? ""
+        };
+      })
+    };
+    if (temperature !== void 0) body.temperature = temperature;
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -6026,31 +5949,7 @@ var AnthropicProvider = class extends AIProvider {
         "x-api-key": key,
         "anthropic-version": "2023-06-01"
       },
-      body: JSON.stringify({
-        model: modelName || "claude-sonnet-4-20250514",
-        max_tokens: maxTokens || 4096,
-        stream: true,
-        system: prompt,
-        messages: contents.map((c) => {
-          const hasImages = c.parts.some((p) => p.inlineData);
-          if (hasImages) {
-            return {
-              role: c.role === "model" ? "assistant" : c.role,
-              content: c.parts.map((p) => {
-                if (p.text) return { type: "text", text: p.text };
-                if (p.inlineData) {
-                  return { type: "image", source: { type: "base64", media_type: p.inlineData.mimeType, data: p.inlineData.data } };
-                }
-                return null;
-              }).filter((x) => x !== null)
-            };
-          }
-          return {
-            role: c.role === "model" ? "assistant" : c.role,
-            content: c.parts[0]?.text ?? ""
-          };
-        })
-      })
+      body: JSON.stringify(body)
     });
     if (!response.ok) {
       const e = await response.json();
@@ -6098,6 +5997,8 @@ var AnthropicProvider = class extends AIProvider {
     };
   }
 };
+
+// src/server/providers/index.ts
 var providers = {
   gemini: new GeminiProvider(),
   openai: new OpenAICompatibleProvider("openai"),
@@ -6141,8 +6042,8 @@ async function generateStreamResponse(prompt, contents = [], provider, localUrl,
   return p.generateStream({ prompt, contents, localUrl, modelName, apiKey, temperature, maxTokens, tools, toolMessages }, callbacks || { onToken: () => {
   } });
 }
-async function generateAIContent(prompt, contents = [], provider, localUrl, modelName, apiKey, temperature, maxTokens, useCache) {
-  const result = await generateAIResponse(prompt, contents, provider, localUrl, modelName, apiKey, temperature, maxTokens, useCache);
+async function generateAIContent(prompt, contents = [], provider, localUrl, modelName, apiKey, temperature, maxTokens, useCache, tools, toolMessages) {
+  const result = await generateAIResponse(prompt, contents, provider, localUrl, modelName, apiKey, temperature, maxTokens, useCache, tools, toolMessages);
   return result.text;
 }
 async function generateWithDualModelResponse(prompt, contents = [], config, purpose = "auto") {
@@ -6181,16 +6082,16 @@ async function generateEmbeddings(texts) {
 
 // src/server/agentMarketplace.ts
 var import_promises13 = require("fs/promises");
-var path17 = __toESM(require("path"), 1);
+var path18 = __toESM(require("path"), 1);
 var import_crypto5 = require("crypto");
-var MARKET_DIR = path17.join(process.cwd(), ".cvr", "marketplace");
-var INDEX_FILE = path17.join(MARKET_DIR, "index.json");
-var REVIEWS_FILE = path17.join(MARKET_DIR, "reviews.json");
+var MARKET_DIR = path18.join(process.cwd(), ".cvr", "marketplace");
+var INDEX_FILE = path18.join(MARKET_DIR, "index.json");
+var REVIEWS_FILE = path18.join(MARKET_DIR, "reviews.json");
 var items = [];
 var reviews = [];
 async function ensureMarketDir() {
   await (0, import_promises13.mkdir)(MARKET_DIR, { recursive: true });
-  await (0, import_promises13.mkdir)(path17.join(MARKET_DIR, "packages"), { recursive: true });
+  await (0, import_promises13.mkdir)(path18.join(MARKET_DIR, "packages"), { recursive: true });
 }
 async function loadIndex() {
   try {
@@ -6235,7 +6136,7 @@ function getMarketItems(type, tag, search) {
 async function publishItem(type, name, description, content, author = "unknown", version = "1.0.0", tags = []) {
   await ensureMarketDir();
   const id = `${type}-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${(0, import_crypto5.randomBytes)(4).toString("hex")}`;
-  const pkgPath = path17.join(MARKET_DIR, "packages", `${id}.json`);
+  const pkgPath = path18.join(MARKET_DIR, "packages", `${id}.json`);
   const pkg = { type, name, description, content, author, version, tags };
   await (0, import_promises13.writeFile)(pkgPath, JSON.stringify(pkg, null, 2), "utf-8");
   const existing = items.find((i) => i.name === name && i.type === type);
@@ -6364,8 +6265,13 @@ var ChatRequestSchema = import_zod.z.object({
     mode: import_zod.z.union([import_zod.z.literal("plan"), import_zod.z.literal("build"), import_zod.z.literal("review")]).optional(),
     visionEnabled: import_zod.z.boolean().optional(),
     maxImageSize: import_zod.z.number().optional(),
-    apiKey: import_zod.z.string().optional()
-  }).optional(),
+    apiKey: import_zod.z.string().optional(),
+    providerKeys: import_zod.z.record(import_zod.z.string(), import_zod.z.string()).optional(),
+    multiModelEnabled: import_zod.z.boolean().optional(),
+    thinkingProvider: import_zod.z.string().optional(),
+    thinkingModel: import_zod.z.string().optional(),
+    thinkingLocalUrl: import_zod.z.string().optional()
+  }).passthrough().optional(),
   kernelConfig: import_zod.z.record(import_zod.z.string(), import_zod.z.any()).optional(),
   agent: import_zod.z.string().optional()
 });
@@ -6550,7 +6456,7 @@ var SettingsSchema = import_zod.z.object({
       thinkingProvider: import_zod.z.string().optional(),
       thinkingModel: import_zod.z.string().optional(),
       thinkingLocalUrl: import_zod.z.string().optional()
-    }).passthrough(),
+    }).passthrough().optional(),
     createdAt: import_zod.z.number()
   })).optional(),
   autoLoopDelay: import_zod.z.number().optional(),
@@ -6563,11 +6469,14 @@ var SettingsSchema = import_zod.z.object({
 }).passthrough();
 
 // src/server/routes/chat.ts
-var path19 = __toESM(require("path"), 1);
+var path20 = __toESM(require("path"), 1);
 var import_promises16 = require("fs/promises");
 
 // src/server/prompts.ts
 var import_promises15 = require("fs/promises");
+
+// src/server/shared.ts
+init_logger();
 var AGENT_PROMPTS = {
   build: `[ROLE: BUILD] - DEFAULT DEVELOPER AGENT. You have full access to developer tools (read/write files, execute bash). Focus on iterative coding, bug fixing, and implementation.`,
   general: `[ROLE: GENERAL] - UNIVERSAL ASSISTANT. Help with complex, multi-stage tasks. You can modify files, run parallel processes, and coordinate broad workflows.`,
@@ -6576,6 +6485,8 @@ var AGENT_PROMPTS = {
   prometheus: `[ROLE: PROMETHEUS] - STRATEGIC PLANNER. You are a strategic architect. Before any code is written, you must clarify requirements, define architecture, and scope the work. You create comprehensive plans.`,
   hephaestus: `[ROLE: HEPHAESTUS] - DEEP EXECUTOR. Autonomous specialist. Given a goal, independently research patterns, write code, and finish the task without requiring step-by-step guidance.`
 };
+
+// src/server/prompts.ts
 var _promptCache = /* @__PURE__ */ new Map();
 var PROMPT_CACHE_TTL = 6e4;
 async function getMemoryMtime() {
@@ -6897,9 +6808,9 @@ function buildDualModelConfig(cfg) {
 
 // src/server/routes/chat.ts
 init_logger();
-var STORAGE_DIR2 = path19.join(process.cwd(), ".opencode-infinite");
-var HISTORY_FILE = path19.join(STORAGE_DIR2, "history.json");
-var MEMORY_FILE = path19.join(STORAGE_DIR2, "memory.json");
+var STORAGE_DIR2 = path20.join(process.cwd(), ".opencode-infinite");
+var HISTORY_FILE = path20.join(STORAGE_DIR2, "history.json");
+var MEMORY_FILE = path20.join(STORAGE_DIR2, "memory.json");
 async function ensureStorage() {
   try {
     await (0, import_promises16.mkdir)(STORAGE_DIR2, { recursive: true });
@@ -6956,9 +6867,9 @@ async function summarizeLongHistory(messages, provider, localUrl, modelName, api
   2. INVARIANT_RULES: Coding standards or logic that MUST not change.
   3. PROGRESS_STATE: What was just finished.
   4. PENDING_GOALS: What the agent is currently working towards.
-  
+
   Format as a strict technical manifest (max 150 words). Focus on architectural integrity.
-  
+
   Conversation:
   ${messages.slice(-10).map((m) => `${m.role}: ${m.content}`).join("\n")}`;
   try {
@@ -6973,10 +6884,9 @@ async function summarizeLongHistory(messages, provider, localUrl, modelName, api
 }
 function scheduleSummary(updatedHistory, kConfig) {
   if (updatedHistory.length % 5 !== 0) return;
-  const kConfigTyped = kConfig;
-  const dualCfg = buildDualModelConfig(kConfigTyped);
-  const summaryKey = kConfigTyped.providerKeys?.[kConfigTyped.aiProvider || ""] || kConfigTyped.apiKey;
-  summarizeLongHistory(updatedHistory, kConfigTyped.aiProvider, kConfigTyped.localUrl, kConfigTyped.aiProvider === "local" ? kConfigTyped.localModelName || kConfigTyped.aiModel : kConfigTyped.aiModel, summaryKey, dualCfg).then(async (summary) => {
+  const dualCfg = buildDualModelConfig(kConfig);
+  const summaryKey = kConfig.providerKeys?.[kConfig.aiProvider || ""] || kConfig.apiKey;
+  summarizeLongHistory(updatedHistory, kConfig.aiProvider, kConfig.localUrl, kConfig.aiProvider === "local" ? kConfig.localModelName || kConfig.aiModel : kConfig.aiModel, summaryKey, dualCfg).then(async (summary) => {
     if (summary) {
       const currentMemories = JSON.parse(await (0, import_promises16.readFile)(MEMORY_FILE, "utf-8"));
       await (0, import_promises16.writeFile)(MEMORY_FILE, JSON.stringify([...currentMemories, { content: summary, createdAt: /* @__PURE__ */ new Date() }]));
@@ -7003,6 +6913,97 @@ async function executeToolCalls(toolCalls, mode, agent) {
     }
   }
   return results;
+}
+function appendToolResults(contents, response, toolResults) {
+  if (response.toolCalls) {
+    contents.push({
+      role: "assistant",
+      parts: [{ text: response.text || `Tool call: ${response.toolCalls.map((tc) => tc.name).join(", ")}` }],
+      _toolCalls: response.toolCalls.map((tc) => ({
+        id: tc.id,
+        type: "function",
+        function: { name: tc.name, arguments: JSON.stringify(tc.arguments) }
+      }))
+    });
+  }
+  for (const tr of toolResults) {
+    contents.push({ role: "tool", parts: [{ text: tr.content }], _toolCallId: tr.tool_call_id, _isToolResult: true });
+  }
+}
+async function runToolLoop(systemPrompt, contents, ctx, onToolResult) {
+  const tools = getOpenAITools();
+  const MAX_STEPS = 20;
+  let step = 0;
+  let response = await generateAIResponse(systemPrompt, contents, ctx.aiProvider, ctx.localUrl, ctx.resolvedModel, ctx.resolvedApiKey, ctx.temperature, ctx.maxTokens, step === 0, tools);
+  while (response.toolCalls && response.toolCalls.length > 0 && step < MAX_STEPS) {
+    step++;
+    const toolResults = await executeToolCalls(response.toolCalls, ctx.mode, ctx.agent);
+    appendToolResults(contents, response, toolResults);
+    if (onToolResult) onToolResult(step, response);
+    response = await generateAIResponse(systemPrompt, contents, ctx.aiProvider, ctx.localUrl, ctx.resolvedModel, ctx.resolvedApiKey, ctx.temperature, ctx.maxTokens, false, tools);
+  }
+  return { text: response.text || "", reasoning: response.reasoning, steps: step };
+}
+async function buildHistoryContents(history) {
+  const ctxWindow = new ContextWindow({ maxTokens: 128e3, tokenBuffer: 16e3 });
+  for (const m of history.slice(-20)) {
+    const priority = m.role === "user" && m.content.startsWith("/") ? 3 /* HIGH */ : 1 /* NORMAL */;
+    ctxWindow.add(m.role, m.content, priority);
+  }
+  const visibleHistory = ctxWindow.getMessages();
+  const historyLookup = /* @__PURE__ */ new Map();
+  for (const h of history) {
+    historyLookup.set(`${h.role}:${h.content}`, h);
+  }
+  return visibleHistory.map((m) => {
+    const hEntry = historyLookup.get(`${m.role}:${m.content}`);
+    const parts = [{ text: m.content }];
+    if (hEntry?.images && Array.isArray(hEntry.images)) {
+      for (const img of hEntry.images) {
+        const match = typeof img === "string" ? img.match(/^data:([^;]+);base64,(.+)$/) : null;
+        if (match && match[1] && match[2]) {
+          parts.push({ inlineData: { mimeType: match[1], data: match[2] } });
+        }
+      }
+    }
+    return { role: m.role, parts };
+  });
+}
+function makeHistoryEntry(message, images) {
+  const entry = { role: "user", content: message, createdAt: /* @__PURE__ */ new Date() };
+  if (images && images.length > 0) {
+    entry.images = images.map((img) => `data:${img.mimeType};base64,${img.base64}`);
+  }
+  return entry;
+}
+async function finalizeChat(history, userEntry, responseText, ctx, extra) {
+  const updatedHistory = [...history, userEntry, { role: "assistant", content: responseText, createdAt: /* @__PURE__ */ new Date() }];
+  await (0, import_promises16.writeFile)(HISTORY_FILE, JSON.stringify(updatedHistory));
+  invalidateHistoryCache();
+  scheduleSummary(updatedHistory, ctx.kConfig);
+  trackCost(ctx.aiProvider, ctx.resolvedModel || "unknown", Math.ceil(responseText.length / 2.5), Math.ceil(responseText.length / 2.5)).catch(() => {
+  });
+  return {
+    updatedHistory,
+    response: {
+      content: responseText,
+      reasoning: extra?.reasoning ?? void 0,
+      toolCalls: extra?.toolOutputs,
+      continueNeeded: false,
+      tokenUsage: { input: Math.ceil((ctx.systemPrompt + ctx.message).length / 2.5), output: Math.ceil(responseText.length / 2.5) }
+    }
+  };
+}
+function setSSEHeaders(res) {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+}
+function sseWrite(res, data) {
+  res.write(`data: ${JSON.stringify(data)}
+
+`);
 }
 function registerRoutes(app2) {
   app2.post("/api/chat", validateBody(ChatRequestSchema), async (req, res) => {
@@ -7043,237 +7044,119 @@ function registerRoutes(app2) {
         }
         return parts;
       };
-      const ctxWindow = new ContextWindow({ maxTokens: 128e3, tokenBuffer: 16e3 });
-      for (const m of history.slice(-20)) {
-        const priority = m.role === "user" && m.content.startsWith("/") ? 3 /* HIGH */ : 1 /* NORMAL */;
-        ctxWindow.add(m.role, m.content, priority);
-      }
-      const visibleHistory = ctxWindow.getMessages();
-      const historyLookup = /* @__PURE__ */ new Map();
-      for (const h of history) {
-        historyLookup.set(`${h.role}:${h.content}`, h);
-      }
-      const historyContents = visibleHistory.map((m) => {
-        const hEntry = historyLookup.get(`${m.role}:${m.content}`);
-        const parts = [{ text: m.content }];
-        if (hEntry?.images && Array.isArray(hEntry.images)) {
-          for (const img of hEntry.images) {
-            const match = typeof img === "string" ? img.match(/^data:([^;]+);base64,(.+)$/) : null;
-            if (match && match[1] && match[2]) {
-              parts.push({ inlineData: { mimeType: match[1], data: match[2] } });
-            }
-          }
-        }
-        return { role: m.role, parts };
-      });
+      const historyContents = await buildHistoryContents(history);
+      const ctx = {
+        systemPrompt,
+        historyContents,
+        history,
+        buildParts,
+        processedImages,
+        message,
+        agent,
+        mode,
+        aiProvider,
+        localUrl,
+        resolvedModel,
+        resolvedApiKey,
+        temperature,
+        maxTokens,
+        kConfig
+      };
       const acceptSSE = (req.headers.accept || "").includes("text/event-stream");
       const { multiModelEnabled, thinkingProvider, thinkingModel, thinkingLocalUrl } = config;
       const useDualModel = multiModelEnabled && thinkingProvider && thinkingModel;
+      let clientDisconnected = false;
+      req.on("close", () => {
+        clientDisconnected = true;
+      });
       if (useDualModel) {
         const thinkPrompt = `Analyze the user's request and provide a detailed plan/analysis.`;
         const thinkResponse = await generateAIResponse(thinkPrompt, [
           ...historyContents,
           { role: "user", parts: buildParts(message, processedImages) }
         ], thinkingProvider, thinkingLocalUrl || localUrl, thinkingModel, resolvedApiKey, temperature, maxTokens, false);
-        const reasoning2 = thinkResponse.text;
+        const reasoning = thinkResponse.text;
         const finalPrompt = `${systemPrompt}
 
 [CONTEXT]
-${reasoning2?.slice(0, 2e3) || ""}
+${reasoning?.slice(0, 2e3) || ""}
 
 Now respond to: ${message}`;
-        const dmTools = getOpenAITools();
         const dmUserContent = { role: "user", parts: buildParts(message, processedImages) };
         const dmContents = [...historyContents, dmUserContent];
-        const MAX_DM_STEPS = 20;
-        let dmStep = 0;
-        let dmAiResponse = await generateAIResponse(finalPrompt, dmContents, aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, false, dmTools);
-        while (dmAiResponse.toolCalls && dmAiResponse.toolCalls.length > 0 && dmStep < MAX_DM_STEPS) {
-          dmStep++;
-          const toolResults = await executeToolCalls(dmAiResponse.toolCalls, mode, agent);
-          dmContents.push({
-            role: "assistant",
-            parts: [{ text: dmAiResponse.text || "" }],
-            _toolCalls: dmAiResponse.toolCalls.map((tc) => ({
-              id: tc.id,
-              type: "function",
-              function: { name: tc.name, arguments: JSON.stringify(tc.arguments) }
-            }))
-          });
-          for (const tr of toolResults) {
-            dmContents.push({ role: "tool", parts: [{ text: tr.content }], _toolCallId: tr.tool_call_id, _isToolResult: true });
-          }
-          dmAiResponse = await generateAIResponse(finalPrompt, dmContents, aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, false, dmTools);
-        }
-        const responseText2 = dmAiResponse.text;
+        const result2 = await runToolLoop(finalPrompt, dmContents, ctx);
+        if (clientDisconnected) return;
+        const userEntry2 = makeHistoryEntry(message, processedImages);
         if (acceptSSE) {
-          res.setHeader("Content-Type", "text/event-stream");
-          res.setHeader("Cache-Control", "no-cache");
-          res.setHeader("Connection", "keep-alive");
-          res.setHeader("X-Accel-Buffering", "no");
-          res.write(`data: ${JSON.stringify({ reasoning: reasoning2 })}
-
-`);
-          if (dmStep > 0) res.write(`data: ${JSON.stringify({ toolSteps: dmStep })}
-
-`);
-          const finalStream = await generateStreamResponse(finalPrompt, dmContents, aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, {
+          setSSEHeaders(res);
+          sseWrite(res, { reasoning });
+          if (result2.steps > 0) sseWrite(res, { toolSteps: result2.steps });
+          const finalStream = await generateStreamResponse(finalPrompt, dmContents, ctx.aiProvider, ctx.localUrl, ctx.resolvedModel, ctx.resolvedApiKey, ctx.temperature, ctx.maxTokens, {
             onToken: (token) => {
-              res.write(`data: ${JSON.stringify({ content: token })}
-
-`);
+              if (!clientDisconnected) sseWrite(res, { content: token });
             }
           });
-          const estIn2 = Math.ceil((finalPrompt + message).length / 4);
-          const estOut2 = Math.ceil((finalStream.text + (finalStream.reasoning || "")).length / 4);
-          res.write(`data: ${JSON.stringify({ done: true, continueNeeded: false, tokenUsage: { input: estIn2, output: estOut2 } })}
-
-`);
-          res.end();
-          const histEntry2 = { role: "user", content: message, createdAt: /* @__PURE__ */ new Date() };
-          if (processedImages.length > 0) histEntry2.images = processedImages.map((img) => `data:${img.mimeType};base64,${img.base64}`);
-          await (0, import_promises16.writeFile)(HISTORY_FILE, JSON.stringify([...history, histEntry2, { role: "assistant", content: finalStream.text, createdAt: /* @__PURE__ */ new Date() }]));
-          invalidateHistoryCache();
-          scheduleSummary([...history, histEntry2, { role: "assistant", content: finalStream.text, createdAt: /* @__PURE__ */ new Date() }], kConfig);
-          trackCost(aiProvider, resolvedModel || "unknown", estIn2, estOut2).catch(() => {
+          if (!clientDisconnected) {
+            sseWrite(res, { done: true, continueNeeded: false, tokenUsage: { input: Math.ceil((finalPrompt + message).length / 2.5), output: Math.ceil(finalStream.text.length / 2.5) } });
+            res.end();
+          }
+          await finalizeChat(history, userEntry2, finalStream.text, ctx, {
+            ...reasoning ? { reasoning } : {},
+            steps: result2.steps
           });
           return;
         }
-        const estIn = Math.ceil((finalPrompt + message).length / 4);
-        const estOut = Math.ceil(responseText2.length / 4);
-        const histEntry = { role: "user", content: message, createdAt: /* @__PURE__ */ new Date() };
-        if (processedImages.length > 0) histEntry.images = processedImages.map((img) => `data:${img.mimeType};base64,${img.base64}`);
-        await (0, import_promises16.writeFile)(HISTORY_FILE, JSON.stringify([...history, histEntry, { role: "assistant", content: responseText2, createdAt: /* @__PURE__ */ new Date() }]));
-        invalidateHistoryCache();
-        scheduleSummary([...history, histEntry, { role: "assistant", content: responseText2, createdAt: /* @__PURE__ */ new Date() }], kConfig);
-        trackCost(aiProvider, resolvedModel || "unknown", estIn, estOut).catch(() => {
+        const finalized2 = await finalizeChat(history, userEntry2, result2.text, ctx, {
+          ...reasoning ? { reasoning } : {},
+          steps: result2.steps
         });
-        res.json({ content: responseText2, reasoning: reasoning2 ?? void 0, continueNeeded: false, tokenUsage: { input: estIn, output: estOut } });
+        res.json(finalized2.response);
         return;
       }
-      if (acceptSSE) {
-        res.setHeader("Content-Type", "text/event-stream");
-        res.setHeader("Cache-Control", "no-cache");
-        res.setHeader("Connection", "keep-alive");
-        res.setHeader("X-Accel-Buffering", "no");
-        const oaiToolsSSE = getOpenAITools();
-        const userContentSSE = { role: "user", parts: buildParts(message, processedImages) };
-        const sseContents = [...historyContents, userContentSSE];
-        const MAX_SSE_STEPS = 20;
-        let sseStep = 0;
-        let sseAiResponse = await generateAIResponse(systemPrompt, sseContents, aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, false, oaiToolsSSE);
-        while (sseAiResponse.toolCalls && sseAiResponse.toolCalls.length > 0 && sseStep < MAX_SSE_STEPS) {
-          sseStep++;
-          res.write(`data: ${JSON.stringify({ toolCalls: sseAiResponse.toolCalls.map((tc) => ({ name: tc.name, args: tc.arguments })) })}
-
-`);
-          const toolResults = await executeToolCalls(sseAiResponse.toolCalls, mode, agent);
-          sseContents.push({
-            role: "assistant",
-            parts: [{ text: sseAiResponse.text || "" }],
-            _toolCalls: sseAiResponse.toolCalls.map((tc) => ({
-              id: tc.id,
-              type: "function",
-              function: { name: tc.name, arguments: JSON.stringify(tc.arguments) }
-            }))
-          });
-          for (const tr of toolResults) {
-            sseContents.push({
-              role: "tool",
-              parts: [{ text: tr.content }],
-              _toolCallId: tr.tool_call_id,
-              _isToolResult: true
-            });
-          }
-          sseAiResponse = await generateAIResponse(systemPrompt, sseContents, aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, false, oaiToolsSSE);
-          if (sseAiResponse.reasoning) {
-            res.write(`data: ${JSON.stringify({ reasoning: sseAiResponse.reasoning.slice(0, 500) })}
-
-`);
-          }
-        }
-        const finalStreamResponse = await generateStreamResponse(systemPrompt, sseContents, aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, {
-          onToken: (token) => {
-            res.write(`data: ${JSON.stringify({ content: token })}
-
-`);
-          }
-        });
-        const estimatedInputTokens2 = Math.ceil((systemPrompt + message).length / 4);
-        const estimatedOutputTokens2 = Math.ceil((finalStreamResponse.text + (finalStreamResponse.reasoning || "")).length / 4);
-        res.write(`data: ${JSON.stringify({
-          done: true,
-          continueNeeded: false,
-          tokenUsage: { input: estimatedInputTokens2, output: estimatedOutputTokens2 }
-        })}
-
-`);
-        res.end();
-        const userHistoryEntry2 = { role: "user", content: message, createdAt: /* @__PURE__ */ new Date() };
-        if (processedImages.length > 0) {
-          userHistoryEntry2.images = processedImages.map((img) => `data:${img.mimeType};base64,${img.base64}`);
-        }
-        const updatedHistory2 = [...history, userHistoryEntry2, { role: "assistant", content: finalStreamResponse.text, createdAt: /* @__PURE__ */ new Date() }];
-        await (0, import_promises16.writeFile)(HISTORY_FILE, JSON.stringify(updatedHistory2));
-        invalidateHistoryCache();
-        scheduleSummary(updatedHistory2, kConfig);
-        trackCost(aiProvider, resolvedModel || "unknown", estimatedInputTokens2, estimatedOutputTokens2).catch(() => {
-        });
-        return;
-      }
-      const oaiTools = getOpenAITools();
       const userContent = { role: "user", parts: buildParts(message, processedImages) };
-      const MAX_TOOL_STEPS = 20;
-      let step = 0;
-      let fullReasoning = "";
       const allContents = [...historyContents, userContent];
-      const toolOutputs = [];
-      let aiResponse = await generateAIResponse(systemPrompt, allContents, aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, true, oaiTools);
-      while (aiResponse.toolCalls && aiResponse.toolCalls.length > 0 && step < MAX_TOOL_STEPS) {
-        step++;
-        const toolResults = await executeToolCalls(aiResponse.toolCalls, mode, agent);
-        allContents.push({
-          role: "assistant",
-          parts: [{ text: aiResponse.text || `Tool call: ${aiResponse.toolCalls.map((tc) => tc.name).join(", ")}` }],
-          _toolCalls: aiResponse.toolCalls.map((tc) => ({
-            id: tc.id,
-            type: "function",
-            function: { name: tc.name, arguments: JSON.stringify(tc.arguments) }
-          }))
+      const userEntry = makeHistoryEntry(message, processedImages);
+      if (acceptSSE) {
+        setSSEHeaders(res);
+        const toolOutputs2 = [];
+        const result2 = await runToolLoop(systemPrompt, allContents, ctx, (_step, response) => {
+          if (!clientDisconnected && response.toolCalls) {
+            sseWrite(res, { toolCalls: response.toolCalls.map((tc) => ({ name: tc.name, args: tc.arguments })) });
+          }
+          if (!clientDisconnected && response.reasoning) {
+            sseWrite(res, { reasoning: response.reasoning.slice(0, 500) });
+          }
         });
-        for (const tr of toolResults) {
-          allContents.push({
-            role: "tool",
-            parts: [{ text: tr.content }],
-            _toolCallId: tr.tool_call_id,
-            _isToolResult: true
-          });
-          toolOutputs.push(`[${tr.tool_call_id}]: ${tr.content.slice(0, 500)}`);
+        if (clientDisconnected) return;
+        const finalStreamResponse = await generateStreamResponse(systemPrompt, allContents, ctx.aiProvider, ctx.localUrl, ctx.resolvedModel, ctx.resolvedApiKey, ctx.temperature, ctx.maxTokens, {
+          onToken: (token) => {
+            if (!clientDisconnected) sseWrite(res, { content: token });
+          }
+        });
+        if (!clientDisconnected) {
+          sseWrite(res, { done: true, continueNeeded: false, tokenUsage: { input: Math.ceil((systemPrompt + message).length / 2.5), output: Math.ceil(finalStreamResponse.text.length / 2.5) } });
+          res.end();
         }
-        if (aiResponse.reasoning && !fullReasoning) fullReasoning = aiResponse.reasoning;
-        aiResponse = await generateAIResponse(systemPrompt, allContents, aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, false, oaiTools);
+        await finalizeChat(history, userEntry, finalStreamResponse.text, ctx, {
+          steps: result2.steps,
+          ...toolOutputs2.length > 0 ? { toolOutputs: toolOutputs2 } : {}
+        });
+        return;
       }
-      const responseText = aiResponse.text || "";
-      const reasoning = fullReasoning || aiResponse.reasoning;
-      const estimatedInputTokens = Math.ceil((systemPrompt + message).length / 4);
-      const estimatedOutputTokens = Math.ceil(responseText.length / 4);
-      const userHistoryEntry = { role: "user", content: message, createdAt: /* @__PURE__ */ new Date() };
-      if (processedImages.length > 0) {
-        userHistoryEntry.images = processedImages.map((img) => `data:${img.mimeType};base64,${img.base64}`);
-      }
-      const updatedHistory = [...history, userHistoryEntry, { role: "assistant", content: responseText, createdAt: /* @__PURE__ */ new Date() }];
-      await (0, import_promises16.writeFile)(HISTORY_FILE, JSON.stringify(updatedHistory));
-      invalidateHistoryCache();
-      scheduleSummary(updatedHistory, kConfig);
-      res.json({
-        content: responseText,
-        reasoning: reasoning ?? void 0,
-        toolCalls: step > 0 ? toolOutputs : void 0,
-        continueNeeded: false,
-        tokenUsage: { input: estimatedInputTokens, output: estimatedOutputTokens }
+      const toolOutputs = [];
+      const result = await runToolLoop(systemPrompt, allContents, ctx, (_step, response) => {
+        if (response.toolCalls) {
+          for (const tc of response.toolCalls) {
+            toolOutputs.push(`[${tc.id}]: tool ${tc.name}`);
+          }
+        }
       });
-      trackCost(aiProvider, resolvedModel || "unknown", estimatedInputTokens, estimatedOutputTokens).catch(() => {
+      const finalized = await finalizeChat(history, userEntry, result.text, ctx, {
+        ...result.reasoning ? { reasoning: result.reasoning } : {},
+        steps: result.steps,
+        ...toolOutputs.length > 0 ? { toolOutputs } : {}
       });
+      res.json(finalized.response);
     } catch (error) {
       log.error("API Error", error instanceof Error ? error : void 0);
       res.status(500).json({ error: getErrorMessage(error) });
@@ -8105,10 +7988,10 @@ function registerRoutes5(app2) {
 
 // src/server/changes.ts
 var import_promises17 = require("fs/promises");
-var path20 = __toESM(require("path"), 1);
+var path21 = __toESM(require("path"), 1);
 init_logger();
-var STORAGE_DIR3 = path20.join(process.cwd(), ".opencode-infinite");
-var CHANGES_FILE = path20.join(STORAGE_DIR3, "changes.json");
+var STORAGE_DIR3 = path21.join(process.cwd(), ".opencode-infinite");
+var CHANGES_FILE = path21.join(STORAGE_DIR3, "changes.json");
 var MAX_CHANGES = 50;
 var MAX_SNAPSHOT_SIZE = 1024 * 1024;
 async function loadHistory() {
@@ -8127,7 +8010,7 @@ async function recordChange(filePath, operation, afterContent, description) {
   const history = await loadHistory();
   let beforeContent = null;
   try {
-    const fullPath = path20.join(process.cwd(), filePath);
+    const fullPath = path21.join(process.cwd(), filePath);
     const fileStats = await (0, import_promises17.stat)(fullPath);
     if (fileStats.size <= MAX_SNAPSHOT_SIZE) {
       beforeContent = await (0, import_promises17.readFile)(fullPath, "utf-8");
@@ -8169,7 +8052,7 @@ async function undoChange() {
     return { success: false, error: "Nothing to undo" };
   }
   history.undoStack.push(change.id);
-  const fullPath = path20.join(process.cwd(), change.filePath);
+  const fullPath = path21.join(process.cwd(), change.filePath);
   if (change.beforeContent === null) {
     try {
       await (0, import_promises17.unlink)(fullPath);
@@ -8180,7 +8063,7 @@ async function undoChange() {
     await saveHistory(history);
     return { success: false, error: "Cannot undo: file was too large to snapshot" };
   } else {
-    await (0, import_promises17.mkdir)(path20.dirname(fullPath), { recursive: true });
+    await (0, import_promises17.mkdir)(path21.dirname(fullPath), { recursive: true });
     await (0, import_promises17.writeFile)(fullPath, change.beforeContent, "utf-8");
   }
   await saveHistory(history);
@@ -8198,8 +8081,8 @@ async function redoChange() {
   }
   history.redoStack.pop();
   history.undoStack = history.undoStack.filter((id) => id !== changeId);
-  const fullPath = path20.join(process.cwd(), change.filePath);
-  await (0, import_promises17.mkdir)(path20.dirname(fullPath), { recursive: true });
+  const fullPath = path21.join(process.cwd(), change.filePath);
+  await (0, import_promises17.mkdir)(path21.dirname(fullPath), { recursive: true });
   await (0, import_promises17.writeFile)(fullPath, change.afterContent, "utf-8");
   await saveHistory(history);
   return { success: true, restored: change };
@@ -8895,10 +8778,10 @@ function registerRoutes10(app2) {
 
 // src/server/ciPipeline.ts
 var import_promises18 = require("fs/promises");
-var path21 = __toESM(require("path"), 1);
+var path22 = __toESM(require("path"), 1);
 var WORKFLOW_DIR = ".github/workflows";
 async function ensureWorkflowDir() {
-  const dir = path21.join(process.cwd(), WORKFLOW_DIR);
+  const dir = path22.join(process.cwd(), WORKFLOW_DIR);
   await (0, import_promises18.mkdir)(dir, { recursive: true });
   return dir;
 }
@@ -9127,9 +9010,9 @@ async function generateCIPipeline(config) {
     default:
       throw new Error(`Unknown pipeline type: ${config.pipelineType}`);
   }
-  await (0, import_promises18.writeFile)(path21.join(dir, filename), content, "utf-8");
+  await (0, import_promises18.writeFile)(path22.join(dir, filename), content, "utf-8");
   return {
-    files: [path21.join(WORKFLOW_DIR, filename)],
+    files: [path22.join(WORKFLOW_DIR, filename)],
     pipelineType: config.pipelineType,
     path: dir
   };
@@ -9238,7 +9121,7 @@ function registerRoutes11(app2) {
 }
 
 // src/server/routes/tools.ts
-var path22 = __toESM(require("path"), 1);
+var path23 = __toESM(require("path"), 1);
 var import_promises19 = require("fs/promises");
 var import_crypto9 = require("crypto");
 init_logger();
@@ -9249,7 +9132,7 @@ function registerRoutes12(app2) {
       const result = await executeTool(toolCall, mode, permissionEngine, sessionId);
       incrementToolCall();
       if (result.success && (toolCall.name === "write_file" || toolCall.name === "edit_file")) {
-        const afterContent = toolCall.name === "write_file" ? toolCall.params.content : await (0, import_promises19.readFile)(path22.join(process.cwd(), toolCall.params.path), "utf-8");
+        const afterContent = toolCall.name === "write_file" ? toolCall.params.content : await (0, import_promises19.readFile)(path23.join(process.cwd(), toolCall.params.path), "utf-8");
         const change = await recordChange(
           toolCall.params.path,
           toolCall.name === "write_file" ? "write" : "edit",
@@ -9711,7 +9594,7 @@ app.use("/api", requireApiKey);
 app.use("/mcp", requireApiKey);
 app.get("/api/settings", (_req, res) => {
   try {
-    const settingsPath = path23.join(process.cwd(), ".opencode-infinite", "settings.json");
+    const settingsPath = path24.join(process.cwd(), ".opencode-infinite", "settings.json");
     if ((0, import_fs2.existsSync)(settingsPath)) {
       const data = JSON.parse((0, import_fs2.readFileSync)(settingsPath, "utf-8"));
       res.json(data);
@@ -9729,8 +9612,8 @@ app.post("/api/settings", (req, res) => {
       res.status(400).json({ error: "Invalid settings", details: parsed.error.format() });
       return;
     }
-    const settingsPath = path23.join(process.cwd(), ".opencode-infinite", "settings.json");
-    const dir = path23.dirname(settingsPath);
+    const settingsPath = path24.join(process.cwd(), ".opencode-infinite", "settings.json");
+    const dir = path24.dirname(settingsPath);
     if (!(0, import_fs2.existsSync)(dir)) (0, import_fs2.mkdirSync)(dir, { recursive: true });
     (0, import_fs2.writeFileSync)(settingsPath, JSON.stringify(parsed.data, null, 2));
     res.json({ saved: true });
@@ -9807,15 +9690,15 @@ async function startServer() {
   await initSync();
   await initMarketplace();
   setSessionDbPath(STORAGE_DIR2);
-  setSkillsDir(path23.join(process.cwd(), ".cvr", "skills"));
-  setSkillCreatorDir(path23.join(process.cwd(), ".cvr", "skills"));
+  setSkillsDir(path24.join(process.cwd(), ".cvr", "skills"));
+  setSkillCreatorDir(path24.join(process.cwd(), ".cvr", "skills"));
   setRagDbPath(STORAGE_DIR2);
   setCacheDbPath(STORAGE_DIR2);
   setGoalStorageDir(STORAGE_DIR2);
-  setRulesDir(path23.join(process.cwd(), ".cvr", "rules"));
-  setCustomToolsDir(path23.join(process.cwd(), ".cvr", "tools"));
-  setDesignSystemsDir(path23.join(process.cwd(), ".cvr", "design-systems"));
-  setPluginsDir(path23.join(process.cwd(), ".cvr", "plugins"));
+  setRulesDir(path24.join(process.cwd(), ".cvr", "rules"));
+  setCustomToolsDir(path24.join(process.cwd(), ".cvr", "tools"));
+  setDesignSystemsDir(path24.join(process.cwd(), ".cvr", "design-systems"));
+  setPluginsDir(path24.join(process.cwd(), ".cvr", "plugins"));
   await loadAgents();
   await registerPlugins();
   registerBuiltinHooks();
@@ -9841,10 +9724,10 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path23.join(process.cwd(), "dist");
+    const distPath = path24.join(process.cwd(), "dist");
     app.use(import_express.default.static(distPath));
     app.get("*", (_req, res) => {
-      res.sendFile(path23.join(distPath, "index.html"));
+      res.sendFile(path24.join(distPath, "index.html"));
     });
   }
   const server = app.listen(PORT, "127.0.0.1", () => {

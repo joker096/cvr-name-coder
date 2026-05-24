@@ -281,9 +281,9 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
   diagnosticsProvider = new DiagnosticsProvider();
   context.subscriptions.push(diagnosticsProvider);
 
-  async function generateAIContent(prompt: string, contents: any[] = [], provider?: string, localUrl?: string, modelName?: string, apiKey?: string): Promise<string> {
+  async function generateAIContent(prompt: string, contents: any[] = [], provider?: string, localUrl?: string, modelName?: string, apiKey?: string, temperature?: number, maxTokens?: number, signal?: AbortSignal, onReasoning?: (token: string) => void): Promise<string> {
     let full = '';
-    await generateContentStream(prompt, contents, (t) => { full += t; }, provider, localUrl, modelName, apiKey);
+    await generateContentStream(prompt, contents, (t) => { full += t; }, provider, localUrl, modelName, apiKey, temperature, maxTokens, signal, onReasoning);
     return full;
   }
 

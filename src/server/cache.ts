@@ -1,10 +1,9 @@
 import { createHash } from 'crypto';
 import * as path from 'path';
-import * as fs from 'fs';
 import { log } from './logger.js';
 import type { Database } from '../types/database';
+import { createJsonFallbackDb, loadJsonData, saveJsonDataSync } from './jsonFallbackDb.js';
 
-/** In-memory cache entry with TTL and hit tracking. */
 interface CacheEntry {
   value: string;
   timestamp: number;
@@ -12,7 +11,6 @@ interface CacheEntry {
   hits: number;
 }
 
-/** Aggregated cache metrics. */
 interface CacheStats {
   hits: number;
   misses: number;
@@ -20,7 +18,6 @@ interface CacheStats {
   hitRate: number;
 }
 
-/** Row shape stored in the cache database / JSON fallback. */
 interface CacheRow {
   key: string;
   value: string;
@@ -33,96 +30,34 @@ let _dbPath = path.resolve(process.cwd(), '.opencode-infinite', 'cache.db');
 let _db: Database | null = null;
 let _useFallback = false;
 
-let _jsonEntries: CacheRow[] = [];
+let _jsonRows: CacheRow[] = [];
 let _jsonPath = '';
 
-function loadJson(): void {
-  try {
-    if (fs.existsSync(_jsonPath)) {
-      const raw = fs.readFileSync(_jsonPath, 'utf-8');
-      _jsonEntries = JSON.parse(raw) as CacheRow[];
-    }
-  } catch {
-    /* ignore */
-  }
+function loadFallback(): void {
+  _jsonPath = _dbPath.replace(/\.db$/, '') + '-fallback.json';
+  _jsonRows = loadJsonData(_jsonPath, [] as CacheRow[]);
 }
 
-function saveJson(): void {
-  try {
-    fs.mkdirSync(path.dirname(_jsonPath), { recursive: true });
-    fs.writeFileSync(_jsonPath, JSON.stringify(_jsonEntries, null, 2));
-  } catch {
-    /* ignore */
-  }
+function saveFallback(): void {
+  saveJsonDataSync(_jsonPath, _jsonRows);
 }
 
 function fallbackGetDb(): Database {
-  if (!_jsonPath) {
-    _jsonPath = _dbPath.replace(/\.db$/, '') + '-fallback.json';
-    loadJson();
-  }
-  return {
-    prepare: (sql: string) => {
-      const trimmed = sql.trim().toLowerCase();
-      if (trimmed.startsWith('insert into cache_entries')) {
-        return {
-          run: (key: unknown, value: unknown, timestamp: unknown, ttl: unknown, hits: unknown) => {
-            const idx = _jsonEntries.findIndex((e) => e.key === String(key));
-            if (idx !== -1) _jsonEntries.splice(idx, 1);
-            _jsonEntries.push({
-              key: String(key),
-              value: String(value),
-              timestamp: Number(timestamp),
-              ttl: Number(ttl),
-              hits: Number(hits),
-            });
-            saveJson();
-            return { lastInsertRowid: _jsonEntries.length, changes: 1 };
-          },
-        };
-      }
-      if (trimmed.startsWith('select * from cache_entries where key =')) {
-        return {
-          get: (key: unknown) => _jsonEntries.find((e) => e.key === String(key)),
-        };
-      }
-      if (trimmed.startsWith('select * from cache_entries')) {
-        return {
-          all: () => _jsonEntries,
-        };
-      }
-      if (trimmed.startsWith('delete from cache_entries')) {
-        return {
-          run: () => {
-            _jsonEntries = [];
-            saveJson();
-            return { lastInsertRowid: 0, changes: 0 };
-          },
-        };
-      }
-      return {
-        run: () => ({ lastInsertRowid: 0, changes: 0 }),
-        get: () => undefined,
-        all: () => [],
-      };
-    },
-    exec: () => {},
-    pragma: () => {},
-  };
+  if (!_jsonPath) loadFallback();
+  return createJsonFallbackDb({
+    dbPath: _dbPath,
+    rows: _jsonRows as unknown as Record<string, unknown>[],
+    saveFn: saveFallback,
+  }) as unknown as Database;
 }
 
-/**
- * Sets the directory for cache database storage. Resets internal state
- * so a new database connection is established on next access.
- * @param dir - Absolute directory path for cache.db
- */
 export function setCacheDbPath(dir: string): void {
   _dbPath = path.join(dir, 'cache.db');
   _db = null;
-  _jsonEntries = [];
+  _jsonRows = [];
   if (_useFallback) {
     _jsonPath = _dbPath.replace(/\.db$/, '') + '-fallback.json';
-    loadJson();
+    loadFallback();
   }
 }
 
@@ -156,11 +91,6 @@ function initSchema(db: Database): void {
   `);
 }
 
-/**
- * Dual-layer AI response cache: in-memory LRU map backed by persistent
- * SQLite storage (with JSON fallback). Supports request coalescing, TTL
- * expiry, automatic background pruning, and hit/miss statistics.
- */
 export class AIResponseCache {
   private cache: Map<string, CacheEntry> = new Map();
   private _keys: string[] = [];
@@ -171,11 +101,6 @@ export class AIResponseCache {
   private _pendingRequests = new Map<string, Promise<string>>();
   private _pruneInterval: ReturnType<typeof setInterval> | null = null;
 
-  /**
-   * Creates a new AIResponseCache with background pruning.
-   * @param defaultTTL - Default time-to-live in milliseconds (default: 300000)
-   * @param maxSize - Maximum number of in-memory entries (default: 500)
-   */
   constructor(defaultTTL = 300000, maxSize = 500) {
     this.defaultTTL = defaultTTL;
     this.maxSize = maxSize;
@@ -228,15 +153,6 @@ export class AIResponseCache {
     }
   }
 
-  /**
-   * Retrieves a cached response by key components. Checks in-memory cache first,
-   * falls back to persistent storage. Returns null on miss or expired entry.
-   * @param prompt - User prompt text
-   * @param contents - Conversation contents array
-   * @param provider - AI provider name
-   * @param model - Optional model name
-   * @returns Cached response string or null
-   */
   get(prompt: string, contents: unknown[], provider: string, model?: string): string | null {
     this.warmFromDb();
 
@@ -272,15 +188,6 @@ export class AIResponseCache {
     return entry.value;
   }
 
-  /**
-   * Stores a response in the cache (in-memory and persistent).
-   * @param prompt - User prompt text
-   * @param contents - Conversation contents array
-   * @param provider - AI provider name
-   * @param response - AI response string to cache
-   * @param model - Optional model name
-   * @param ttl - Optional TTL override in milliseconds
-   */
   set(prompt: string, contents: unknown[], provider: string, response: string, model?: string, ttl?: number): void {
     this.warmFromDb();
 
@@ -301,16 +208,6 @@ export class AIResponseCache {
     this.saveToDb(key, entry);
   }
 
-  /**
-   * Request coalescing: returns existing cached value, waits on in-flight
-   * request for the same key, or invokes the factory to produce a result.
-   * @param prompt - User prompt text
-   * @param contents - Conversation contents array
-   * @param provider - AI provider name
-   * @param model - Optional model name
-   * @param factory - Async function that produces the response when cache misses
-   * @returns Promise resolving to the cached or freshly computed response
-   */
   coalesce(prompt: string, contents: unknown[], provider: string, model: string | undefined, factory: () => Promise<string>): Promise<string> {
     const key = this.hashKey(prompt, contents, provider, model);
     const cached = this.get(prompt, contents, provider, model);
@@ -360,7 +257,6 @@ export class AIResponseCache {
       db.prepare(
         'INSERT OR REPLACE INTO cache_entries (key, value, timestamp, ttl, hits) VALUES (?, ?, ?, ?, ?)'
       ).run!(key, entry.value, entry.timestamp, entry.ttl, entry.hits);
-      if (_useFallback) saveJson();
     } catch {
       /* persist silently fails */
     }
@@ -370,10 +266,6 @@ export class AIResponseCache {
     try {
       const db = getDb();
       db.prepare('DELETE FROM cache_entries WHERE key = ?').run!(key);
-      if (_useFallback) {
-        _jsonEntries = _jsonEntries.filter((e) => e.key !== key);
-        saveJson();
-      }
     } catch {
       /* ignore */
     }
@@ -396,9 +288,6 @@ export class AIResponseCache {
     }
   }
 
-  /**
-   * Clears all in-memory and persistent cache entries and resets statistics.
-   */
   clear(): void {
     this.cache.clear();
     this._keys = [];
@@ -408,10 +297,6 @@ export class AIResponseCache {
     try {
       const db = getDb();
       db.prepare('DELETE FROM cache_entries').run!();
-      if (_useFallback) {
-        _jsonEntries = [];
-        saveJson();
-      }
     } catch {
       /* ignore */
     }
@@ -419,10 +304,6 @@ export class AIResponseCache {
     log.info('Cache cleared');
   }
 
-  /**
-   * Returns aggregated cache performance metrics.
-   * @returns CacheStats with hits, misses, size, and hitRate
-   */
   getStats(): CacheStats {
     return {
       hits: this.stats.hits,
@@ -434,10 +315,6 @@ export class AIResponseCache {
     };
   }
 
-  /**
-   * Removes all expired entries from both in-memory and persistent storage.
-   * @returns Total number of entries pruned
-   */
   prune(): number {
     const now = Date.now();
     let pruned = 0;
@@ -457,7 +334,6 @@ export class AIResponseCache {
       const dbPruned = (result as { changes: number }).changes;
       if (dbPruned > 0) {
         pruned += dbPruned;
-        if (_useFallback) saveJson();
       }
     } catch {
       /* ignore */
@@ -470,9 +346,6 @@ export class AIResponseCache {
     return pruned;
   }
 
-  /**
-   * Stops background pruning interval. Call before discarding the cache instance.
-   */
   dispose(): void {
     if (this._pruneInterval) {
       clearInterval(this._pruneInterval);
@@ -481,5 +354,4 @@ export class AIResponseCache {
   }
 }
 
-/** Shared singleton AI response cache instance. */
 export const aiCache = new AIResponseCache();

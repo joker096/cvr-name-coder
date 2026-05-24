@@ -18,7 +18,7 @@ interface ChatContainerProps {
   t: any;
   lang?: string;
   loadingText?: string | undefined;
-  placeholder?: string;
+  placeholder?: string | undefined;
   disabled?: boolean;
   className?: string;
   voiceEnabled?: boolean | undefined;

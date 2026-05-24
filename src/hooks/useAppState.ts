@@ -10,7 +10,7 @@ import { useGoal } from "./useGoal";
 import type { Message } from "../types/chat";
 import { completeTask, commitCode } from "../server/gamerState";
 import { parseGoalCommand } from "../utils/commands";
-import { TRANSLATIONS } from "../i18n";
+import { getTranslationsSync, loadTranslations } from "../i18n";
 
 const ALL_LANGS = ["en", "ru", "es", "zh", "de", "fr", "pt", "it", "ja", "ko", "ar", "tr", "pl", "uk", "vi", "hi"] as const;
 type Lang = (typeof ALL_LANGS)[number];
@@ -22,6 +22,7 @@ export function useAppState() {
   const inputRef = useRef(input);
   inputRef.current = input;
   const [lang, setLang] = useState<Lang>("en");
+  const [translations, setTranslations] = useState<Record<string, string>>(() => getTranslationsSync("en"));
 
   const { settings, isLoading: settingsLoading, updateChatConfig, toggleAutonomous, updateAutoLoopDelay, toggleAutoCommit, toggleVoiceEnabled, setVoiceLanguage, toggleVoiceAutoSend, setLanguage, addPreset, deletePreset, loadPreset } = useSettings();
   const { state: agentState, isRunning: isAgentRunning, startLoop, abortLoop } = useAgentLoop();
@@ -34,7 +35,9 @@ export function useAppState() {
 
   useEffect(() => {
     if (!settingsLoading && settings.lang && (ALL_LANGS as readonly string[]).includes(settings.lang)) {
-      setLang(settings.lang as Lang);
+      const newLang = settings.lang as Lang;
+      setLang(newLang);
+      loadTranslations(newLang).then(setTranslations).catch(() => {});
     }
   }, [settingsLoading, settings.lang]);
 
@@ -45,8 +48,8 @@ export function useAppState() {
     updateChatConfig({ mode: newMode });
   };
 
-  const t = TRANSLATIONS[lang] || TRANSLATIONS.en;
-  const tt = t as Record<string, string>;
+  const t = translations;
+  const tt = t;
 
   const handleSendMessage = useCallback(async (images?: string[]) => {
     const currentInput = inputRef.current;

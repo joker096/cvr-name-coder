@@ -6,16 +6,7 @@ import { getInstructionsContext } from "./instructionLoader.js";
 import { loadCustomTools } from "./customToolLoader.js";
 import { getActiveDesignSystem } from "./tools/design.js";
 import { stat } from "fs/promises";
-
-/** Default agent role prompt templates keyed by agent ID. */
-const AGENT_PROMPTS: Record<string, string> = {
-  build: `[ROLE: BUILD] - DEFAULT DEVELOPER AGENT. You have full access to developer tools (read/write files, execute bash). Focus on iterative coding, bug fixing, and implementation.`,
-  general: `[ROLE: GENERAL] - UNIVERSAL ASSISTANT. Help with complex, multi-stage tasks. You can modify files, run parallel processes, and coordinate broad workflows.`,
-  explore: `[ROLE: EXPLORE] - CODEBASE EXPLORER. Read-only specialist. Efficiently search patterns, find keywords, and explain codebase structure. Use fast search tools. You CANNOT write files.`,
-  scout: `[ROLE: SCOUT] - ANALYST. Read-only. Specialized in external documentation research and dependency analysis. Focus on architectural auditing and research.`,
-  prometheus: `[ROLE: PROMETHEUS] - STRATEGIC PLANNER. You are a strategic architect. Before any code is written, you must clarify requirements, define architecture, and scope the work. You create comprehensive plans.`,
-  hephaestus: `[ROLE: HEPHAESTUS] - DEEP EXECUTOR. Autonomous specialist. Given a goal, independently research patterns, write code, and finish the task without requiring step-by-step guidance.`,
-};
+import { AGENT_PROMPTS } from "./shared.js";
 
 /** Cached system prompt entry with invalidation metadata. */
 interface PromptCacheEntry {
