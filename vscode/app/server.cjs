@@ -1531,6 +1531,26 @@ var READ_ONLY_TOOLS = new Set(
   TOOL_DEFINITIONS.filter((t) => t.isReadOnly).map((t) => t.name)
 );
 var ALL_TOOL_NAMES = TOOL_DEFINITIONS.map((t) => t.name);
+function toOpenAITools(definitions) {
+  const defs = definitions ?? TOOL_DEFINITIONS;
+  return defs.map((t) => ({
+    type: "function",
+    function: {
+      name: t.name,
+      description: t.description,
+      parameters: {
+        type: "object",
+        properties: Object.fromEntries(
+          Object.entries(t.parameters.properties).map(([key, val]) => [
+            key,
+            { type: val.type, description: val.description }
+          ])
+        ),
+        required: t.parameters.required
+      }
+    }
+  }));
+}
 
 // src/server/hooks.ts
 init_logger();
@@ -5705,33 +5725,59 @@ var GeminiProvider = class extends AIProvider {
   }
 };
 function buildOpenAICompatibleBody(options, providerName) {
-  const { prompt, contents, modelName, temperature, maxTokens } = options;
+  const { prompt, contents, modelName, temperature, maxTokens, tools, toolMessages } = options;
   const defaultModel = PROVIDER_DEFAULT_MODELS[providerName] ?? "local-model";
-  const body = {
-    model: modelName || defaultModel,
-    messages: [
-      { role: "system", content: prompt },
-      ...contents.map((c) => {
-        const hasImages = c.parts.some((p) => p.inlineData);
-        if (hasImages) {
-          return {
-            role: c.role === "model" ? "assistant" : c.role,
-            content: c.parts.map((p) => {
-              if (p.text) return { type: "text", text: p.text };
-              if (p.inlineData) return { type: "image_url", image_url: { url: `data:${p.inlineData.mimeType};base64,${p.inlineData.data}` } };
-              return null;
-            }).filter((x) => x !== null)
-          };
-        }
+  const messages = [
+    { role: "system", content: prompt },
+    ...contents.map((c) => {
+      if (c._isToolResult) {
         return {
-          role: c.role === "model" ? "assistant" : c.role,
+          role: "tool",
+          tool_call_id: c._toolCallId || "",
           content: c.parts[0]?.text ?? ""
         };
-      })
-    ]
+      }
+      const hasImages = c.parts.some((p) => p.inlineData);
+      if (hasImages) {
+        return {
+          role: c.role === "model" ? "assistant" : c.role,
+          content: c.parts.map((p) => {
+            if (p.text) return { type: "text", text: p.text };
+            if (p.inlineData) return { type: "image_url", image_url: { url: `data:${p.inlineData.mimeType};base64,${p.inlineData.data}` } };
+            return null;
+          }).filter((x) => x !== null)
+        };
+      }
+      if (c.role === "assistant" && c._toolCalls && c._toolCalls.length > 0) {
+        return {
+          role: "assistant",
+          content: c.parts[0]?.text || null,
+          tool_calls: c._toolCalls
+        };
+      }
+      return {
+        role: c.role === "model" ? "assistant" : c.role,
+        content: c.parts[0]?.text ?? ""
+      };
+    })
+  ];
+  if (toolMessages && toolMessages.length > 0) {
+    messages.push(...toolMessages.map((tm) => ({
+      role: tm.role,
+      tool_call_id: tm.tool_call_id,
+      content: tm.content
+    })));
+  }
+  const body = {
+    model: modelName || defaultModel,
+    messages
   };
   if (temperature !== void 0) body.temperature = temperature;
   body.max_tokens = maxTokens ?? DEFAULT_MAX_TOKENS;
+  if (tools && tools.length > 0) {
+    body.tools = tools;
+    body.tool_choice = "auto";
+  }
   return body;
 }
 function getEnvVarForProvider(provider) {
@@ -5813,7 +5859,14 @@ var OpenAICompatibleProvider = class extends AIProvider {
     const text = extractOpenAIText(msg?.content) || "";
     const inputTokens = data.usage?.prompt_tokens || estimateTokens(prompt + contents.map((c) => c.parts?.[0]?.text || "").join(" "));
     const outputTokens = data.usage?.completion_tokens || estimateTokens(text + (reasoning || ""));
-    return { text, reasoning, inputTokens, outputTokens };
+    const finishReason = choice?.finish_reason ?? void 0;
+    const rawToolCalls = msg?.["tool_calls"];
+    const toolCalls = rawToolCalls?.map((tc) => ({
+      id: tc.id,
+      name: tc.function.name,
+      arguments: JSON.parse(tc.function.arguments || "{}")
+    }));
+    return { text, reasoning, inputTokens, outputTokens, toolCalls, finishReason };
   }
   async generateStream(options, callbacks) {
     const { prompt, contents, localUrl, apiKey, modelName, temperature, maxTokens } = options;
@@ -5848,6 +5901,8 @@ var OpenAICompatibleProvider = class extends AIProvider {
     let buf = "";
     let fullText = "";
     let fullReasoning = "";
+    const toolCallAccum = /* @__PURE__ */ new Map();
+    let finishReason;
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -5862,6 +5917,22 @@ var OpenAICompatibleProvider = class extends AIProvider {
         try {
           const chunk = JSON.parse(jsonStr);
           const delta = chunk.choices?.[0]?.delta;
+          if (delta?.tool_calls) {
+            for (const tc of delta.tool_calls) {
+              const idx = tc.index ?? 0;
+              let entry = toolCallAccum.get(idx);
+              if (!entry) {
+                entry = { id: "", name: "", args: "" };
+                toolCallAccum.set(idx, entry);
+              }
+              if (tc.id) entry.id = tc.id;
+              if (tc.function?.name) entry.name = tc.function.name;
+              if (tc.function?.arguments) entry.args += tc.function.arguments;
+            }
+          }
+          if (chunk.choices?.[0]?.finish_reason) {
+            finishReason = chunk.choices[0].finish_reason || void 0;
+          }
           const rs = extractOpenAIText(delta?.reasoning_content || delta?.reasoning);
           if (rs) {
             fullReasoning += rs;
@@ -5877,11 +5948,18 @@ var OpenAICompatibleProvider = class extends AIProvider {
         }
       }
     }
+    const toolCallArray = Array.from(toolCallAccum.values()).filter((tc) => tc.name).map((tc) => ({
+      id: tc.id,
+      name: tc.name,
+      arguments: JSON.parse(tc.args || "{}")
+    }));
     return {
       text: fullText,
       reasoning: fullReasoning || void 0,
       inputTokens: estimateTokens(prompt),
-      outputTokens: estimateTokens(fullText + fullReasoning)
+      outputTokens: estimateTokens(fullText + fullReasoning),
+      toolCalls: toolCallArray.length > 0 ? toolCallArray : void 0,
+      finishReason
     };
   }
 };
@@ -6034,7 +6112,7 @@ var providers = {
   custom: new OpenAICompatibleProvider("custom"),
   anthropic: new AnthropicProvider()
 };
-async function generateAIResponse(prompt, contents = [], provider, localUrl, modelName, apiKey, temperature, maxTokens, useCache) {
+async function generateAIResponse(prompt, contents = [], provider, localUrl, modelName, apiKey, temperature, maxTokens, useCache, tools, toolMessages) {
   if (!provider) {
     throw new Error("AI provider not configured.");
   }
@@ -6046,13 +6124,13 @@ async function generateAIResponse(prompt, contents = [], provider, localUrl, mod
   if (!p) {
     throw new Error(`Unknown provider: ${provider}`);
   }
-  const result = await p.generate({ prompt, contents, localUrl, modelName, apiKey, temperature, maxTokens });
+  const result = await p.generate({ prompt, contents, localUrl, modelName, apiKey, temperature, maxTokens, tools, toolMessages });
   if (useCache) {
     aiCache.set(prompt, contents, provider, result.text, modelName);
   }
   return result;
 }
-async function generateStreamResponse(prompt, contents = [], provider, localUrl, modelName, apiKey, temperature, maxTokens, callbacks) {
+async function generateStreamResponse(prompt, contents = [], provider, localUrl, modelName, apiKey, temperature, maxTokens, callbacks, tools, toolMessages) {
   if (!provider) {
     throw new Error("AI provider not configured.");
   }
@@ -6060,7 +6138,7 @@ async function generateStreamResponse(prompt, contents = [], provider, localUrl,
   if (!p) {
     throw new Error(`Unknown provider: ${provider}`);
   }
-  return p.generateStream({ prompt, contents, localUrl, modelName, apiKey, temperature, maxTokens }, callbacks || { onToken: () => {
+  return p.generateStream({ prompt, contents, localUrl, modelName, apiKey, temperature, maxTokens, tools, toolMessages }, callbacks || { onToken: () => {
   } });
 }
 async function generateAIContent(prompt, contents = [], provider, localUrl, modelName, apiKey, temperature, maxTokens, useCache) {
@@ -6549,9 +6627,8 @@ Implement the plan directly and efficiently.`;
   const instructionsContext = await getInstructionsContext();
   const activeDesignContext = await getActiveDesignSystem();
   const persistentContext = contextParts || memoryContext || "No previous knowledge clusters found. Kernel is in cold-start mode.";
-  const basePrompt = `You are "cvr.name", the world's most advanced autonomous coding kernel.
+  const basePrompt = `You are "cvr.name", an autonomous coding agent.
 
-CURRENT_AGENT_IDENTITY:
 ${agentIdentity}
 
 ${modeDirective}
@@ -6559,33 +6636,9 @@ ${modeDirective}
 AVAILABLE TOOLS:
 ${toolDescriptions}
 
-TOOL CALL FORMAT:
-When you need to use a tool, wrap it like this:
-<tool_call>
-<name>TOOL_NAME</name>
-<params>
-{"path": "relative/path", ...}
-</params>
-</tool_call>
+Use tools when needed to read files, search code, execute commands, edit files, browse the web, or manage git.
 
-INTEGRATED PROTOCOLS:
-- [COMPLEXITY_OPTIMIZER]: When analyzing or refactoring, apply Algorithmic Complexity Evaluation.
-- [AGENT_BEST_PRACTICES]: Maintain a proactive, provider-neutral stance.
-- [SUPERPOWERS]: Active plugin from OpenCode. Enables high-level brainstorming and advanced task decomposition.
-
-SYSTEM ARCHITECTURE:
-- Local Persistent Memory (.opencode-infinite)
-- Recursive Task Execution Pipeline
-- Dreamer Semantic Compression Engine
-- Change History with Undo/Redo
-- Browser Automation (Playwright) for web testing, scraping, and interaction
-
-AUTONOMY PROTOCOLS:
-1. OBJECTIVE: Absolute task completion.
-2. ITERATION: For multi-vector tasks, solve sequentially.
-3. TERMINATION: "CONTINUE_NEEDED" for next cycles. "TASK_COMPLETE" for final success.
-
-PERSISTENT CONTEXT CLUSTERS:
+PERSISTENT CONTEXT:
 ${persistentContext}
 ${instructionsContext ? "\n" + instructionsContext : ""}
 ${activeDesignContext ? "\n\n" + activeDesignContext : ""}
@@ -6611,6 +6664,9 @@ ${persistentContext}${instructionsContext ? "\n" + instructionsContext : ""}`;
     timestamp: Date.now()
   });
   return resultPrompt;
+}
+function getOpenAITools() {
+  return toOpenAITools(TOOL_DEFINITIONS);
 }
 
 // src/server/contextWindow.ts
@@ -6928,6 +6984,26 @@ function scheduleSummary(updatedHistory, kConfig) {
     }
   });
 }
+async function executeToolCalls(toolCalls, mode, agent) {
+  const results = [];
+  for (const tc of toolCalls) {
+    const result = await executeTool(
+      { name: tc.name, params: tc.arguments },
+      mode,
+      void 0,
+      agent
+    );
+    results.push({
+      role: "tool",
+      tool_call_id: tc.id,
+      content: result.success ? result.output : `Error: ${result.error || "Unknown error"}`
+    });
+    if (result.error) {
+      log.warn(`Tool ${tc.name} error: ${result.error}`);
+    }
+  }
+  return results;
+}
 function registerRoutes(app2) {
   app2.post("/api/chat", validateBody(ChatRequestSchema), async (req, res) => {
     incrementRequestCount();
@@ -6994,25 +7070,42 @@ function registerRoutes(app2) {
       const { multiModelEnabled, thinkingProvider, thinkingModel, thinkingLocalUrl } = config;
       const useDualModel = multiModelEnabled && thinkingProvider && thinkingModel;
       if (useDualModel) {
-        const thinkPrompt = `[THINKING PHASE]
-Analyze the user's request and provide a detailed plan/analysis. Your output will be given as context to a code-generation model.
-
-User request:
-${message}`;
+        const thinkPrompt = `Analyze the user's request and provide a detailed plan/analysis.`;
         const thinkResponse = await generateAIResponse(thinkPrompt, [
-          ...historyContents
+          ...historyContents,
+          { role: "user", parts: buildParts(message, processedImages) }
         ], thinkingProvider, thinkingLocalUrl || localUrl, thinkingModel, resolvedApiKey, temperature, maxTokens, false);
         const reasoning2 = thinkResponse.text;
         const finalPrompt = `${systemPrompt}
 
-[PLANNING CONTEXT]
-The following is a detailed analysis of the user request:
+[CONTEXT]
+${reasoning2?.slice(0, 2e3) || ""}
 
-${reasoning2}
-
-[/PLANNING CONTEXT]
-
-Now respond to the user request: ${message}`;
+Now respond to: ${message}`;
+        const dmTools = getOpenAITools();
+        const dmUserContent = { role: "user", parts: buildParts(message, processedImages) };
+        const dmContents = [...historyContents, dmUserContent];
+        const MAX_DM_STEPS = 20;
+        let dmStep = 0;
+        let dmAiResponse = await generateAIResponse(finalPrompt, dmContents, aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, false, dmTools);
+        while (dmAiResponse.toolCalls && dmAiResponse.toolCalls.length > 0 && dmStep < MAX_DM_STEPS) {
+          dmStep++;
+          const toolResults = await executeToolCalls(dmAiResponse.toolCalls, mode, agent);
+          dmContents.push({
+            role: "assistant",
+            parts: [{ text: dmAiResponse.text || "" }],
+            _toolCalls: dmAiResponse.toolCalls.map((tc) => ({
+              id: tc.id,
+              type: "function",
+              function: { name: tc.name, arguments: JSON.stringify(tc.arguments) }
+            }))
+          });
+          for (const tr of toolResults) {
+            dmContents.push({ role: "tool", parts: [{ text: tr.content }], _toolCallId: tr.tool_call_id, _isToolResult: true });
+          }
+          dmAiResponse = await generateAIResponse(finalPrompt, dmContents, aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, false, dmTools);
+        }
+        const responseText2 = dmAiResponse.text;
         if (acceptSSE) {
           res.setHeader("Content-Type", "text/event-stream");
           res.setHeader("Cache-Control", "no-cache");
@@ -7021,61 +7114,41 @@ Now respond to the user request: ${message}`;
           res.write(`data: ${JSON.stringify({ reasoning: reasoning2 })}
 
 `);
-          const aiResponse3 = await generateStreamResponse(finalPrompt, [
-            ...historyContents,
-            { role: "user", parts: buildParts(message, processedImages) }
-          ], aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, {
+          if (dmStep > 0) res.write(`data: ${JSON.stringify({ toolSteps: dmStep })}
+
+`);
+          const finalStream = await generateStreamResponse(finalPrompt, dmContents, aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, {
             onToken: (token) => {
               res.write(`data: ${JSON.stringify({ content: token })}
 
 `);
             }
           });
-          const estimatedInputTokens3 = Math.ceil((finalPrompt + message).length / 4);
-          const estimatedOutputTokens3 = Math.ceil((aiResponse3.text + (aiResponse3.reasoning || "")).length / 4);
-          res.write(`data: ${JSON.stringify({
-            done: true,
-            continueNeeded: aiResponse3.text.includes("CONTINUE_NEEDED"),
-            tokenUsage: { input: estimatedInputTokens3, output: estimatedOutputTokens3 }
-          })}
+          const estIn2 = Math.ceil((finalPrompt + message).length / 4);
+          const estOut2 = Math.ceil((finalStream.text + (finalStream.reasoning || "")).length / 4);
+          res.write(`data: ${JSON.stringify({ done: true, continueNeeded: false, tokenUsage: { input: estIn2, output: estOut2 } })}
 
 `);
           res.end();
-          const userHistoryEntry3 = { role: "user", content: message, createdAt: /* @__PURE__ */ new Date() };
-          if (processedImages.length > 0) {
-            userHistoryEntry3.images = processedImages.map((img) => `data:${img.mimeType};base64,${img.base64}`);
-          }
-          const updatedHistory3 = [...history, userHistoryEntry3, { role: "assistant", content: aiResponse3.text, createdAt: /* @__PURE__ */ new Date() }];
-          await (0, import_promises16.writeFile)(HISTORY_FILE, JSON.stringify(updatedHistory3));
+          const histEntry2 = { role: "user", content: message, createdAt: /* @__PURE__ */ new Date() };
+          if (processedImages.length > 0) histEntry2.images = processedImages.map((img) => `data:${img.mimeType};base64,${img.base64}`);
+          await (0, import_promises16.writeFile)(HISTORY_FILE, JSON.stringify([...history, histEntry2, { role: "assistant", content: finalStream.text, createdAt: /* @__PURE__ */ new Date() }]));
           invalidateHistoryCache();
-          scheduleSummary(updatedHistory3, kConfig);
-          trackCost(aiProvider, resolvedModel || "unknown", estimatedInputTokens3, estimatedOutputTokens3).catch(() => {
+          scheduleSummary([...history, histEntry2, { role: "assistant", content: finalStream.text, createdAt: /* @__PURE__ */ new Date() }], kConfig);
+          trackCost(aiProvider, resolvedModel || "unknown", estIn2, estOut2).catch(() => {
           });
           return;
         }
-        const aiResponse2 = await generateAIResponse(finalPrompt, [
-          ...historyContents,
-          { role: "user", parts: buildParts(message, processedImages) }
-        ], aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, true);
-        const responseText2 = aiResponse2.text;
-        const estimatedInputTokens2 = Math.ceil((finalPrompt + message).length / 4);
-        const estimatedOutputTokens2 = Math.ceil(responseText2.length / 4);
-        const userHistoryEntry2 = { role: "user", content: message, createdAt: /* @__PURE__ */ new Date() };
-        if (processedImages.length > 0) {
-          userHistoryEntry2.images = processedImages.map((img) => `data:${img.mimeType};base64,${img.base64}`);
-        }
-        const updatedHistory2 = [...history, userHistoryEntry2, { role: "assistant", content: responseText2, createdAt: /* @__PURE__ */ new Date() }];
-        await (0, import_promises16.writeFile)(HISTORY_FILE, JSON.stringify(updatedHistory2));
+        const estIn = Math.ceil((finalPrompt + message).length / 4);
+        const estOut = Math.ceil(responseText2.length / 4);
+        const histEntry = { role: "user", content: message, createdAt: /* @__PURE__ */ new Date() };
+        if (processedImages.length > 0) histEntry.images = processedImages.map((img) => `data:${img.mimeType};base64,${img.base64}`);
+        await (0, import_promises16.writeFile)(HISTORY_FILE, JSON.stringify([...history, histEntry, { role: "assistant", content: responseText2, createdAt: /* @__PURE__ */ new Date() }]));
         invalidateHistoryCache();
-        scheduleSummary(updatedHistory2, kConfig);
-        trackCost(aiProvider, resolvedModel || "unknown", estimatedInputTokens2, estimatedOutputTokens2).catch(() => {
+        scheduleSummary([...history, histEntry, { role: "assistant", content: responseText2, createdAt: /* @__PURE__ */ new Date() }], kConfig);
+        trackCost(aiProvider, resolvedModel || "unknown", estIn, estOut).catch(() => {
         });
-        res.json({
-          content: responseText2,
-          reasoning: reasoning2 ?? void 0,
-          continueNeeded: responseText2.includes("CONTINUE_NEEDED"),
-          tokenUsage: { input: estimatedInputTokens2, output: estimatedOutputTokens2 }
-        });
+        res.json({ content: responseText2, reasoning: reasoning2 ?? void 0, continueNeeded: false, tokenUsage: { input: estIn, output: estOut } });
         return;
       }
       if (acceptSSE) {
@@ -7083,10 +7156,43 @@ Now respond to the user request: ${message}`;
         res.setHeader("Cache-Control", "no-cache");
         res.setHeader("Connection", "keep-alive");
         res.setHeader("X-Accel-Buffering", "no");
-        const aiResponse2 = await generateStreamResponse(systemPrompt, [
-          ...historyContents,
-          { role: "user", parts: buildParts(message, processedImages) }
-        ], aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, {
+        const oaiToolsSSE = getOpenAITools();
+        const userContentSSE = { role: "user", parts: buildParts(message, processedImages) };
+        const sseContents = [...historyContents, userContentSSE];
+        const MAX_SSE_STEPS = 20;
+        let sseStep = 0;
+        let sseAiResponse = await generateAIResponse(systemPrompt, sseContents, aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, false, oaiToolsSSE);
+        while (sseAiResponse.toolCalls && sseAiResponse.toolCalls.length > 0 && sseStep < MAX_SSE_STEPS) {
+          sseStep++;
+          res.write(`data: ${JSON.stringify({ toolCalls: sseAiResponse.toolCalls.map((tc) => ({ name: tc.name, args: tc.arguments })) })}
+
+`);
+          const toolResults = await executeToolCalls(sseAiResponse.toolCalls, mode, agent);
+          sseContents.push({
+            role: "assistant",
+            parts: [{ text: sseAiResponse.text || "" }],
+            _toolCalls: sseAiResponse.toolCalls.map((tc) => ({
+              id: tc.id,
+              type: "function",
+              function: { name: tc.name, arguments: JSON.stringify(tc.arguments) }
+            }))
+          });
+          for (const tr of toolResults) {
+            sseContents.push({
+              role: "tool",
+              parts: [{ text: tr.content }],
+              _toolCallId: tr.tool_call_id,
+              _isToolResult: true
+            });
+          }
+          sseAiResponse = await generateAIResponse(systemPrompt, sseContents, aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, false, oaiToolsSSE);
+          if (sseAiResponse.reasoning) {
+            res.write(`data: ${JSON.stringify({ reasoning: sseAiResponse.reasoning.slice(0, 500) })}
+
+`);
+          }
+        }
+        const finalStreamResponse = await generateStreamResponse(systemPrompt, sseContents, aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, {
           onToken: (token) => {
             res.write(`data: ${JSON.stringify({ content: token })}
 
@@ -7094,10 +7200,10 @@ Now respond to the user request: ${message}`;
           }
         });
         const estimatedInputTokens2 = Math.ceil((systemPrompt + message).length / 4);
-        const estimatedOutputTokens2 = Math.ceil((aiResponse2.text + (aiResponse2.reasoning || "")).length / 4);
+        const estimatedOutputTokens2 = Math.ceil((finalStreamResponse.text + (finalStreamResponse.reasoning || "")).length / 4);
         res.write(`data: ${JSON.stringify({
           done: true,
-          continueNeeded: aiResponse2.text.includes("CONTINUE_NEEDED"),
+          continueNeeded: false,
           tokenUsage: { input: estimatedInputTokens2, output: estimatedOutputTokens2 }
         })}
 
@@ -7107,7 +7213,7 @@ Now respond to the user request: ${message}`;
         if (processedImages.length > 0) {
           userHistoryEntry2.images = processedImages.map((img) => `data:${img.mimeType};base64,${img.base64}`);
         }
-        const updatedHistory2 = [...history, userHistoryEntry2, { role: "assistant", content: aiResponse2.text, createdAt: /* @__PURE__ */ new Date() }];
+        const updatedHistory2 = [...history, userHistoryEntry2, { role: "assistant", content: finalStreamResponse.text, createdAt: /* @__PURE__ */ new Date() }];
         await (0, import_promises16.writeFile)(HISTORY_FILE, JSON.stringify(updatedHistory2));
         invalidateHistoryCache();
         scheduleSummary(updatedHistory2, kConfig);
@@ -7115,12 +7221,40 @@ Now respond to the user request: ${message}`;
         });
         return;
       }
-      const aiResponse = await generateAIResponse(systemPrompt, [
-        ...historyContents,
-        { role: "user", parts: buildParts(message, processedImages) }
-      ], aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, true);
-      const responseText = aiResponse.text;
-      const reasoning = aiResponse.reasoning;
+      const oaiTools = getOpenAITools();
+      const userContent = { role: "user", parts: buildParts(message, processedImages) };
+      const MAX_TOOL_STEPS = 20;
+      let step = 0;
+      let fullReasoning = "";
+      const allContents = [...historyContents, userContent];
+      const toolOutputs = [];
+      let aiResponse = await generateAIResponse(systemPrompt, allContents, aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, true, oaiTools);
+      while (aiResponse.toolCalls && aiResponse.toolCalls.length > 0 && step < MAX_TOOL_STEPS) {
+        step++;
+        const toolResults = await executeToolCalls(aiResponse.toolCalls, mode, agent);
+        allContents.push({
+          role: "assistant",
+          parts: [{ text: aiResponse.text || `Tool call: ${aiResponse.toolCalls.map((tc) => tc.name).join(", ")}` }],
+          _toolCalls: aiResponse.toolCalls.map((tc) => ({
+            id: tc.id,
+            type: "function",
+            function: { name: tc.name, arguments: JSON.stringify(tc.arguments) }
+          }))
+        });
+        for (const tr of toolResults) {
+          allContents.push({
+            role: "tool",
+            parts: [{ text: tr.content }],
+            _toolCallId: tr.tool_call_id,
+            _isToolResult: true
+          });
+          toolOutputs.push(`[${tr.tool_call_id}]: ${tr.content.slice(0, 500)}`);
+        }
+        if (aiResponse.reasoning && !fullReasoning) fullReasoning = aiResponse.reasoning;
+        aiResponse = await generateAIResponse(systemPrompt, allContents, aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, false, oaiTools);
+      }
+      const responseText = aiResponse.text || "";
+      const reasoning = fullReasoning || aiResponse.reasoning;
       const estimatedInputTokens = Math.ceil((systemPrompt + message).length / 4);
       const estimatedOutputTokens = Math.ceil(responseText.length / 4);
       const userHistoryEntry = { role: "user", content: message, createdAt: /* @__PURE__ */ new Date() };
@@ -7134,7 +7268,8 @@ Now respond to the user request: ${message}`;
       res.json({
         content: responseText,
         reasoning: reasoning ?? void 0,
-        continueNeeded: responseText.includes("CONTINUE_NEEDED"),
+        toolCalls: step > 0 ? toolOutputs : void 0,
+        continueNeeded: false,
         tokenUsage: { input: estimatedInputTokens, output: estimatedOutputTokens }
       });
       trackCost(aiProvider, resolvedModel || "unknown", estimatedInputTokens, estimatedOutputTokens).catch(() => {

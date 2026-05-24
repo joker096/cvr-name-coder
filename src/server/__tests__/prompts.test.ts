@@ -115,6 +115,6 @@ describe("buildSystemPrompt", () => {
       mode: "build",
     });
 
-    expect(prompt).toContain("PERSISTENT CONTEXT CLUSTERS");
+    expect(prompt).toContain("PERSISTENT CONTEXT");
   });
 });

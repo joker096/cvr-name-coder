@@ -1,4 +1,4 @@
-import { TOOL_DEFINITIONS } from "../types/tools";
+import { TOOL_DEFINITIONS, toOpenAITools } from "../types/tools";
 import type { AgentId } from "../types/settings";
 import { getAgentById } from "./agentLoader.js";
 import { getMemoryContext } from "./memoryStore.js";
@@ -114,9 +114,8 @@ export async function buildSystemPrompt(options: {
   const activeDesignContext = await getActiveDesignSystem();
   const persistentContext = contextParts || memoryContext || "No previous knowledge clusters found. Kernel is in cold-start mode.";
 
-  const basePrompt = `You are "cvr.name", the world's most advanced autonomous coding kernel.
+  const basePrompt = `You are "cvr.name", an autonomous coding agent.
 
-CURRENT_AGENT_IDENTITY:
 ${agentIdentity}
 
 ${modeDirective}
@@ -124,33 +123,9 @@ ${modeDirective}
 AVAILABLE TOOLS:
 ${toolDescriptions}
 
-TOOL CALL FORMAT:
-When you need to use a tool, wrap it like this:
-<tool_call>
-<name>TOOL_NAME</name>
-<params>
-{"path": "relative/path", ...}
-</params>
-</tool_call>
+Use tools when needed to read files, search code, execute commands, edit files, browse the web, or manage git.
 
-INTEGRATED PROTOCOLS:
-- [COMPLEXITY_OPTIMIZER]: When analyzing or refactoring, apply Algorithmic Complexity Evaluation.
-- [AGENT_BEST_PRACTICES]: Maintain a proactive, provider-neutral stance.
-- [SUPERPOWERS]: Active plugin from OpenCode. Enables high-level brainstorming and advanced task decomposition.
-
-SYSTEM ARCHITECTURE:
-- Local Persistent Memory (.opencode-infinite)
-- Recursive Task Execution Pipeline
-- Dreamer Semantic Compression Engine
-- Change History with Undo/Redo
-- Browser Automation (Playwright) for web testing, scraping, and interaction
-
-AUTONOMY PROTOCOLS:
-1. OBJECTIVE: Absolute task completion.
-2. ITERATION: For multi-vector tasks, solve sequentially.
-3. TERMINATION: "CONTINUE_NEEDED" for next cycles. "TASK_COMPLETE" for final success.
-
-PERSISTENT CONTEXT CLUSTERS:
+PERSISTENT CONTEXT:
 ${persistentContext}
 ${instructionsContext ? "\n" + instructionsContext : ""}
 ${activeDesignContext ? "\n\n" + activeDesignContext : ""}
@@ -171,4 +146,8 @@ ${activeDesignContext ? "\n\n" + activeDesignContext : ""}
   });
 
   return resultPrompt;
+}
+
+export function getOpenAITools() {
+  return toOpenAITools(TOOL_DEFINITIONS);
 }

@@ -88,9 +88,18 @@ export const SkillsPanel: React.FC<SkillsPanelProps> = ({
   const learnedSkills = allSkills.filter((s) => s.status === "learned");
   const availableSkills = allSkills.filter((s) => s.status === "available");
 
-  const handleViewSkill = async (id: string) => {
+  const handleViewSkill = async (skill: Skill) => {
+    if (skill.status === "learned") {
+      setSelectedSkill({
+        id: skill.id,
+        name: skill.name,
+        description: skill.description,
+        triggers: [skill.id],
+      });
+      return;
+    }
     try {
-      const res = await fetch(`/api/skills/${id}`);
+      const res = await fetch(`/api/skills/${skill.id}`);
       const data = await res.json();
       if (data.id) setSelectedSkill(data as ApiSkill);
     } catch (e) {
@@ -114,7 +123,8 @@ export const SkillsPanel: React.FC<SkillsPanelProps> = ({
             learnedSkills.map((skill) => (
               <div
                 key={skill.id}
-                className="p-2 bg-dash-surface border border-dash-accent/20 rounded-md flex items-start gap-2 relative overflow-hidden group"
+                onClick={() => handleViewSkill(skill)}
+                className="p-2 bg-dash-surface border border-dash-accent/20 rounded-md flex items-start gap-2 relative overflow-hidden group cursor-pointer hover:border-dash-accent/40 transition-colors"
               >
                 <div
                   className="absolute top-0 right-0 w-8 h-8 bg-dash-accent/10 rotate-45 translate-x-4 -translate-y-4"
@@ -151,6 +161,7 @@ export const SkillsPanel: React.FC<SkillsPanelProps> = ({
             {availableSkills.map((skill) => (
               <div
                 key={skill.id}
+                onClick={() => handleViewSkill(skill)}
                 className="p-2 bg-neutral-900 border border-dash-border rounded-md flex items-start gap-2 opacity-60 hover:opacity-100 transition-opacity cursor-pointer group"
               >
                 <skill.icon
@@ -167,14 +178,14 @@ export const SkillsPanel: React.FC<SkillsPanelProps> = ({
                 </div>
                 <div className="flex items-center gap-1">
                   <button
-                    onClick={() => handleViewSkill(skill.id)}
+                    onClick={(e) => { e.stopPropagation(); handleViewSkill(skill); }}
                     className="self-center p-1 rounded hover:bg-neutral-800 text-dash-text-muted hover:text-dash-accent"
                     title={t.view || "View"}
                   >
                     <Eye className="w-3 h-3" />
                   </button>
                   <button
-                    onClick={() => onLearnSkill?.(skill.id)}
+                    onClick={(e) => { e.stopPropagation(); onLearnSkill?.(skill.id); }}
                     className="self-center p-1 rounded hover:bg-neutral-800 text-dash-text-muted hover:text-dash-success"
                     aria-label={`Learn ${skill.name}`}
                   >

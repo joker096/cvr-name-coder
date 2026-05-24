@@ -2,9 +2,10 @@ import { GoogleGenAI } from "@google/genai";
 import { DEFAULT_MAX_TOKENS, PROVIDER_DEFAULT_MODELS, PROVIDER_BASE_URLS } from "../utils/constants.js";
 import { estimateTokens } from "./costTracker.js";
 import { aiCache } from "./cache.js";
+import type { OpenAITool } from "../types/tools.js";
 
 /**
- * Structured AI response containing text, optional reasoning, and token counts.
+ * Structured AI response containing text, optional reasoning, token counts, and tool calls.
  */
 export interface AIResponse {
   /** The primary response text from the AI */
@@ -15,6 +16,10 @@ export interface AIResponse {
   inputTokens: number;
   /** Estimated or reported number of output tokens generated */
   outputTokens: number;
+  /** Native tool calls from the model, if any */
+  toolCalls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }> | undefined;
+  /** Finish reason: "stop", "tool_calls", "length", etc. */
+  finishReason?: string | undefined;
 }
 
 /**
@@ -80,6 +85,12 @@ export interface Content {
   role: string;
   /** Content parts (text and/or images) */
   parts: ContentPart[];
+  /** Internal: serialized tool_calls from assistant response (OpenAI format) */
+  _toolCalls?: Array<{ id: string; type: string; function: { name: string; arguments: string } }>;
+  /** Internal: tool_call_id for tool result messages */
+  _toolCallId?: string;
+  /** Internal: marks this as a tool result message */
+  _isToolResult?: boolean;
 }
 
 /**
@@ -98,6 +109,10 @@ export interface AIGenerateOptions {
   temperature?: number | undefined;
   /** Maximum tokens to generate */
   maxTokens?: number | undefined;
+  /** OpenAI-format tools for native function calling */
+  tools?: OpenAITool[] | undefined;
+  /** Tool result messages from previous tool executions (role: "tool") */
+  toolMessages?: Array<{ role: string; tool_call_id: string; content: string }> | undefined;
   /** Base URL override for local or custom providers */
   localUrl?: string | undefined;
   /** Whether to use the AI response cache */
@@ -193,33 +208,59 @@ class GeminiProvider extends AIProvider {
 }
 
 function buildOpenAICompatibleBody(options: AIGenerateOptions, providerName: string): Record<string, unknown> {
-  const { prompt, contents, modelName, temperature, maxTokens } = options;
+  const { prompt, contents, modelName, temperature, maxTokens, tools, toolMessages } = options;
   const defaultModel = PROVIDER_DEFAULT_MODELS[providerName as keyof typeof PROVIDER_DEFAULT_MODELS] ?? "local-model";
-  const body: Record<string, unknown> = {
-    model: modelName || defaultModel,
-    messages: [
-      { role: "system", content: prompt },
-      ...contents.map((c) => {
-        const hasImages = c.parts.some((p) => p.inlineData);
-        if (hasImages) {
-          return {
-            role: c.role === "model" ? "assistant" : c.role,
-            content: c.parts.map((p) => {
-              if (p.text) return { type: "text", text: p.text };
-              if (p.inlineData) return { type: "image_url", image_url: { url: `data:${p.inlineData.mimeType};base64,${p.inlineData.data}` } };
-              return null;
-            }).filter((x) => x !== null),
-          };
-        }
+  const messages: Array<Record<string, unknown>> = [
+    { role: "system", content: prompt },
+    ...contents.map((c) => {
+      if (c._isToolResult) {
         return {
-          role: c.role === "model" ? "assistant" : c.role,
+          role: "tool",
+          tool_call_id: c._toolCallId || "",
           content: c.parts[0]?.text ?? "",
         };
-      }),
-    ],
+      }
+      const hasImages = c.parts.some((p) => p.inlineData);
+      if (hasImages) {
+        return {
+          role: c.role === "model" ? "assistant" : c.role,
+          content: c.parts.map((p) => {
+            if (p.text) return { type: "text", text: p.text };
+            if (p.inlineData) return { type: "image_url", image_url: { url: `data:${p.inlineData.mimeType};base64,${p.inlineData.data}` } };
+            return null;
+          }).filter((x) => x !== null),
+        };
+      }
+      if (c.role === "assistant" && c._toolCalls && c._toolCalls.length > 0) {
+        return {
+          role: "assistant",
+          content: c.parts[0]?.text || null,
+          tool_calls: c._toolCalls,
+        };
+      }
+      return {
+        role: c.role === "model" ? "assistant" : c.role,
+        content: c.parts[0]?.text ?? "",
+      };
+    }),
+  ];
+  if (toolMessages && toolMessages.length > 0) {
+    messages.push(...toolMessages.map((tm) => ({
+      role: tm.role,
+      tool_call_id: tm.tool_call_id,
+      content: tm.content,
+    })));
+  }
+  const body: Record<string, unknown> = {
+    model: modelName || defaultModel,
+    messages,
   };
   if (temperature !== undefined) body.temperature = temperature;
   body.max_tokens = maxTokens ?? DEFAULT_MAX_TOKENS;
+  if (tools && tools.length > 0) {
+    body.tools = tools;
+    body.tool_choice = "auto";
+  }
   return body;
 }
 
@@ -250,13 +291,16 @@ interface OpenAIResponse {
       content?: string | OpenAIMessageContentPart[];
       reasoning_content?: string | OpenAIMessageContentPart[];
       reasoning?: string | OpenAIMessageContentPart[];
+      tool_calls?: Array<{ id: string; type: string; function: { name: string; arguments: string } }>;
     };
     delta?: {
       content?: string | OpenAIMessageContentPart[];
       reasoning_content?: string | OpenAIMessageContentPart[];
       reasoning?: string | OpenAIMessageContentPart[];
+      tool_calls?: Array<{ index?: number; id?: string; type?: string; function?: { name?: string; arguments?: string } }>;
     };
     finish_reason?: string | null;
+    index?: number;
   }>;
   usage?: { prompt_tokens?: number; completion_tokens?: number };
 }
@@ -339,7 +383,14 @@ class OpenAICompatibleProvider extends AIProvider {
     const text = extractOpenAIText(msg?.content) || "";
     const inputTokens = data.usage?.prompt_tokens || estimateTokens(prompt + contents.map((c) => c.parts?.[0]?.text || "").join(" "));
     const outputTokens = data.usage?.completion_tokens || estimateTokens(text + (reasoning || ""));
-    return { text, reasoning, inputTokens, outputTokens };
+    const finishReason = choice?.finish_reason ?? undefined;
+    const rawToolCalls = (msg as Record<string, unknown> | undefined)?.["tool_calls"] as Array<{ id: string; type: string; function: { name: string; arguments: string } }> | undefined;
+    const toolCalls = rawToolCalls?.map((tc) => ({
+      id: tc.id,
+      name: tc.function.name,
+      arguments: JSON.parse(tc.function.arguments || "{}") as Record<string, unknown>,
+    }));
+    return { text, reasoning, inputTokens, outputTokens, toolCalls, finishReason };
   }
 
   async generateStream(options: AIGenerateOptions, callbacks: StreamCallbacks): Promise<AIResponse> {
@@ -374,6 +425,8 @@ class OpenAICompatibleProvider extends AIProvider {
     let buf = "";
     let fullText = "";
     let fullReasoning = "";
+    const toolCallAccum: Map<number, { id: string; name: string; args: string }> = new Map();
+    let finishReason: string | undefined;
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -388,6 +441,22 @@ class OpenAICompatibleProvider extends AIProvider {
         try {
           const chunk = JSON.parse(jsonStr) as OpenAIResponse;
           const delta = chunk.choices?.[0]?.delta;
+          if (delta?.tool_calls) {
+            for (const tc of delta.tool_calls) {
+              const idx = tc.index ?? 0;
+              let entry = toolCallAccum.get(idx);
+              if (!entry) {
+                entry = { id: "", name: "", args: "" };
+                toolCallAccum.set(idx, entry);
+              }
+              if (tc.id) entry.id = tc.id;
+              if (tc.function?.name) entry.name = tc.function.name;
+              if (tc.function?.arguments) entry.args += tc.function.arguments;
+            }
+          }
+          if (chunk.choices?.[0]?.finish_reason) {
+            finishReason = chunk.choices[0].finish_reason || undefined;
+          }
           const rs = extractOpenAIText(delta?.reasoning_content || delta?.reasoning);
           if (rs) {
             fullReasoning += rs;
@@ -400,11 +469,20 @@ class OpenAICompatibleProvider extends AIProvider {
       }
     }
 
+    const toolCallArray = Array.from(toolCallAccum.values())
+      .filter((tc) => tc.name)
+      .map((tc) => ({
+        id: tc.id,
+        name: tc.name,
+        arguments: JSON.parse(tc.args || "{}") as Record<string, unknown>,
+      }));
     return {
       text: fullText,
       reasoning: fullReasoning || undefined,
       inputTokens: estimateTokens(prompt),
       outputTokens: estimateTokens(fullText + fullReasoning),
+      toolCalls: toolCallArray.length > 0 ? toolCallArray : undefined,
+      finishReason,
     };
   }
 }
@@ -589,7 +667,9 @@ export async function generateAIResponse(
   apiKey?: string,
   temperature?: number,
   maxTokens?: number,
-  useCache?: boolean
+  useCache?: boolean,
+  tools?: OpenAITool[],
+  toolMessages?: Array<{ role: string; tool_call_id: string; content: string }>
 ): Promise<AIResponse> {
   if (!provider) {
     throw new Error("AI provider not configured.");
@@ -603,7 +683,7 @@ export async function generateAIResponse(
   if (!p) {
     throw new Error(`Unknown provider: ${provider}`);
   }
-  const result = await p.generate({ prompt, contents, localUrl, modelName, apiKey, temperature, maxTokens });
+  const result = await p.generate({ prompt, contents, localUrl, modelName, apiKey, temperature, maxTokens, tools, toolMessages });
 
   if (useCache) {
     aiCache.set(prompt, contents, provider, result.text, modelName);
@@ -638,7 +718,9 @@ export async function generateStreamResponse(
   apiKey?: string,
   temperature?: number,
   maxTokens?: number,
-  callbacks?: StreamCallbacks
+  callbacks?: StreamCallbacks,
+  tools?: OpenAITool[],
+  toolMessages?: Array<{ role: string; tool_call_id: string; content: string }>
 ): Promise<AIResponse> {
   if (!provider) {
     throw new Error("AI provider not configured.");
@@ -648,7 +730,7 @@ export async function generateStreamResponse(
   if (!p) {
     throw new Error(`Unknown provider: ${provider}`);
   }
-  return p.generateStream({ prompt, contents, localUrl, modelName, apiKey, temperature, maxTokens }, callbacks || { onToken: () => {} });
+  return p.generateStream({ prompt, contents, localUrl, modelName, apiKey, temperature, maxTokens, tools, toolMessages }, callbacks || { onToken: () => {} });
 }
 
 /**

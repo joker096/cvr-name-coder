@@ -136,16 +136,16 @@ export function parseSSEStream(buffer: string): { lines: string[]; remaining: st
 
 /**
  * Extracts tool call JSON blocks from AI response content.
- * Looks for ```tool_call ... ``` fenced code blocks.
+ * Handles both ```tool_call ... ``` fenced code blocks and <tool_call> XML format.
  * @param {string} content - The raw AI response content.
  * @returns {Array<{ server: string; tool: string; arguments: Record<string, unknown> }>} Parsed tool call objects.
  */
 export function extractToolCalls(content: string): Array<{ server: string; tool: string; arguments: Record<string, unknown> }> {
   const calls: Array<{ server: string; tool: string; arguments: Record<string, unknown> }> = [];
-  const regex = /```tool_call\n([\s\S]*?)```/g;
+  const fencedRegex = /```tool_call\n([\s\S]*?)```/g;
   let match;
 
-  while ((match = regex.exec(content)) !== null) {
+  while ((match = fencedRegex.exec(content)) !== null) {
     try {
       const call = JSON.parse(match[1] || '{}');
       if (call.server && call.tool) {
@@ -153,6 +153,18 @@ export function extractToolCalls(content: string): Array<{ server: string; tool:
       }
     } catch {
       // skip malformed tool calls
+    }
+  }
+
+  const xmlRegex = /<tool_call>\s*<name>(.+?)<\/name>\s*<params>\s*([\s\S]*?)\s*<\/params>\s*<\/tool_call>/g;
+  while ((match = xmlRegex.exec(content)) !== null) {
+    try {
+      const name = (match[1] || '').trim();
+      const paramsStr = (match[2] || '{}').trim();
+      const params = JSON.parse(paramsStr) as Record<string, unknown>;
+      calls.push({ server: 'local', tool: name, arguments: params });
+    } catch {
+      // skip malformed
     }
   }
 

@@ -1,9 +1,9 @@
 import type { Application, Request, Response } from "express";
 import * as path from "path";
 import { readFile, writeFile, mkdir, access } from "fs/promises";
-import { buildSystemPrompt } from "../prompts.js";
+import { buildSystemPrompt, getOpenAITools } from "../prompts.js";
 import { generateAIResponse, generateStreamResponse, generateAIContent, generateWithDualModel } from "../providers.js";
-import type { DualModelConfig } from "../providers.js";
+import type { DualModelConfig, Content } from "../providers.js";
 import { ContextWindow, Priority } from "../contextWindow.js";
 import { processImages, type ProcessedImage } from "../imageProcessor.js";
 import type { HistoryEntry, MemoryEntry } from "../../types/api.js";
@@ -12,6 +12,7 @@ import { incrementRequestCount } from "../standalone/health.js";
 import { trackCost } from "../costTracker.js";
 import { buildDualModelConfig } from "../dualModel.js";
 import { validateBody, ChatRequestSchema } from "../validation.js";
+import { executeTool } from "../tools.js";
 import { log } from "../logger.js";
 
 /** Configuration for AI chat provider and model settings. */
@@ -156,6 +157,31 @@ function scheduleSummary(updatedHistory: HistoryEntry[], kConfig: ChatConfig) {
   });
 }
 
+async function executeToolCalls(
+  toolCalls: Array<{ id: string; name: string; arguments: Record<string, unknown> }>,
+  mode: string,
+  agent: string
+): Promise<Array<{ role: string; tool_call_id: string; content: string }>> {
+  const results: Array<{ role: string; tool_call_id: string; content: string }> = [];
+  for (const tc of toolCalls) {
+    const result = await executeTool(
+      { name: tc.name, params: tc.arguments },
+      mode as "plan" | "build" | "review",
+      undefined,
+      agent
+    );
+    results.push({
+      role: "tool",
+      tool_call_id: tc.id,
+      content: result.success ? result.output : `Error: ${result.error || "Unknown error"}`,
+    });
+    if (result.error) {
+      log.warn(`Tool ${tc.name} error: ${result.error}`);
+    }
+  }
+  return results;
+}
+
 /**
  * Registers all chat-related API routes on the Express application.
  * 
@@ -244,80 +270,75 @@ export function registerRoutes(app: Application) {
       const useDualModel = multiModelEnabled && thinkingProvider && thinkingModel;
 
       if (useDualModel) {
-        const thinkPrompt = `[THINKING PHASE]\nAnalyze the user's request and provide a detailed plan/analysis. Your output will be given as context to a code-generation model.\n\nUser request:\n${message}`;
+        const thinkPrompt = `Analyze the user's request and provide a detailed plan/analysis.`;
         const thinkResponse = await generateAIResponse(thinkPrompt, [
           ...historyContents,
+          { role: 'user', parts: buildParts(message, processedImages) },
         ], thinkingProvider, thinkingLocalUrl || localUrl, thinkingModel, resolvedApiKey, temperature, maxTokens, false);
         const reasoning = thinkResponse.text;
 
-        const finalPrompt = `${systemPrompt}\n\n[PLANNING CONTEXT]\nThe following is a detailed analysis of the user request:\n\n${reasoning}\n\n[/PLANNING CONTEXT]\n\nNow respond to the user request: ${message}`;
+        const finalPrompt = `${systemPrompt}\n\n[CONTEXT]\n${reasoning?.slice(0, 2000) || ""}\n\nNow respond to: ${message}`;
+
+        const dmTools = getOpenAITools();
+        const dmUserContent: Content = { role: 'user', parts: buildParts(message, processedImages) };
+        const dmContents: Content[] = [...historyContents, dmUserContent];
+        const MAX_DM_STEPS = 20;
+        let dmStep = 0;
+
+        let dmAiResponse = await generateAIResponse(finalPrompt, dmContents, aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, false, dmTools);
+
+        while (dmAiResponse.toolCalls && dmAiResponse.toolCalls.length > 0 && dmStep < MAX_DM_STEPS) {
+          dmStep++;
+          const toolResults = await executeToolCalls(dmAiResponse.toolCalls, mode, agent);
+          dmContents.push({
+            role: "assistant",
+            parts: [{ text: dmAiResponse.text || "" }],
+            _toolCalls: dmAiResponse.toolCalls.map((tc) => ({
+              id: tc.id, type: "function", function: { name: tc.name, arguments: JSON.stringify(tc.arguments) },
+            })),
+          });
+          for (const tr of toolResults) {
+            dmContents.push({ role: "tool", parts: [{ text: tr.content }], _toolCallId: tr.tool_call_id, _isToolResult: true });
+          }
+          dmAiResponse = await generateAIResponse(finalPrompt, dmContents, aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, false, dmTools);
+        }
+
+        const responseText = dmAiResponse.text;
 
         if (acceptSSE) {
           res.setHeader("Content-Type", "text/event-stream");
           res.setHeader("Cache-Control", "no-cache");
           res.setHeader("Connection", "keep-alive");
           res.setHeader("X-Accel-Buffering", "no");
-
           res.write(`data: ${JSON.stringify({ reasoning })}\n\n`);
+          if (dmStep > 0) res.write(`data: ${JSON.stringify({ toolSteps: dmStep })}\n\n`);
 
-          const aiResponse = await generateStreamResponse(finalPrompt, [
-            ...historyContents,
-            { role: 'user', parts: buildParts(message, processedImages) }
-          ], aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, {
-            onToken: (token: string) => {
-              res.write(`data: ${JSON.stringify({ content: token })}\n\n`);
-            },
+          const finalStream = await generateStreamResponse(finalPrompt, dmContents, aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, {
+            onToken: (token: string) => { res.write(`data: ${JSON.stringify({ content: token })}\n\n`); },
           });
-
-          const estimatedInputTokens = Math.ceil((finalPrompt + message).length / 4);
-          const estimatedOutputTokens = Math.ceil((aiResponse.text + (aiResponse.reasoning || "")).length / 4);
-
-          res.write(`data: ${JSON.stringify({
-            done: true,
-            continueNeeded: aiResponse.text.includes("CONTINUE_NEEDED"),
-            tokenUsage: { input: estimatedInputTokens, output: estimatedOutputTokens }
-          })}\n\n`);
+          const estIn = Math.ceil((finalPrompt + message).length / 4);
+          const estOut = Math.ceil((finalStream.text + (finalStream.reasoning || "")).length / 4);
+          res.write(`data: ${JSON.stringify({ done: true, continueNeeded: false, tokenUsage: { input: estIn, output: estOut } })}\n\n`);
           res.end();
 
-          const userHistoryEntry: HistoryEntry = { role: 'user', content: message, createdAt: new Date() };
-          if (processedImages.length > 0) {
-            userHistoryEntry.images = processedImages.map(img => `data:${img.mimeType};base64,${img.base64}`);
-          }
-          const updatedHistory: HistoryEntry[] = [...history, userHistoryEntry, { role: 'assistant' as const, content: aiResponse.text, createdAt: new Date() }];
-          await writeFile(HISTORY_FILE, JSON.stringify(updatedHistory));
+          const histEntry: HistoryEntry = { role: 'user', content: message, createdAt: new Date() };
+          if (processedImages.length > 0) histEntry.images = processedImages.map(img => `data:${img.mimeType};base64,${img.base64}`);
+          await writeFile(HISTORY_FILE, JSON.stringify([...history, histEntry, { role: 'assistant' as const, content: finalStream.text, createdAt: new Date() }]));
           invalidateHistoryCache();
-
-          scheduleSummary(updatedHistory, kConfig as ChatConfig);
-          trackCost(aiProvider, resolvedModel || 'unknown', estimatedInputTokens, estimatedOutputTokens).catch(() => {});
+          scheduleSummary([...history, histEntry, { role: 'assistant' as const, content: finalStream.text, createdAt: new Date() }], kConfig as ChatConfig);
+          trackCost(aiProvider, resolvedModel || 'unknown', estIn, estOut).catch(() => {});
           return;
         }
 
-        const aiResponse = await generateAIResponse(finalPrompt, [
-          ...historyContents,
-          { role: 'user', parts: buildParts(message, processedImages) }
-        ], aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, true);
-        const responseText = aiResponse.text;
-
-        const estimatedInputTokens = Math.ceil((finalPrompt + message).length / 4);
-        const estimatedOutputTokens = Math.ceil(responseText.length / 4);
-
-        const userHistoryEntry: HistoryEntry = { role: 'user', content: message, createdAt: new Date() };
-        if (processedImages.length > 0) {
-          userHistoryEntry.images = processedImages.map(img => `data:${img.mimeType};base64,${img.base64}`);
-        }
-        const updatedHistory: HistoryEntry[] = [...history, userHistoryEntry, { role: 'assistant' as const, content: responseText, createdAt: new Date() }];
-        await writeFile(HISTORY_FILE, JSON.stringify(updatedHistory));
+        const estIn = Math.ceil((finalPrompt + message).length / 4);
+        const estOut = Math.ceil(responseText.length / 4);
+        const histEntry: HistoryEntry = { role: 'user', content: message, createdAt: new Date() };
+        if (processedImages.length > 0) histEntry.images = processedImages.map(img => `data:${img.mimeType};base64,${img.base64}`);
+        await writeFile(HISTORY_FILE, JSON.stringify([...history, histEntry, { role: 'assistant' as const, content: responseText, createdAt: new Date() }]));
         invalidateHistoryCache();
-
-        scheduleSummary(updatedHistory, kConfig as ChatConfig);
-        trackCost(aiProvider, resolvedModel || 'unknown', estimatedInputTokens, estimatedOutputTokens).catch(() => {});
-
-        res.json({ 
-          content: responseText,
-          reasoning: reasoning ?? undefined,
-          continueNeeded: responseText.includes("CONTINUE_NEEDED"),
-          tokenUsage: { input: estimatedInputTokens, output: estimatedOutputTokens }
-        });
+        scheduleSummary([...history, histEntry, { role: 'assistant' as const, content: responseText, createdAt: new Date() }], kConfig as ChatConfig);
+        trackCost(aiProvider, resolvedModel || 'unknown', estIn, estOut).catch(() => {});
+        res.json({ content: responseText, reasoning: reasoning ?? undefined, continueNeeded: false, tokenUsage: { input: estIn, output: estOut } });
         return;
       }
 
@@ -327,21 +348,57 @@ export function registerRoutes(app: Application) {
         res.setHeader("Connection", "keep-alive");
         res.setHeader("X-Accel-Buffering", "no");
 
-        const aiResponse = await generateStreamResponse(systemPrompt, [
-          ...historyContents,
-          { role: 'user', parts: buildParts(message, processedImages) }
-        ], aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, {
+        const oaiToolsSSE = getOpenAITools();
+        const userContentSSE: Content = { role: 'user', parts: buildParts(message, processedImages) };
+        const sseContents: Content[] = [...historyContents, userContentSSE];
+
+        const MAX_SSE_STEPS = 20;
+        let sseStep = 0;
+        let sseAiResponse = await generateAIResponse(systemPrompt, sseContents, aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, false, oaiToolsSSE);
+
+        while (sseAiResponse.toolCalls && sseAiResponse.toolCalls.length > 0 && sseStep < MAX_SSE_STEPS) {
+          sseStep++;
+          res.write(`data: ${JSON.stringify({ toolCalls: sseAiResponse.toolCalls.map((tc) => ({ name: tc.name, args: tc.arguments })) })}\n\n`);
+
+          const toolResults = await executeToolCalls(sseAiResponse.toolCalls, mode, agent);
+
+          sseContents.push({
+            role: "assistant",
+            parts: [{ text: sseAiResponse.text || "" }],
+            _toolCalls: sseAiResponse.toolCalls.map((tc) => ({
+              id: tc.id,
+              type: "function",
+              function: { name: tc.name, arguments: JSON.stringify(tc.arguments) },
+            })),
+          });
+
+          for (const tr of toolResults) {
+            sseContents.push({
+              role: "tool",
+              parts: [{ text: tr.content }],
+              _toolCallId: tr.tool_call_id,
+              _isToolResult: true,
+            });
+          }
+
+          sseAiResponse = await generateAIResponse(systemPrompt, sseContents, aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, false, oaiToolsSSE);
+          if (sseAiResponse.reasoning) {
+            res.write(`data: ${JSON.stringify({ reasoning: sseAiResponse.reasoning.slice(0, 500) })}\n\n`);
+          }
+        }
+
+        const finalStreamResponse = await generateStreamResponse(systemPrompt, sseContents, aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, {
           onToken: (token: string) => {
             res.write(`data: ${JSON.stringify({ content: token })}\n\n`);
           },
         });
 
         const estimatedInputTokens = Math.ceil((systemPrompt + message).length / 4);
-        const estimatedOutputTokens = Math.ceil((aiResponse.text + (aiResponse.reasoning || "")).length / 4);
+        const estimatedOutputTokens = Math.ceil((finalStreamResponse.text + (finalStreamResponse.reasoning || "")).length / 4);
 
         res.write(`data: ${JSON.stringify({
           done: true,
-          continueNeeded: aiResponse.text.includes("CONTINUE_NEEDED"),
+          continueNeeded: false,
           tokenUsage: { input: estimatedInputTokens, output: estimatedOutputTokens }
         })}\n\n`);
         res.end();
@@ -350,7 +407,7 @@ export function registerRoutes(app: Application) {
         if (processedImages.length > 0) {
           userHistoryEntry.images = processedImages.map(img => `data:${img.mimeType};base64,${img.base64}`);
         }
-        const updatedHistory: HistoryEntry[] = [...history, userHistoryEntry, { role: 'assistant' as const, content: aiResponse.text, createdAt: new Date() }];
+        const updatedHistory: HistoryEntry[] = [...history, userHistoryEntry, { role: 'assistant' as const, content: finalStreamResponse.text, createdAt: new Date() }];
         await writeFile(HISTORY_FILE, JSON.stringify(updatedHistory));
         invalidateHistoryCache();
 
@@ -360,12 +417,48 @@ export function registerRoutes(app: Application) {
         return;
       }
 
-      const aiResponse = await generateAIResponse(systemPrompt, [
-        ...historyContents,
-        { role: 'user', parts: buildParts(message, processedImages) }
-      ], aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, true);
-      const responseText = aiResponse.text;
-      const reasoning = aiResponse.reasoning;
+      const oaiTools = getOpenAITools();
+      const userContent: Content = { role: 'user', parts: buildParts(message, processedImages) };
+
+      const MAX_TOOL_STEPS = 20;
+      let step = 0;
+      let fullReasoning = "";
+      const allContents: Content[] = [...historyContents, userContent];
+      const toolOutputs: string[] = [];
+
+      let aiResponse = await generateAIResponse(systemPrompt, allContents, aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, true, oaiTools);
+
+      while (aiResponse.toolCalls && aiResponse.toolCalls.length > 0 && step < MAX_TOOL_STEPS) {
+        step++;
+        const toolResults = await executeToolCalls(aiResponse.toolCalls, mode, agent);
+
+        allContents.push({
+          role: "assistant",
+          parts: [{ text: aiResponse.text || `Tool call: ${aiResponse.toolCalls.map((tc) => tc.name).join(", ")}` }],
+          _toolCalls: aiResponse.toolCalls.map((tc) => ({
+            id: tc.id,
+            type: "function",
+            function: { name: tc.name, arguments: JSON.stringify(tc.arguments) },
+          })),
+        });
+
+        for (const tr of toolResults) {
+          allContents.push({
+            role: "tool",
+            parts: [{ text: tr.content }],
+            _toolCallId: tr.tool_call_id,
+            _isToolResult: true,
+          });
+          toolOutputs.push(`[${tr.tool_call_id}]: ${tr.content.slice(0, 500)}`);
+        }
+
+        if (aiResponse.reasoning && !fullReasoning) fullReasoning = aiResponse.reasoning;
+
+        aiResponse = await generateAIResponse(systemPrompt, allContents, aiProvider, localUrl, resolvedModel, resolvedApiKey, temperature, maxTokens, false, oaiTools);
+      }
+
+      const responseText = aiResponse.text || "";
+      const reasoning = fullReasoning || aiResponse.reasoning;
 
       const estimatedInputTokens = Math.ceil((systemPrompt + message).length / 4);
       const estimatedOutputTokens = Math.ceil(responseText.length / 4);
@@ -382,8 +475,9 @@ export function registerRoutes(app: Application) {
 
       res.json({ 
         content: responseText,
-        reasoning: reasoning ?? undefined, 
-        continueNeeded: responseText.includes("CONTINUE_NEEDED"),
+        reasoning: reasoning ?? undefined,
+        toolCalls: step > 0 ? toolOutputs : undefined,
+        continueNeeded: false,
         tokenUsage: { input: estimatedInputTokens, output: estimatedOutputTokens }
       });
 

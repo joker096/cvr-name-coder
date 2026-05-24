@@ -517,3 +517,46 @@ export const READ_ONLY_TOOLS = new Set(
 );
 
 export const ALL_TOOL_NAMES = TOOL_DEFINITIONS.map((t) => t.name);
+
+export interface OpenAITool {
+  type: "function";
+  function: {
+    name: string;
+    description: string;
+    parameters: {
+      type: "object";
+      properties: Record<string, { type: string; description: string; enum?: string[] }>;
+      required: string[];
+    };
+  };
+}
+
+export interface OpenAIToolCall {
+  id: string;
+  type: "function";
+  function: {
+    name: string;
+    arguments: string;
+  };
+}
+
+export function toOpenAITools(definitions?: ToolDefinition[]): OpenAITool[] {
+  const defs = definitions ?? TOOL_DEFINITIONS;
+  return defs.map((t) => ({
+    type: "function" as const,
+    function: {
+      name: t.name,
+      description: t.description,
+      parameters: {
+        type: "object" as const,
+        properties: Object.fromEntries(
+          Object.entries(t.parameters.properties).map(([key, val]) => [
+            key,
+            { type: val.type, description: val.description },
+          ])
+        ),
+        required: t.parameters.required,
+      },
+    },
+  }));
+}
