@@ -265,19 +265,20 @@ async function finalizeChat(
   ctx: ChatContext,
   extra?: { reasoning?: string | undefined; steps?: number | undefined; toolOutputs?: string[] | undefined }
 ) {
-  const updatedHistory: HistoryEntry[] = [...history, userEntry, { role: 'assistant' as const, content: responseText, createdAt: new Date() }];
+  const sanitized = sanitizeAIResponse(responseText);
+  const updatedHistory: HistoryEntry[] = [...history, userEntry, { role: 'assistant' as const, content: sanitized, createdAt: new Date() }];
   await writeFile(HISTORY_FILE, JSON.stringify(updatedHistory));
   invalidateHistoryCache();
   scheduleSummary(updatedHistory, ctx.kConfig);
-  trackCost(ctx.aiProvider, ctx.resolvedModel || 'unknown', Math.ceil(responseText.length / 2.5), Math.ceil(responseText.length / 2.5)).catch(() => {});
+  trackCost(ctx.aiProvider, ctx.resolvedModel || 'unknown', Math.ceil(sanitized.length / 2.5), Math.ceil(sanitized.length / 2.5)).catch(() => {});
   return {
     updatedHistory,
     response: {
-      content: responseText,
+      content: sanitized,
       reasoning: extra?.reasoning ?? undefined,
       toolCalls: extra?.toolOutputs,
       continueNeeded: false,
-      tokenUsage: { input: Math.ceil((ctx.systemPrompt + ctx.message).length / 2.5), output: Math.ceil(responseText.length / 2.5) },
+      tokenUsage: { input: Math.ceil((ctx.systemPrompt + ctx.message).length / 2.5), output: Math.ceil(sanitized.length / 2.5) },
     },
   };
 }
@@ -291,6 +292,52 @@ function setSSEHeaders(res: Response) {
 
 function sseWrite(res: Response, data: Record<string, unknown>) {
   res.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
+const HALLUCINATED_TOOL_PATTERN = /<\s*(?:invoke|parameter|tool_calls?|function_calls?|function_call)[\s\S]*?<\/\s*(?:invoke|parameter|tool_calls?|function_calls?|function_call)\s*>/gi;
+const FAKE_PATH_PREFIX = /(^|\n)\s*(?:Now let me read|Let me read|I'll read|Reading)\s+/gi;
+
+function sanitizeAIResponse(text: string): string {
+  let sanitized = text.replace(HALLUCINATED_TOOL_PATTERN, '[tool call removed]');
+  sanitized = sanitized.replace(FAKE_PATH_PREFIX, '$1');
+  return sanitized;
+}
+
+class SSETokenFilter {
+  private buf = '';
+  private inTag = false;
+
+  feed(token: string): string {
+    this.buf += token;
+    if (!this.inTag) {
+      const tagIdx = this.buf.search(/<\s*(invoke|parameter|tool_calls?|function_calls?|function_call)/i);
+      if (tagIdx === -1) {
+        const out = this.buf;
+        this.buf = '';
+        return out;
+      }
+      const before = this.buf.slice(0, tagIdx);
+      this.buf = this.buf.slice(tagIdx);
+      this.inTag = true;
+      return before;
+    }
+    const closeIdx = this.buf.search(/<\/\s*(invoke|parameter|tool_calls?|function_calls?|function_call)\s*>/i);
+    if (closeIdx !== -1) {
+      this.buf = this.buf.slice(closeIdx + this.buf.slice(closeIdx).indexOf('>') + 1);
+      this.inTag = false;
+    } else if (this.buf.length > 500) {
+      this.buf = '';
+      this.inTag = false;
+    }
+    return '';
+  }
+
+  flush(): string {
+    const out = this.inTag ? '' : this.buf;
+    this.buf = '';
+    this.inTag = false;
+    return out;
+  }
 }
 
 export function registerRoutes(app: Application) {
@@ -375,9 +422,17 @@ export function registerRoutes(app: Application) {
           sseWrite(res, { reasoning });
           if (result.steps > 0) sseWrite(res, { toolSteps: result.steps });
 
+          const sseFilter = new SSETokenFilter();
           const finalStream = await generateStreamResponse(finalPrompt, dmContents, ctx.aiProvider, ctx.localUrl, ctx.resolvedModel, ctx.resolvedApiKey, ctx.temperature, ctx.maxTokens, {
-            onToken: (token: string) => { if (!clientDisconnected) sseWrite(res, { content: token }); },
+            onToken: (token: string) => {
+              if (!clientDisconnected) {
+                const filtered = sseFilter.feed(token);
+                if (filtered) sseWrite(res, { content: filtered });
+              }
+            },
           });
+          const flushToken = sseFilter.flush();
+          if (!clientDisconnected && flushToken) sseWrite(res, { content: flushToken });
 
           if (!clientDisconnected) {
             sseWrite(res, { done: true, continueNeeded: false, tokenUsage: { input: Math.ceil((finalPrompt + message).length / 2.5), output: Math.ceil(finalStream.text.length / 2.5) } });
@@ -418,9 +473,17 @@ export function registerRoutes(app: Application) {
 
         if (clientDisconnected) return;
 
+        const sseTokenFilter = new SSETokenFilter();
         const finalStreamResponse = await generateStreamResponse(systemPrompt, allContents, ctx.aiProvider, ctx.localUrl, ctx.resolvedModel, ctx.resolvedApiKey, ctx.temperature, ctx.maxTokens, {
-          onToken: (token: string) => { if (!clientDisconnected) sseWrite(res, { content: token }); },
+          onToken: (token: string) => {
+            if (!clientDisconnected) {
+              const filtered = sseTokenFilter.feed(token);
+              if (filtered) sseWrite(res, { content: filtered });
+            }
+          },
         });
+        const flushRemaining = sseTokenFilter.flush();
+        if (!clientDisconnected && flushRemaining) sseWrite(res, { content: flushRemaining });
 
         if (!clientDisconnected) {
           sseWrite(res, { done: true, continueNeeded: false, tokenUsage: { input: Math.ceil((systemPrompt + message).length / 2.5), output: Math.ceil(finalStreamResponse.text.length / 2.5) } });

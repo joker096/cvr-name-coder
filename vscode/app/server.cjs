@@ -6544,6 +6544,9 @@ ${agentIdentity}
 
 ${modeDirective}
 
+CRITICAL: You have REAL tools available via function calling. NEVER generate fake tool call syntax (like \`<\uFF5CDSML\uFF5Cinvoke>\`, \`<\uFF5CDSML\uFF5Cparameter>\`, \`<\uFF5CDSML\uFF5Ctool_calls>\` or similar XML/markup) in your response TEXT. Those tags are internal protocol \u2014 use actual tool calls via the function calling mechanism instead.
+Also: NEVER invent file paths \u2014 only reference files you have actually read via tools.
+
 AVAILABLE TOOLS:
 ${toolDescriptions}
 
@@ -6977,20 +6980,21 @@ function makeHistoryEntry(message, images) {
   return entry;
 }
 async function finalizeChat(history, userEntry, responseText, ctx, extra) {
-  const updatedHistory = [...history, userEntry, { role: "assistant", content: responseText, createdAt: /* @__PURE__ */ new Date() }];
+  const sanitized = sanitizeAIResponse(responseText);
+  const updatedHistory = [...history, userEntry, { role: "assistant", content: sanitized, createdAt: /* @__PURE__ */ new Date() }];
   await (0, import_promises16.writeFile)(HISTORY_FILE, JSON.stringify(updatedHistory));
   invalidateHistoryCache();
   scheduleSummary(updatedHistory, ctx.kConfig);
-  trackCost(ctx.aiProvider, ctx.resolvedModel || "unknown", Math.ceil(responseText.length / 2.5), Math.ceil(responseText.length / 2.5)).catch(() => {
+  trackCost(ctx.aiProvider, ctx.resolvedModel || "unknown", Math.ceil(sanitized.length / 2.5), Math.ceil(sanitized.length / 2.5)).catch(() => {
   });
   return {
     updatedHistory,
     response: {
-      content: responseText,
+      content: sanitized,
       reasoning: extra?.reasoning ?? void 0,
       toolCalls: extra?.toolOutputs,
       continueNeeded: false,
-      tokenUsage: { input: Math.ceil((ctx.systemPrompt + ctx.message).length / 2.5), output: Math.ceil(responseText.length / 2.5) }
+      tokenUsage: { input: Math.ceil((ctx.systemPrompt + ctx.message).length / 2.5), output: Math.ceil(sanitized.length / 2.5) }
     }
   };
 }
@@ -7005,6 +7009,47 @@ function sseWrite(res, data) {
 
 `);
 }
+var HALLUCINATED_TOOL_PATTERN = /<\s*(?:invoke|parameter|tool_calls?|function_calls?|function_call)[\s\S]*?<\/\s*(?:invoke|parameter|tool_calls?|function_calls?|function_call)\s*>/gi;
+var FAKE_PATH_PREFIX = /(^|\n)\s*(?:Now let me read|Let me read|I'll read|Reading)\s+/gi;
+function sanitizeAIResponse(text) {
+  let sanitized = text.replace(HALLUCINATED_TOOL_PATTERN, "[tool call removed]");
+  sanitized = sanitized.replace(FAKE_PATH_PREFIX, "$1");
+  return sanitized;
+}
+var SSETokenFilter = class {
+  buf = "";
+  inTag = false;
+  feed(token) {
+    this.buf += token;
+    if (!this.inTag) {
+      const tagIdx = this.buf.search(/<\s*(invoke|parameter|tool_calls?|function_calls?|function_call)/i);
+      if (tagIdx === -1) {
+        const out = this.buf;
+        this.buf = "";
+        return out;
+      }
+      const before = this.buf.slice(0, tagIdx);
+      this.buf = this.buf.slice(tagIdx);
+      this.inTag = true;
+      return before;
+    }
+    const closeIdx = this.buf.search(/<\/\s*(invoke|parameter|tool_calls?|function_calls?|function_call)\s*>/i);
+    if (closeIdx !== -1) {
+      this.buf = this.buf.slice(closeIdx + this.buf.slice(closeIdx).indexOf(">") + 1);
+      this.inTag = false;
+    } else if (this.buf.length > 500) {
+      this.buf = "";
+      this.inTag = false;
+    }
+    return "";
+  }
+  flush() {
+    const out = this.inTag ? "" : this.buf;
+    this.buf = "";
+    this.inTag = false;
+    return out;
+  }
+};
 function registerRoutes(app2) {
   app2.post("/api/chat", validateBody(ChatRequestSchema), async (req, res) => {
     incrementRequestCount();
@@ -7091,11 +7136,17 @@ Now respond to: ${message}`;
           setSSEHeaders(res);
           sseWrite(res, { reasoning });
           if (result2.steps > 0) sseWrite(res, { toolSteps: result2.steps });
+          const sseFilter = new SSETokenFilter();
           const finalStream = await generateStreamResponse(finalPrompt, dmContents, ctx.aiProvider, ctx.localUrl, ctx.resolvedModel, ctx.resolvedApiKey, ctx.temperature, ctx.maxTokens, {
             onToken: (token) => {
-              if (!clientDisconnected) sseWrite(res, { content: token });
+              if (!clientDisconnected) {
+                const filtered = sseFilter.feed(token);
+                if (filtered) sseWrite(res, { content: filtered });
+              }
             }
           });
+          const flushToken = sseFilter.flush();
+          if (!clientDisconnected && flushToken) sseWrite(res, { content: flushToken });
           if (!clientDisconnected) {
             sseWrite(res, { done: true, continueNeeded: false, tokenUsage: { input: Math.ceil((finalPrompt + message).length / 2.5), output: Math.ceil(finalStream.text.length / 2.5) } });
             res.end();
@@ -7128,11 +7179,17 @@ Now respond to: ${message}`;
           }
         });
         if (clientDisconnected) return;
+        const sseTokenFilter = new SSETokenFilter();
         const finalStreamResponse = await generateStreamResponse(systemPrompt, allContents, ctx.aiProvider, ctx.localUrl, ctx.resolvedModel, ctx.resolvedApiKey, ctx.temperature, ctx.maxTokens, {
           onToken: (token) => {
-            if (!clientDisconnected) sseWrite(res, { content: token });
+            if (!clientDisconnected) {
+              const filtered = sseTokenFilter.feed(token);
+              if (filtered) sseWrite(res, { content: filtered });
+            }
           }
         });
+        const flushRemaining = sseTokenFilter.flush();
+        if (!clientDisconnected && flushRemaining) sseWrite(res, { content: flushRemaining });
         if (!clientDisconnected) {
           sseWrite(res, { done: true, continueNeeded: false, tokenUsage: { input: Math.ceil((systemPrompt + message).length / 2.5), output: Math.ceil(finalStreamResponse.text.length / 2.5) } });
           res.end();

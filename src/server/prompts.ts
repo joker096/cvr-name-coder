@@ -111,6 +111,9 @@ ${agentIdentity}
 
 ${modeDirective}
 
+CRITICAL: You have REAL tools available via function calling. NEVER generate fake tool call syntax (like \`<｜DSML｜invoke>\`, \`<｜DSML｜parameter>\`, \`<｜DSML｜tool_calls>\` or similar XML/markup) in your response TEXT. Those tags are internal protocol — use actual tool calls via the function calling mechanism instead.
+Also: NEVER invent file paths — only reference files you have actually read via tools.
+
 AVAILABLE TOOLS:
 ${toolDescriptions}
 
