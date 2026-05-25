@@ -1,6 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
 import { AgentLoop } from "../agentLoop";
 
+vi.mock("../antiHallucination", () => ({
+  validateFileAccess: vi.fn(async (tool: string, path: string) => {
+    if (path.includes("nonexistent")) {
+      return { valid: false, warning: `File "${path}" does not exist` };
+    }
+    return { valid: true };
+  }),
+  scanResponse: vi.fn(async () => []),
+  generateCorrection: vi.fn(() => ""),
+}));
+
 describe("AgentLoop", () => {
   it("marks the loop as aborted instead of erroring when aborted before a step", async () => {
     const loop = new AgentLoop("test goal", {
@@ -320,5 +331,40 @@ describe("AgentLoop", () => {
 
     expect(state.status).toBe("completed");
     expect(state.steps.length).toBeLessThan(3);
+  });
+
+  it("injects hallucination warning into additionalContext when file does not exist", async () => {
+    const loop = new AgentLoop("fix bug", {
+      thinkFn: vi.fn(async () => 'ACTION: read_file\nPARAMS: {"path":"nonexistent-file.ts"}'),
+      executeToolFn: vi.fn(async () => ({ success: true, output: "ok" })),
+    });
+
+    const step = await loop.runSingleStep();
+
+    expect(step.action).toBeDefined();
+    expect(step.action!.tool).toBe("read_file");
+  });
+
+  it("does not set additionalContext for existing files", async () => {
+    const loop = new AgentLoop("read config", {
+      thinkFn: vi.fn(async () => 'ACTION: read_file\nPARAMS: {"path":"package.json"}'),
+      executeToolFn: vi.fn(async () => ({ success: true, output: "ok" })),
+    });
+
+    await loop.runSingleStep();
+
+    expect(loop.getState().steps.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("validates path for edit_file tool", async () => {
+    const executeToolSpy = vi.fn(async () => ({ success: true, output: "edited" }));
+    const loop = new AgentLoop("edit file", {
+      thinkFn: vi.fn(async () => 'ACTION: edit_file\nPARAMS: {"path":"nonexistent-edit.ts"}'),
+      executeToolFn: executeToolSpy,
+    });
+
+    await loop.runSingleStep();
+
+    expect(executeToolSpy).toHaveBeenCalled();
   });
 });

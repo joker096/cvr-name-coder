@@ -1,4 +1,4 @@
-import React from "react";
+import { memo } from "react";
 import { Settings as SettingsIcon, Undo2, Redo2, PanelLeft, Loader2, Square, Trash2, Plus } from "lucide-react";
 import type { AgentId } from "../../types/settings";
 import { AgentSelector } from "./AgentSelector";
@@ -24,7 +24,7 @@ interface AppHeaderProps {
   t: Record<string, string>;
 }
 
-export const AppHeader: React.FC<AppHeaderProps> = ({
+export const AppHeader = memo<AppHeaderProps>(({
   activeAgent,
   mode: _mode,
   isAutonomous,
@@ -135,4 +135,4 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
       </button>
     </div>
   </header>
-);
+));

@@ -22,9 +22,18 @@ export const MessageList: React.FC<MessageListProps> = ({
   loadingText,
 }) => {
   const endRef = useRef<HTMLDivElement | null>(null);
+  const prevCountRef = useRef(messages.length);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ block: "end" });
+    const prevCount = prevCountRef.current;
+    prevCountRef.current = messages.length;
+    if (messages.length !== prevCount) {
+      const raf = requestAnimationFrame(() => {
+        endRef.current?.scrollIntoView({ block: "end" });
+      });
+      return () => cancelAnimationFrame(raf);
+    }
+    return;
   }, [messages, isLooming]);
 
   if (messages.length === 0 && !isLooming) {

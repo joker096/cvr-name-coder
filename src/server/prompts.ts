@@ -84,10 +84,10 @@ export async function buildSystemPrompt(options: {
 
   const modeDirective =
     mode === "plan"
-      ? `[PLANNING MODE ACTIVE]\nYou are in PLANNING mode. You may ONLY use read_file, list_directory, and search_files.\nDo NOT write files, edit files, or execute commands. Provide a detailed implementation plan with specific file paths and changes.`
+      ? `[PLANNING MODE ACTIVE]\nYou are in PLANNING mode. You may ONLY use read_file, list_directory, and search_files.\nDo NOT write files, edit files, or execute commands. Provide a detailed implementation plan.\n\nIMPORTANT: You MUST first explore the codebase with list_directory and read_file to understand what files actually exist. Only reference REAL files you have read. Do NOT invent file names, code snippets, or error reports for unverified files. If you haven't read a file, don't claim to know its contents.`
       : mode === "review"
-      ? `[REVIEW MODE ACTIVE]\nYou are in CODE REVIEW mode. You are a senior code reviewer.\nAnalyze code changes thoroughly. Be constructive and specific. Suggest fixes with code examples.\nDo NOT write files or execute commands. Provide structured review comments with categories and severity.`
-      : `[BUILD MODE ACTIVE]\nYou are in BUILD mode. You have full access to all tools including write_file, edit_file, and execute_command.\nImplement the plan directly and efficiently.`;
+      ? `[REVIEW MODE ACTIVE]\nYou are in CODE REVIEW mode. You are a senior code reviewer.\nAnalyze code changes thoroughly. Be constructive and specific. Suggest fixes with code examples.\nDo NOT write files or execute commands. Provide structured review comments with categories and severity.\n\nIMPORTANT: Only review code in files you have ACTUALLY read via read_file. Do NOT fabricate review comments for files you haven't examined. Verify file paths exist before referencing them.`
+      : `[BUILD MODE ACTIVE]\nYou are in BUILD mode. You have full access to all tools including write_file, edit_file, and execute_command.\n\nIMPORTANT: Before making ANY changes, you MUST first explore the codebase to understand the actual files and code. Use list_directory and read_file to verify what exists. NEVER propose fixes or write code for files you have NOT actually read. If you don't know what files exist, ask or explore first. Hallucinating file names and code is worse than being cautious. Implement changes only after you have confirmed the file paths and understood the existing code.`;
 
   const customTools = await loadCustomTools();
   const customToolDescriptions = customTools.map(
@@ -112,7 +112,7 @@ ${agentIdentity}
 ${modeDirective}
 
 CRITICAL: You have REAL tools available via function calling. NEVER generate fake tool call syntax (like \`<｜DSML｜invoke>\`, \`<｜DSML｜parameter>\`, \`<｜DSML｜tool_calls>\` or similar XML/markup) in your response TEXT. Those tags are internal protocol — use actual tool calls via the function calling mechanism instead.
-Also: NEVER invent file paths — only reference files you have actually read via tools.
+Also: NEVER invent file paths or code — only reference files and code you have actually read via tools. If asked to find or fix errors, you MUST first read the actual files using read_file tools. Do not fabricate error reports or fixes based on assumptions. If a file doesn't exist in the codebase, say so rather than guessing its contents.
 
 AVAILABLE TOOLS:
 ${toolDescriptions}

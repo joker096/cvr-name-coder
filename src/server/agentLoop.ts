@@ -5,6 +5,7 @@ import type { LoopStep, LoopState } from "../types/agent";
 import { hookRegistry } from "./hooks";
 import { maybeCreateSkill } from "./skillCreator";
 import { getErrorMessage } from "../types/errors";
+import { validateFileAccess } from "./antiHallucination";
 
 /**
  * A function that takes a prompt string and returns an AI-generated response.
@@ -200,6 +201,15 @@ export class AgentLoop {
     const action = this.parseAction(thought);
     if (action) {
       step.action = action;
+
+      const pathParam = typeof action.params?.path === "string" ? action.params.path : undefined;
+      if (pathParam) {
+        const validation = await validateFileAccess(action.tool, pathParam);
+        if (!validation.valid && validation.warning) {
+          this.additionalContext = (this.additionalContext ? this.additionalContext + "\n" : "") + validation.warning;
+        }
+      }
+
       this.state.status = "executing";
       this.onStatus?.("executing");
 

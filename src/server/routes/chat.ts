@@ -14,6 +14,7 @@ import { buildDualModelConfig } from "../dualModel.js";
 import { validateBody, ChatRequestSchema } from "../validation.js";
 import { executeTool } from "../tools.js";
 import { log } from "../logger.js";
+import { validateFileAccess, scanResponse } from "../antiHallucination.js";
 
 /** Configuration for AI chat provider and model settings. */
 interface ChatConfig {
@@ -164,6 +165,13 @@ async function executeToolCalls(
 ): Promise<Array<{ role: string; tool_call_id: string; content: string }>> {
   const results: Array<{ role: string; tool_call_id: string; content: string }> = [];
   for (const tc of toolCalls) {
+    const pathParam = typeof tc.arguments?.path === "string" ? tc.arguments.path as string : typeof tc.arguments?.filePath === "string" ? tc.arguments.filePath as string : undefined;
+    if (pathParam) {
+      const validation = await validateFileAccess(tc.name, pathParam);
+      if (!validation.valid && validation.warning) {
+        log.warn(`Hallucination guard: ${tc.name} on non-existent path "${pathParam}"`);
+      }
+    }
     const result = await executeTool(
       { name: tc.name, params: tc.arguments },
       mode as "plan" | "build" | "review",
@@ -215,6 +223,16 @@ async function runToolLoop(
     appendToolResults(contents, response, toolResults);
     if (onToolResult) onToolResult(step, response);
     response = await generateAIResponse(systemPrompt, contents, ctx.aiProvider, ctx.localUrl, ctx.resolvedModel, ctx.resolvedApiKey, ctx.temperature, ctx.maxTokens, false, tools);
+  }
+
+  if (response.text) {
+    const warnings = await scanResponse(response.text);
+    if (warnings.length > 0) {
+      log.warn(`Hallucination scan: ${warnings.length} suspicious file references in AI response`);
+      for (const w of warnings.slice(0, 5)) {
+        log.warn(`  - ${w.message}`);
+      }
+    }
   }
 
   return { text: response.text || "", reasoning: response.reasoning, steps: step };

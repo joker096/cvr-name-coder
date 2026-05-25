@@ -844,7 +844,7 @@ function sendTo(peerId, data) {
 }
 async function loadSharedStore() {
   try {
-    const raw = await (0, import_promises14.readFile)(STORAGE_FILE, "utf-8");
+    const raw = await (0, import_promises15.readFile)(STORAGE_FILE, "utf-8");
     const items2 = JSON.parse(raw);
     for (const item of items2) {
       sharedStore.set(item.id, item);
@@ -853,9 +853,9 @@ async function loadSharedStore() {
   }
 }
 async function saveSharedStore() {
-  await (0, import_promises14.mkdir)(path19.dirname(STORAGE_FILE), { recursive: true });
+  await (0, import_promises15.mkdir)(path19.dirname(STORAGE_FILE), { recursive: true });
   const items2 = Array.from(sharedStore.values());
-  await (0, import_promises14.writeFile)(STORAGE_FILE, JSON.stringify(items2, null, 2), "utf-8");
+  await (0, import_promises15.writeFile)(STORAGE_FILE, JSON.stringify(items2, null, 2), "utf-8");
 }
 function setupP2PSync(server, config) {
   if (!config.enabled) return;
@@ -995,13 +995,13 @@ function closeP2PSync() {
 function isP2PActive() {
   return wss !== null;
 }
-var import_ws, import_crypto6, import_promises14, path19, wss, p2pConfig, peers, peerInfo, sharedStore, STORAGE_FILE;
+var import_ws, import_crypto6, import_promises15, path19, wss, p2pConfig, peers, peerInfo, sharedStore, STORAGE_FILE;
 var init_p2pSync = __esm({
   "src/server/p2pSync.ts"() {
     "use strict";
     import_ws = require("ws");
     import_crypto6 = require("crypto");
-    import_promises14 = require("fs/promises");
+    import_promises15 = require("fs/promises");
     path19 = __toESM(require("path"), 1);
     wss = null;
     p2pConfig = null;
@@ -1100,14 +1100,14 @@ var PermissionEngine = class {
     const pending = this.pending.get(id);
     if (!pending) return false;
     if (pending.resolved) return pending.approved ?? false;
-    return new Promise((resolve13) => {
+    return new Promise((resolve14) => {
       const timer = setTimeout(() => {
         this.emitter.off(`resolved:${id}`, onResolved);
-        resolve13(false);
+        resolve14(false);
       }, timeoutMs);
       const onResolved = (approved) => {
         clearTimeout(timer);
-        resolve13(approved);
+        resolve14(approved);
       };
       this.emitter.once(`resolved:${id}`, onResolved);
     });
@@ -1741,12 +1741,12 @@ async function executeCustomTool(definition, params) {
       for (const [key, value] of Object.entries(params)) {
         command = command.replace(new RegExp(`\\{${key}\\}`, "g"), shellEscape(String(value)));
       }
-      const cwd = definition.handler.cwd ? path.resolve(process.cwd(), definition.handler.cwd) : process.cwd();
+      const cwd2 = definition.handler.cwd ? path.resolve(process.cwd(), definition.handler.cwd) : process.cwd();
       if (/[;&|`$(){}[\]<>!\\]/.test(command)) {
         return { success: false, output: "", error: "Command contains unsafe shell metacharacters" };
       }
       const { stdout, stderr } = await execFileAsync("sh", ["-c", command], {
-        cwd,
+        cwd: cwd2,
         encoding: "utf-8",
         timeout: 3e4,
         maxBuffer: 1024 * 1024
@@ -2147,7 +2147,7 @@ async function executeCommand(params) {
   }
   const [program, ...programArgs] = args;
   const timeoutMs = 3e4;
-  return new Promise((resolve13) => {
+  return new Promise((resolve14) => {
     let settled = false;
     const child = (0, import_child_process2.spawn)(program, programArgs, { cwd: resolvedCwd, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
     let stdoutData = "";
@@ -2156,7 +2156,7 @@ async function executeCommand(params) {
       if (!settled) {
         settled = true;
         child.kill("SIGTERM");
-        resolve13({ success: false, output: "", error: "Command timed out after 30s" });
+        resolve14({ success: false, output: "", error: "Command timed out after 30s" });
       }
     }, timeoutMs);
     child.stdout.on("data", (data) => {
@@ -2169,14 +2169,14 @@ async function executeCommand(params) {
       if (!settled) {
         settled = true;
         clearTimeout(timer);
-        resolve13({ success: false, output: "", error: err.message });
+        resolve14({ success: false, output: "", error: err.message });
       }
     });
     child.on("close", (code) => {
       if (!settled) {
         settled = true;
         clearTimeout(timer);
-        resolve13({ success: code === 0, output: stdoutData + (stderrData ? "\n" + stderrData : "") });
+        resolve14({ success: code === 0, output: stdoutData + (stderrData ? "\n" + stderrData : "") });
       }
     });
   });
@@ -4293,8 +4293,8 @@ async function indexDirectory(dir, rootDir, embedFn) {
       if (!isText) continue;
       const filePath = path12.join(dir, entry.name);
       try {
-        const stat5 = fs4.statSync(filePath);
-        if (stat5.size > MAX_FILE_SIZE) continue;
+        const stat6 = fs4.statSync(filePath);
+        if (stat6.size > MAX_FILE_SIZE) continue;
         const content = fs4.readFileSync(filePath, "utf-8");
         if (!content.trim()) continue;
         const relativePath = path12.relative(rootDir, filePath).replace(/\\/g, "/");
@@ -4437,12 +4437,114 @@ var import_server = require("@modelcontextprotocol/sdk/server/index.js");
 var import_stdio = require("@modelcontextprotocol/sdk/server/stdio.js");
 var import_sse = require("@modelcontextprotocol/sdk/server/sse.js");
 var import_types = require("@modelcontextprotocol/sdk/types.js");
-var import_promises10 = require("fs/promises");
+var import_promises11 = require("fs/promises");
 var path15 = __toESM(require("path"), 1);
 init_errors();
 
 // src/server/agentLoop.ts
 init_errors();
+
+// src/server/antiHallucination.ts
+var import_promises10 = require("fs/promises");
+var import_path2 = require("path");
+var cwd = process.cwd();
+var FILE_READ_TOOLS = /* @__PURE__ */ new Set(["read_file", "read"]);
+var FILE_WRITE_TOOLS = /* @__PURE__ */ new Set(["write_file", "write", "edit_file", "edit"]);
+var DIR_LIST_TOOLS = /* @__PURE__ */ new Set(["list_directory", "list_files", "glob"]);
+var SEARCH_TOOLS = /* @__PURE__ */ new Set(["search_files", "search", "grep"]);
+var ALL_FILE_TOOLS = /* @__PURE__ */ new Set([...FILE_READ_TOOLS, ...FILE_WRITE_TOOLS, ...DIR_LIST_TOOLS, ...SEARCH_TOOLS]);
+function normalizePath(rawPath, workspace = cwd) {
+  const trimmed = rawPath.trim();
+  if ((0, import_path2.isAbsolute)(trimmed)) return trimmed;
+  return (0, import_path2.resolve)(workspace, trimmed);
+}
+async function pathExists(absPath) {
+  try {
+    await (0, import_promises10.stat)(absPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function validateFileAccess(toolName, filePath, workspaceRoot = cwd) {
+  if (!ALL_FILE_TOOLS.has(toolName)) return { valid: true };
+  const absPath = normalizePath(filePath);
+  if (FILE_READ_TOOLS.has(toolName) || FILE_WRITE_TOOLS.has(toolName)) {
+    if (FILE_READ_TOOLS.has(toolName)) {
+      const exists = await pathExists(absPath);
+      if (!exists) {
+        const relPath = absPath.replace(workspaceRoot, "").replace(/^[\\/]/, "");
+        return {
+          valid: false,
+          warning: `File "${relPath}" does not exist in the workspace. Do not invent file paths \u2014 only reference files you have actually found via list_directory/search_files. Please re-explore the codebase to find the real files.`
+        };
+      }
+    }
+    if (FILE_WRITE_TOOLS.has(toolName)) {
+      if (toolName === "edit_file" || toolName === "edit") {
+        const exists = await pathExists(absPath);
+        if (!exists) {
+          const relPath = absPath.replace(workspaceRoot, "").replace(/^[\\/]/, "");
+          return {
+            valid: false,
+            warning: `Cannot edit "${relPath}" \u2014 it does not exist. Use write_file to create new files, or list_directory to find the correct path.`
+          };
+        }
+      }
+    }
+  }
+  if (DIR_LIST_TOOLS.has(toolName)) {
+    const exists = await pathExists(absPath);
+    if (!exists) {
+      return {
+        valid: false,
+        warning: `Directory "${absPath.replace(workspaceRoot, "").replace(/^[\\/]/, "")}" does not exist. Use an existing directory path.`
+      };
+    }
+  }
+  return { valid: true };
+}
+async function scanResponse(text, workspaceRoot = cwd) {
+  const warnings = [];
+  const pathPatterns = [
+    /(?:["'\x60]|^|\s)([\w\-\/\\]+\.[a-zA-Z0-9]{1,8}(?:x?))(?:["'\x60]|\b)/gm
+  ];
+  const checked = /* @__PURE__ */ new Set();
+  const root = workspaceRoot || cwd;
+  for (const pattern of pathPatterns) {
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+      const rawPath = match[1];
+      if (!rawPath || checked.has(rawPath.toLowerCase())) continue;
+      checked.add(rawPath.toLowerCase());
+      const absPath = normalizePath(rawPath, root);
+      const exists = await pathExists(absPath);
+      if (!exists) {
+        warnings.push({
+          type: "missing_file",
+          message: `Referenced file "${rawPath}" does not exist in the workspace. This may be a hallucination.`,
+          path: rawPath
+        });
+      }
+    }
+  }
+  const fakeLibPatterns = [
+    { pattern: /import\s+.*\s+from\s+['"](dompurify)['"]/gi, lib: "dompurify" },
+    { pattern: /import\s+.*\s+from\s+['"](helmet)['"]/gi, lib: "helmet" },
+    { pattern: /require\s*\(\s*['"](dompurify)['"]\s*\)/gi, lib: "dompurify" }
+  ];
+  for (const { pattern, lib } of fakeLibPatterns) {
+    if (pattern.test(text)) {
+      warnings.push({
+        type: "fake_library",
+        message: `Referenced library "${lib}" which may not be installed. Verify it exists in package.json before suggesting its use.`
+      });
+    }
+  }
+  return warnings;
+}
+
+// src/server/agentLoop.ts
 var AgentLoop = class {
   state;
   permissionEngine;
@@ -4575,6 +4677,13 @@ var AgentLoop = class {
     const action = this.parseAction(thought);
     if (action) {
       step.action = action;
+      const pathParam = typeof action.params?.path === "string" ? action.params.path : void 0;
+      if (pathParam) {
+        const validation = await validateFileAccess(action.tool, pathParam);
+        if (!validation.valid && validation.warning) {
+          this.additionalContext = (this.additionalContext ? this.additionalContext + "\n" : "") + validation.warning;
+        }
+      }
       this.state.status = "executing";
       this.onStatus?.("executing");
       try {
@@ -4798,7 +4907,7 @@ var PROJECT_ROOT5 = process.cwd();
 async function loadMcpConfig() {
   try {
     const configPath = path15.join(PROJECT_ROOT5, ".cvr", "mcp.json");
-    const data = await (0, import_promises10.readFile)(configPath, "utf-8");
+    const data = await (0, import_promises11.readFile)(configPath, "utf-8");
     return JSON.parse(data);
   } catch {
     return { enabled: false, transport: "stdio" };
@@ -4880,7 +4989,7 @@ async function createMcpServer() {
   });
   server.setRequestHandler(import_types.ListResourcesRequestSchema, async () => {
     try {
-      const entries = await (0, import_promises10.readdir)(PROJECT_ROOT5, { withFileTypes: true });
+      const entries = await (0, import_promises11.readdir)(PROJECT_ROOT5, { withFileTypes: true });
       const resources = entries.filter(
         (e) => !e.name.startsWith(".") && !e.name.startsWith("node_modules") && e.isFile()
       ).map((e) => ({
@@ -4913,7 +5022,7 @@ async function createMcpServer() {
       );
     }
     try {
-      const content = await (0, import_promises10.readFile)(filePath, "utf-8");
+      const content = await (0, import_promises11.readFile)(filePath, "utf-8");
       return {
         contents: [{ uri, mimeType: "text/plain", text: content }]
       };
@@ -4993,7 +5102,7 @@ function mountMcpSseRoutes(app2, basePath = "/mcp") {
 init_browserTools();
 
 // src/server/teamSync.ts
-var import_promises11 = require("fs/promises");
+var import_promises12 = require("fs/promises");
 var path16 = __toESM(require("path"), 1);
 var import_child_process5 = require("child_process");
 var import_util4 = require("util");
@@ -5063,8 +5172,8 @@ function tryDecrypt(data) {
 }
 async function loadSyncConfig() {
   try {
-    await (0, import_promises11.access)(CONFIG_PATH);
-    const raw = await (0, import_promises11.readFile)(CONFIG_PATH, "utf-8");
+    await (0, import_promises12.access)(CONFIG_PATH);
+    const raw = await (0, import_promises12.readFile)(CONFIG_PATH, "utf-8");
     _config2 = JSON.parse(raw);
     _status.provider = _config2.provider;
     return _config2;
@@ -5077,16 +5186,16 @@ function getSyncConfig() {
   return _config2;
 }
 async function saveSyncConfig(config) {
-  await (0, import_promises11.mkdir)(SYNC_DIR, { recursive: true });
+  await (0, import_promises12.mkdir)(SYNC_DIR, { recursive: true });
   const safeConfig = { ...config };
   delete safeConfig.encryptionKey;
-  await (0, import_promises11.writeFile)(CONFIG_PATH, JSON.stringify(safeConfig, null, 2), "utf-8");
+  await (0, import_promises12.writeFile)(CONFIG_PATH, JSON.stringify(safeConfig, null, 2), "utf-8");
   _config2 = config;
   _status.provider = config.provider;
   restartAutoSync();
 }
 async function gitInit(syncDir) {
-  await (0, import_promises11.mkdir)(syncDir, { recursive: true });
+  await (0, import_promises12.mkdir)(syncDir, { recursive: true });
   try {
     await execFileAsync4("git", ["init"], { cwd: syncDir });
     await execFileAsync4("git", ["config", "user.email", "sync@cvr.name"], { cwd: syncDir });
@@ -5133,7 +5242,7 @@ async function exportFile(fileName, syncDir) {
   const sourcePath = path16.join(SYNC_STORAGE_DIR, fileName);
   let data;
   try {
-    data = await (0, import_promises11.readFile)(sourcePath);
+    data = await (0, import_promises12.readFile)(sourcePath);
   } catch {
     return;
   }
@@ -5141,13 +5250,13 @@ async function exportFile(fileName, syncDir) {
   if (_config2?.encrypt) {
     data = encrypt(data);
   }
-  await (0, import_promises11.writeFile)(destPath, data);
+  await (0, import_promises12.writeFile)(destPath, data);
 }
 async function importFile(fileName, syncDir) {
   const sourcePath = resolveSyncPath(fileName, syncDir);
   let data;
   try {
-    data = await (0, import_promises11.readFile)(sourcePath);
+    data = await (0, import_promises12.readFile)(sourcePath);
   } catch {
     return;
   }
@@ -5159,10 +5268,10 @@ async function importFile(fileName, syncDir) {
     }
   }
   const destPath = path16.join(SYNC_STORAGE_DIR, fileName);
-  await (0, import_promises11.writeFile)(destPath, data);
+  await (0, import_promises12.writeFile)(destPath, data);
 }
 async function exportAll(syncDir) {
-  await (0, import_promises11.mkdir)(syncDir, { recursive: true });
+  await (0, import_promises12.mkdir)(syncDir, { recursive: true });
   for (const file of SYNC_FILES) {
     await exportFile(file, syncDir);
   }
@@ -5173,8 +5282,8 @@ async function resolveConflict(sourcePath, destPath) {
   }
   try {
     const [srcStat, destStat] = await Promise.all([
-      (0, import_promises11.stat)(sourcePath).catch(() => null),
-      (0, import_promises11.stat)(destPath).catch(() => null)
+      (0, import_promises12.stat)(sourcePath).catch(() => null),
+      (0, import_promises12.stat)(destPath).catch(() => null)
     ]);
     if (!destStat) return true;
     if (!srcStat) return false;
@@ -5396,7 +5505,7 @@ function setupHealthRoute(app2) {
 
 // src/server/costTracker.ts
 var path17 = __toESM(require("path"), 1);
-var import_promises12 = require("fs/promises");
+var import_promises13 = require("fs/promises");
 var RATE_CARDS = {
   gemini: { input: 0.075, output: 0.3 },
   openai: { input: 2.5, output: 10 },
@@ -5418,8 +5527,8 @@ function calculateCost(provider, inputTokens, outputTokens) {
 }
 async function loadCosts() {
   try {
-    await (0, import_promises12.access)(COSTS_FILE);
-    const data = await (0, import_promises12.readFile)(COSTS_FILE, "utf-8");
+    await (0, import_promises13.access)(COSTS_FILE);
+    const data = await (0, import_promises13.readFile)(COSTS_FILE, "utf-8");
     const parsed = JSON.parse(data);
     if (Array.isArray(parsed)) return parsed;
     return [];
@@ -5428,7 +5537,7 @@ async function loadCosts() {
   }
 }
 async function saveCosts(entries) {
-  await (0, import_promises12.writeFile)(COSTS_FILE, JSON.stringify(entries, null, 2));
+  await (0, import_promises13.writeFile)(COSTS_FILE, JSON.stringify(entries, null, 2));
 }
 async function trackCost(provider, model, inputTokens, outputTokens) {
   const entry = {
@@ -6081,7 +6190,7 @@ async function generateEmbeddings(texts) {
 }
 
 // src/server/agentMarketplace.ts
-var import_promises13 = require("fs/promises");
+var import_promises14 = require("fs/promises");
 var path18 = __toESM(require("path"), 1);
 var import_crypto5 = require("crypto");
 var MARKET_DIR = path18.join(process.cwd(), ".cvr", "marketplace");
@@ -6090,12 +6199,12 @@ var REVIEWS_FILE = path18.join(MARKET_DIR, "reviews.json");
 var items = [];
 var reviews = [];
 async function ensureMarketDir() {
-  await (0, import_promises13.mkdir)(MARKET_DIR, { recursive: true });
-  await (0, import_promises13.mkdir)(path18.join(MARKET_DIR, "packages"), { recursive: true });
+  await (0, import_promises14.mkdir)(MARKET_DIR, { recursive: true });
+  await (0, import_promises14.mkdir)(path18.join(MARKET_DIR, "packages"), { recursive: true });
 }
 async function loadIndex() {
   try {
-    const raw = await (0, import_promises13.readFile)(INDEX_FILE, "utf-8");
+    const raw = await (0, import_promises14.readFile)(INDEX_FILE, "utf-8");
     items = JSON.parse(raw);
   } catch {
     items = [];
@@ -6103,11 +6212,11 @@ async function loadIndex() {
 }
 async function saveIndex() {
   await ensureMarketDir();
-  await (0, import_promises13.writeFile)(INDEX_FILE, JSON.stringify(items, null, 2), "utf-8");
+  await (0, import_promises14.writeFile)(INDEX_FILE, JSON.stringify(items, null, 2), "utf-8");
 }
 async function loadReviews() {
   try {
-    const raw = await (0, import_promises13.readFile)(REVIEWS_FILE, "utf-8");
+    const raw = await (0, import_promises14.readFile)(REVIEWS_FILE, "utf-8");
     reviews = JSON.parse(raw);
   } catch {
     reviews = [];
@@ -6115,7 +6224,7 @@ async function loadReviews() {
 }
 async function saveReviews() {
   await ensureMarketDir();
-  await (0, import_promises13.writeFile)(REVIEWS_FILE, JSON.stringify(reviews, null, 2), "utf-8");
+  await (0, import_promises14.writeFile)(REVIEWS_FILE, JSON.stringify(reviews, null, 2), "utf-8");
 }
 async function initMarketplace() {
   await loadIndex();
@@ -6138,7 +6247,7 @@ async function publishItem(type, name, description, content, author = "unknown",
   const id = `${type}-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${(0, import_crypto5.randomBytes)(4).toString("hex")}`;
   const pkgPath = path18.join(MARKET_DIR, "packages", `${id}.json`);
   const pkg = { type, name, description, content, author, version, tags };
-  await (0, import_promises13.writeFile)(pkgPath, JSON.stringify(pkg, null, 2), "utf-8");
+  await (0, import_promises14.writeFile)(pkgPath, JSON.stringify(pkg, null, 2), "utf-8");
   const existing = items.find((i) => i.name === name && i.type === type);
   if (existing) {
     existing.version = version;
@@ -6470,20 +6579,20 @@ var SettingsSchema = import_zod.z.object({
 
 // src/server/routes/chat.ts
 var path20 = __toESM(require("path"), 1);
-var import_promises16 = require("fs/promises");
+var import_promises17 = require("fs/promises");
 
 // src/server/prompts.ts
-var import_promises15 = require("fs/promises");
+var import_promises16 = require("fs/promises");
 
 // src/server/shared.ts
 init_logger();
 var AGENT_PROMPTS = {
-  build: `[ROLE: BUILD] - DEFAULT DEVELOPER AGENT. You have full access to developer tools (read/write files, execute bash). Focus on iterative coding, bug fixing, and implementation.`,
-  general: `[ROLE: GENERAL] - UNIVERSAL ASSISTANT. Help with complex, multi-stage tasks. You can modify files, run parallel processes, and coordinate broad workflows.`,
-  explore: `[ROLE: EXPLORE] - CODEBASE EXPLORER. Read-only specialist. Efficiently search patterns, find keywords, and explain codebase structure. Use fast search tools. You CANNOT write files.`,
-  scout: `[ROLE: SCOUT] - ANALYST. Read-only. Specialized in external documentation research and dependency analysis. Focus on architectural auditing and research.`,
-  prometheus: `[ROLE: PROMETHEUS] - STRATEGIC PLANNER. You are a strategic architect. Before any code is written, you must clarify requirements, define architecture, and scope the work. You create comprehensive plans.`,
-  hephaestus: `[ROLE: HEPHAESTUS] - DEEP EXECUTOR. Autonomous specialist. Given a goal, independently research patterns, write code, and finish the task without requiring step-by-step guidance.`
+  build: `[ROLE: BUILD] - DEFAULT DEVELOPER AGENT. You have full access to developer tools (read/write files, execute bash). First explore the codebase with list_directory/read_file to understand the actual project structure, then implement changes. NEVER invent file names or code. Focus on iterative coding, bug fixing, and implementation.`,
+  general: `[ROLE: GENERAL] - UNIVERSAL ASSISTANT. Help with complex, multi-stage tasks. You can modify files, run parallel processes, and coordinate broad workflows. Always verify file existence before referencing them \u2014 use list_directory and read_file to explore first.`,
+  explore: `[ROLE: EXPLORE] - CODEBASE EXPLORER. Read-only specialist. Efficiently search patterns, find keywords, and explain codebase structure. Use fast search tools. You CANNOT write files. Only report on files you have actually read.`,
+  scout: `[ROLE: SCOUT] - ANALYST. Read-only. Specialized in external documentation research and dependency analysis. Focus on architectural auditing and research. Verify file existence before analysis.`,
+  prometheus: `[ROLE: PROMETHEUS] - STRATEGIC PLANNER. You are a strategic architect. Before any code is written, you must explore the actual codebase with list_directory/read_file, clarify requirements, define architecture, and scope the work. Do not invent file names \u2014 base your plan on REAL files. You create comprehensive plans.`,
+  hephaestus: `[ROLE: HEPHAESTUS] - DEEP EXECUTOR. Autonomous specialist. Given a goal, independently research patterns by reading actual files, write code, and finish the task without requiring step-by-step guidance. Always verify file paths before editing \u2014 never hallucinate file names or code.`
 };
 
 // src/server/prompts.ts
@@ -6493,12 +6602,12 @@ async function getMemoryMtime() {
   let memory = 0;
   let user = 0;
   try {
-    const memStat = await (0, import_promises15.stat)(".opencode-infinite/MEMORY.md");
+    const memStat = await (0, import_promises16.stat)(".opencode-infinite/MEMORY.md");
     memory = memStat.mtimeMs;
   } catch {
   }
   try {
-    const userStat = await (0, import_promises15.stat)(".opencode-infinite/USER.md");
+    const userStat = await (0, import_promises16.stat)(".opencode-infinite/USER.md");
     user = userStat.mtimeMs;
   } catch {
   }
@@ -6519,12 +6628,17 @@ async function buildSystemPrompt(options) {
   const agentIdentity = customAgent?.systemPrompt || AGENT_PROMPTS[agent] || AGENT_PROMPTS.build;
   const modeDirective = mode === "plan" ? `[PLANNING MODE ACTIVE]
 You are in PLANNING mode. You may ONLY use read_file, list_directory, and search_files.
-Do NOT write files, edit files, or execute commands. Provide a detailed implementation plan with specific file paths and changes.` : mode === "review" ? `[REVIEW MODE ACTIVE]
+Do NOT write files, edit files, or execute commands. Provide a detailed implementation plan.
+
+IMPORTANT: You MUST first explore the codebase with list_directory and read_file to understand what files actually exist. Only reference REAL files you have read. Do NOT invent file names, code snippets, or error reports for unverified files. If you haven't read a file, don't claim to know its contents.` : mode === "review" ? `[REVIEW MODE ACTIVE]
 You are in CODE REVIEW mode. You are a senior code reviewer.
 Analyze code changes thoroughly. Be constructive and specific. Suggest fixes with code examples.
-Do NOT write files or execute commands. Provide structured review comments with categories and severity.` : `[BUILD MODE ACTIVE]
+Do NOT write files or execute commands. Provide structured review comments with categories and severity.
+
+IMPORTANT: Only review code in files you have ACTUALLY read via read_file. Do NOT fabricate review comments for files you haven't examined. Verify file paths exist before referencing them.` : `[BUILD MODE ACTIVE]
 You are in BUILD mode. You have full access to all tools including write_file, edit_file, and execute_command.
-Implement the plan directly and efficiently.`;
+
+IMPORTANT: Before making ANY changes, you MUST first explore the codebase to understand the actual files and code. Use list_directory and read_file to verify what exists. NEVER propose fixes or write code for files you have NOT actually read. If you don't know what files exist, ask or explore first. Hallucinating file names and code is worse than being cautious. Implement changes only after you have confirmed the file paths and understood the existing code.`;
   const customTools = await loadCustomTools();
   const customToolDescriptions = customTools.map(
     (t) => `- ${t.id}${t.readOnly ? " (read-only)" : ""}: ${t.description}
@@ -6545,7 +6659,7 @@ ${agentIdentity}
 ${modeDirective}
 
 CRITICAL: You have REAL tools available via function calling. NEVER generate fake tool call syntax (like \`<\uFF5CDSML\uFF5Cinvoke>\`, \`<\uFF5CDSML\uFF5Cparameter>\`, \`<\uFF5CDSML\uFF5Ctool_calls>\` or similar XML/markup) in your response TEXT. Those tags are internal protocol \u2014 use actual tool calls via the function calling mechanism instead.
-Also: NEVER invent file paths \u2014 only reference files you have actually read via tools.
+Also: NEVER invent file paths or code \u2014 only reference files and code you have actually read via tools. If asked to find or fix errors, you MUST first read the actual files using read_file tools. Do not fabricate error reports or fixes based on assumptions. If a file doesn't exist in the codebase, say so rather than guessing its contents.
 
 AVAILABLE TOOLS:
 ${toolDescriptions}
@@ -6816,16 +6930,16 @@ var HISTORY_FILE = path20.join(STORAGE_DIR2, "history.json");
 var MEMORY_FILE = path20.join(STORAGE_DIR2, "memory.json");
 async function ensureStorage() {
   try {
-    await (0, import_promises16.mkdir)(STORAGE_DIR2, { recursive: true });
+    await (0, import_promises17.mkdir)(STORAGE_DIR2, { recursive: true });
     try {
-      await (0, import_promises16.access)(HISTORY_FILE);
+      await (0, import_promises17.access)(HISTORY_FILE);
     } catch {
-      await (0, import_promises16.writeFile)(HISTORY_FILE, JSON.stringify([]));
+      await (0, import_promises17.writeFile)(HISTORY_FILE, JSON.stringify([]));
     }
     try {
-      await (0, import_promises16.access)(MEMORY_FILE);
+      await (0, import_promises17.access)(MEMORY_FILE);
     } catch {
-      await (0, import_promises16.writeFile)(MEMORY_FILE, JSON.stringify([]));
+      await (0, import_promises17.writeFile)(MEMORY_FILE, JSON.stringify([]));
     }
   } catch (e) {
     log.error("Storage init error", e instanceof Error ? e : void 0);
@@ -6838,7 +6952,7 @@ var _memoryCacheTime = 0;
 async function getHistoryCached() {
   if (_historyCache && Date.now() - _historyCacheTime < 5e3) return _historyCache;
   try {
-    _historyCache = JSON.parse(await (0, import_promises16.readFile)(HISTORY_FILE, "utf-8"));
+    _historyCache = JSON.parse(await (0, import_promises17.readFile)(HISTORY_FILE, "utf-8"));
     _historyCacheTime = Date.now();
     return _historyCache;
   } catch {
@@ -6848,7 +6962,7 @@ async function getHistoryCached() {
 async function getMemoriesCached() {
   if (_memoryCache && Date.now() - _memoryCacheTime < 5e3) return _memoryCache;
   try {
-    _memoryCache = JSON.parse(await (0, import_promises16.readFile)(MEMORY_FILE, "utf-8"));
+    _memoryCache = JSON.parse(await (0, import_promises17.readFile)(MEMORY_FILE, "utf-8"));
     _memoryCacheTime = Date.now();
     return _memoryCache;
   } catch {
@@ -6891,8 +7005,8 @@ function scheduleSummary(updatedHistory, kConfig) {
   const summaryKey = kConfig.providerKeys?.[kConfig.aiProvider || ""] || kConfig.apiKey;
   summarizeLongHistory(updatedHistory, kConfig.aiProvider, kConfig.localUrl, kConfig.aiProvider === "local" ? kConfig.localModelName || kConfig.aiModel : kConfig.aiModel, summaryKey, dualCfg).then(async (summary) => {
     if (summary) {
-      const currentMemories = JSON.parse(await (0, import_promises16.readFile)(MEMORY_FILE, "utf-8"));
-      await (0, import_promises16.writeFile)(MEMORY_FILE, JSON.stringify([...currentMemories, { content: summary, createdAt: /* @__PURE__ */ new Date() }]));
+      const currentMemories = JSON.parse(await (0, import_promises17.readFile)(MEMORY_FILE, "utf-8"));
+      await (0, import_promises17.writeFile)(MEMORY_FILE, JSON.stringify([...currentMemories, { content: summary, createdAt: /* @__PURE__ */ new Date() }]));
       invalidateMemoryCache();
     }
   });
@@ -6900,6 +7014,13 @@ function scheduleSummary(updatedHistory, kConfig) {
 async function executeToolCalls(toolCalls, mode, agent) {
   const results = [];
   for (const tc of toolCalls) {
+    const pathParam = typeof tc.arguments?.path === "string" ? tc.arguments.path : typeof tc.arguments?.filePath === "string" ? tc.arguments.filePath : void 0;
+    if (pathParam) {
+      const validation = await validateFileAccess(tc.name, pathParam);
+      if (!validation.valid && validation.warning) {
+        log.warn(`Hallucination guard: ${tc.name} on non-existent path "${pathParam}"`);
+      }
+    }
     const result = await executeTool(
       { name: tc.name, params: tc.arguments },
       mode,
@@ -6945,6 +7066,15 @@ async function runToolLoop(systemPrompt, contents, ctx, onToolResult) {
     if (onToolResult) onToolResult(step, response);
     response = await generateAIResponse(systemPrompt, contents, ctx.aiProvider, ctx.localUrl, ctx.resolvedModel, ctx.resolvedApiKey, ctx.temperature, ctx.maxTokens, false, tools);
   }
+  if (response.text) {
+    const warnings = await scanResponse(response.text);
+    if (warnings.length > 0) {
+      log.warn(`Hallucination scan: ${warnings.length} suspicious file references in AI response`);
+      for (const w of warnings.slice(0, 5)) {
+        log.warn(`  - ${w.message}`);
+      }
+    }
+  }
   return { text: response.text || "", reasoning: response.reasoning, steps: step };
 }
 async function buildHistoryContents(history) {
@@ -6982,7 +7112,7 @@ function makeHistoryEntry(message, images) {
 async function finalizeChat(history, userEntry, responseText, ctx, extra) {
   const sanitized = sanitizeAIResponse(responseText);
   const updatedHistory = [...history, userEntry, { role: "assistant", content: sanitized, createdAt: /* @__PURE__ */ new Date() }];
-  await (0, import_promises16.writeFile)(HISTORY_FILE, JSON.stringify(updatedHistory));
+  await (0, import_promises17.writeFile)(HISTORY_FILE, JSON.stringify(updatedHistory));
   invalidateHistoryCache();
   scheduleSummary(updatedHistory, ctx.kConfig);
   trackCost(ctx.aiProvider, ctx.resolvedModel || "unknown", Math.ceil(sanitized.length / 2.5), Math.ceil(sanitized.length / 2.5)).catch(() => {
@@ -7325,8 +7455,8 @@ Now respond to: ${message}`;
     }
   });
   app2.post("/api/clear", async (_req, res) => {
-    await (0, import_promises16.writeFile)(HISTORY_FILE, JSON.stringify([]));
-    await (0, import_promises16.writeFile)(MEMORY_FILE, JSON.stringify([]));
+    await (0, import_promises17.writeFile)(HISTORY_FILE, JSON.stringify([]));
+    await (0, import_promises17.writeFile)(MEMORY_FILE, JSON.stringify([]));
     invalidateHistoryCache();
     invalidateMemoryCache();
     res.json({ status: "cleared" });
@@ -8044,7 +8174,7 @@ function registerRoutes5(app2) {
 }
 
 // src/server/changes.ts
-var import_promises17 = require("fs/promises");
+var import_promises18 = require("fs/promises");
 var path21 = __toESM(require("path"), 1);
 init_logger();
 var STORAGE_DIR3 = path21.join(process.cwd(), ".opencode-infinite");
@@ -8053,24 +8183,24 @@ var MAX_CHANGES = 50;
 var MAX_SNAPSHOT_SIZE = 1024 * 1024;
 async function loadHistory() {
   try {
-    const data = await (0, import_promises17.readFile)(CHANGES_FILE, "utf-8");
+    const data = await (0, import_promises18.readFile)(CHANGES_FILE, "utf-8");
     return JSON.parse(data);
   } catch {
     return { changes: [], undoStack: [], redoStack: [] };
   }
 }
 async function saveHistory(history) {
-  await (0, import_promises17.mkdir)(STORAGE_DIR3, { recursive: true });
-  await (0, import_promises17.writeFile)(CHANGES_FILE, JSON.stringify(history, null, 2));
+  await (0, import_promises18.mkdir)(STORAGE_DIR3, { recursive: true });
+  await (0, import_promises18.writeFile)(CHANGES_FILE, JSON.stringify(history, null, 2));
 }
 async function recordChange(filePath, operation, afterContent, description) {
   const history = await loadHistory();
   let beforeContent = null;
   try {
     const fullPath = path21.join(process.cwd(), filePath);
-    const fileStats = await (0, import_promises17.stat)(fullPath);
+    const fileStats = await (0, import_promises18.stat)(fullPath);
     if (fileStats.size <= MAX_SNAPSHOT_SIZE) {
-      beforeContent = await (0, import_promises17.readFile)(fullPath, "utf-8");
+      beforeContent = await (0, import_promises18.readFile)(fullPath, "utf-8");
     } else {
       beforeContent = "[FILE_TOO_LARGE_FOR_SNAPSHOT]";
     }
@@ -8112,7 +8242,7 @@ async function undoChange() {
   const fullPath = path21.join(process.cwd(), change.filePath);
   if (change.beforeContent === null) {
     try {
-      await (0, import_promises17.unlink)(fullPath);
+      await (0, import_promises18.unlink)(fullPath);
     } catch {
       log.debug("File already deleted");
     }
@@ -8120,8 +8250,8 @@ async function undoChange() {
     await saveHistory(history);
     return { success: false, error: "Cannot undo: file was too large to snapshot" };
   } else {
-    await (0, import_promises17.mkdir)(path21.dirname(fullPath), { recursive: true });
-    await (0, import_promises17.writeFile)(fullPath, change.beforeContent, "utf-8");
+    await (0, import_promises18.mkdir)(path21.dirname(fullPath), { recursive: true });
+    await (0, import_promises18.writeFile)(fullPath, change.beforeContent, "utf-8");
   }
   await saveHistory(history);
   return { success: true, restored: change };
@@ -8139,8 +8269,8 @@ async function redoChange() {
   history.redoStack.pop();
   history.undoStack = history.undoStack.filter((id) => id !== changeId);
   const fullPath = path21.join(process.cwd(), change.filePath);
-  await (0, import_promises17.mkdir)(path21.dirname(fullPath), { recursive: true });
-  await (0, import_promises17.writeFile)(fullPath, change.afterContent, "utf-8");
+  await (0, import_promises18.mkdir)(path21.dirname(fullPath), { recursive: true });
+  await (0, import_promises18.writeFile)(fullPath, change.afterContent, "utf-8");
   await saveHistory(history);
   return { success: true, restored: change };
 }
@@ -8834,12 +8964,12 @@ function registerRoutes10(app2) {
 }
 
 // src/server/ciPipeline.ts
-var import_promises18 = require("fs/promises");
+var import_promises19 = require("fs/promises");
 var path22 = __toESM(require("path"), 1);
 var WORKFLOW_DIR = ".github/workflows";
 async function ensureWorkflowDir() {
   const dir = path22.join(process.cwd(), WORKFLOW_DIR);
-  await (0, import_promises18.mkdir)(dir, { recursive: true });
+  await (0, import_promises19.mkdir)(dir, { recursive: true });
   return dir;
 }
 function generateNodeCIWorkflow(config) {
@@ -9067,7 +9197,7 @@ async function generateCIPipeline(config) {
     default:
       throw new Error(`Unknown pipeline type: ${config.pipelineType}`);
   }
-  await (0, import_promises18.writeFile)(path22.join(dir, filename), content, "utf-8");
+  await (0, import_promises19.writeFile)(path22.join(dir, filename), content, "utf-8");
   return {
     files: [path22.join(WORKFLOW_DIR, filename)],
     pipelineType: config.pipelineType,
@@ -9179,7 +9309,7 @@ function registerRoutes11(app2) {
 
 // src/server/routes/tools.ts
 var path23 = __toESM(require("path"), 1);
-var import_promises19 = require("fs/promises");
+var import_promises20 = require("fs/promises");
 var import_crypto9 = require("crypto");
 init_logger();
 function registerRoutes12(app2) {
@@ -9189,7 +9319,7 @@ function registerRoutes12(app2) {
       const result = await executeTool(toolCall, mode, permissionEngine, sessionId);
       incrementToolCall();
       if (result.success && (toolCall.name === "write_file" || toolCall.name === "edit_file")) {
-        const afterContent = toolCall.name === "write_file" ? toolCall.params.content : await (0, import_promises19.readFile)(path23.join(process.cwd(), toolCall.params.path), "utf-8");
+        const afterContent = toolCall.name === "write_file" ? toolCall.params.content : await (0, import_promises20.readFile)(path23.join(process.cwd(), toolCall.params.path), "utf-8");
         const change = await recordChange(
           toolCall.params.path,
           toolCall.name === "write_file" ? "write" : "edit",

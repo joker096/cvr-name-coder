@@ -1,4 +1,4 @@
-import React from "react";
+import { memo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "../../utils/cn";
@@ -12,7 +12,7 @@ interface AccordionItemProps {
   className?: string;
 }
 
-export const AccordionItem: React.FC<AccordionItemProps> = ({
+export const AccordionItem = memo<AccordionItemProps>(({
   id,
   isOpen,
   onToggle,
@@ -49,4 +49,4 @@ export const AccordionItem: React.FC<AccordionItemProps> = ({
       )}
     </AnimatePresence>
   </div>
-);
+));

@@ -13,7 +13,20 @@ interface ChatState {
   isStreaming: boolean;
 }
 
+interface MessagesMap {
+  [id: string]: Message;
+}
+
 const LOCAL_MESSAGES_KEY = "cvr_chat_messages";
+const LOCAL_SAVE_DEBOUNCE_MS = 2000;
+
+function messagesToMap(msgs: Message[]): MessagesMap {
+  const map: MessagesMap = {};
+  for (const m of msgs) {
+    map[m.id] = m;
+  }
+  return map;
+}
 
 function loadStoredMessages(): Message[] {
   try {
@@ -73,6 +86,22 @@ export const useChat = (config: ChatConfig) => {
   configRef.current = config;
   const messagesRef = useRef(state.messages);
   messagesRef.current = state.messages;
+  const messagesMapRef = useRef<MessagesMap>(messagesToMap(state.messages));
+  const localSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const persistMessages = useCallback((msgs: Message[]) => {
+    if (localSaveTimerRef.current) {
+      clearTimeout(localSaveTimerRef.current);
+    }
+    localSaveTimerRef.current = setTimeout(() => {
+      try {
+        localStorage.setItem(LOCAL_MESSAGES_KEY, JSON.stringify(msgs));
+      } catch {
+        // Ignore storage failures
+      }
+      localSaveTimerRef.current = null;
+    }, LOCAL_SAVE_DEBOUNCE_MS);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -98,6 +127,7 @@ export const useChat = (config: ChatConfig) => {
           const nextMessages = prev.messages.length > 0
             ? mergeMessages(prev.messages, hydratedMessages)
             : hydratedMessages;
+          messagesMapRef.current = messagesToMap(nextMessages);
           return { ...prev, messages: nextMessages };
         });
       } catch {
@@ -113,12 +143,8 @@ export const useChat = (config: ChatConfig) => {
   }, []);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(LOCAL_MESSAGES_KEY, JSON.stringify(state.messages));
-    } catch {
-      // Ignore storage failures to keep chat interactive.
-    }
-  }, [state.messages]);
+    persistMessages(state.messages);
+  }, [state.messages, persistMessages]);
 
   const sendMessage = useCallback(async (content: string, images?: string[]): Promise<{ content: string; continueNeeded: boolean } | null> => {
     if (!content.trim() && (!images || images.length === 0)) {
@@ -208,6 +234,8 @@ export const useChat = (config: ChatConfig) => {
         isStreaming: true,
       }));
 
+      const msgId = assistantMessage.id;
+
       const decoder = new TextDecoder();
       let buffer = "";
       let fullContent = "";
@@ -217,7 +245,7 @@ export const useChat = (config: ChatConfig) => {
       let lastBatchTime = 0;
       let batchTimer: ReturnType<typeof setTimeout> | null = null;
 
-      const flushBatch = (msgId: string) => {
+      const flushBatch = () => {
         if (batchedToken) {
           const token = batchedToken;
           batchedToken = "";
@@ -252,11 +280,11 @@ export const useChat = (config: ChatConfig) => {
               batchedToken += parsed;
               const now = Date.now();
               if (now - lastBatchTime >= SSE_BATCH_MS) {
-                flushBatch(assistantMessage.id);
+                flushBatch();
                 lastBatchTime = now;
               } else if (!batchTimer) {
                 batchTimer = setTimeout(() => {
-                  flushBatch(assistantMessage.id);
+                  flushBatch();
                   lastBatchTime = Date.now();
                   batchTimer = null;
                 }, SSE_BATCH_MS - (now - lastBatchTime));
@@ -264,11 +292,11 @@ export const useChat = (config: ChatConfig) => {
             } else if (parsed.error) {
               const errStr = `\n\n⚠ ${parsed.error}`;
               fullContent += errStr;
-              flushBatch(assistantMessage.id);
+              flushBatch();
               setState((prev) => ({
                 ...prev,
                 messages: prev.messages.map((msg) =>
-                  msg.id === assistantMessage.id
+                  msg.id === msgId
                     ? { ...msg, content: msg.content + errStr }
                     : msg
                 ),
@@ -278,7 +306,7 @@ export const useChat = (config: ChatConfig) => {
               setState((prev) => ({
                 ...prev,
                 messages: prev.messages.map((msg) =>
-                  msg.id === assistantMessage.id
+                  msg.id === msgId
                     ? { ...msg, reasoning: (msg.reasoning || "") + parsed.reasoning }
                     : msg
                 ),
@@ -288,11 +316,11 @@ export const useChat = (config: ChatConfig) => {
               batchedToken += parsed.content;
               const now = Date.now();
               if (now - lastBatchTime >= SSE_BATCH_MS) {
-                flushBatch(assistantMessage.id);
+                flushBatch();
                 lastBatchTime = now;
               } else if (!batchTimer) {
                 batchTimer = setTimeout(() => {
-                  flushBatch(assistantMessage.id);
+                  flushBatch();
                   lastBatchTime = Date.now();
                   batchTimer = null;
                 }, SSE_BATCH_MS - (now - lastBatchTime));
@@ -301,11 +329,11 @@ export const useChat = (config: ChatConfig) => {
               continueNeeded = !!parsed.continueNeeded;
               if (parsed.tokenUsage) {
                 const usage = parsed.tokenUsage as { input: number; output: number };
-                flushBatch(assistantMessage.id);
+                flushBatch();
                 setState((prev) => ({
                   ...prev,
                   messages: prev.messages.map((msg) =>
-                    msg.id === assistantMessage.id
+                    msg.id === msgId
                       ? { ...msg, tokenUsage: { input: usage.input, output: usage.output } }
                       : msg
                   ),
@@ -328,7 +356,7 @@ export const useChat = (config: ChatConfig) => {
             buffer = "";
             processLines(lines);
           }
-          flushBatch(assistantMessage.id);
+          flushBatch();
           if (batchTimer) clearTimeout(batchTimer);
           break;
         }
@@ -340,7 +368,7 @@ export const useChat = (config: ChatConfig) => {
         processLines(lines);
 
         if (streamDone) {
-          flushBatch(assistantMessage.id);
+          flushBatch();
           if (batchTimer) clearTimeout(batchTimer);
           // Drain any remaining data from reader to prevent resource leak
           while (!(await reader.read()).done) {}
@@ -357,7 +385,7 @@ export const useChat = (config: ChatConfig) => {
         setState((prev) => ({
           ...prev,
           messages: prev.messages.map((msg) =>
-            msg.id === assistantMessage.id
+            msg.id === msgId
               ? { ...msg, content: fullContent }
               : msg
           ),
@@ -501,6 +529,7 @@ export const useChat = (config: ChatConfig) => {
     executeToolCalls,
     addMessage,
     setMessages: (messages: Message[]) => {
+      messagesMapRef.current = messagesToMap(messages);
       setState((prev) => ({ ...prev, messages }));
     },
   };

@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import { useState, useCallback, memo } from "react";
 import { motion } from "motion/react";
 import { User, Brain, Copy, Check, ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "../../utils/cn";
@@ -14,7 +14,26 @@ interface MessageItemProps {
   t: any;
 }
 
-export const MessageItem: React.FC<MessageItemProps> = ({
+const areEqual = (prev: MessageItemProps, next: MessageItemProps): boolean => {
+  const pm = prev.message;
+  const nm = next.message;
+  return (
+    pm.id === nm.id &&
+    pm.role === nm.role &&
+    pm.content === nm.content &&
+    pm.reasoning === nm.reasoning &&
+    pm.timestamp === nm.timestamp &&
+    pm.tokenUsage?.input === nm.tokenUsage?.input &&
+    pm.tokenUsage?.output === nm.tokenUsage?.output &&
+    JSON.stringify(pm.images) === JSON.stringify(nm.images) &&
+    JSON.stringify(pm.toolCall) === JSON.stringify(nm.toolCall) &&
+    prev.agentLabel === next.agentLabel &&
+    prev.providerLabel === next.providerLabel &&
+    prev.modelName === next.modelName
+  );
+};
+
+export const MessageItem = memo<MessageItemProps>(({
   message,
   agentLabel: _agentLabel,
   providerLabel,
@@ -188,4 +207,4 @@ export const MessageItem: React.FC<MessageItemProps> = ({
       </div>
     </motion.div>
   );
-};
+}, areEqual);

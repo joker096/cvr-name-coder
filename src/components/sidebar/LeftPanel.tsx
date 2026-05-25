@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useState } from "react";
+import React, { lazy, Suspense, useState, useMemo } from "react";
 import { Wand2, MessageSquare, GitBranch, BookOpen, Clock, Puzzle, Scale, RefreshCw, HelpCircle } from "lucide-react";
 import { cn } from "../../utils/cn";
 import { AccordionItem } from "../shared/AccordionItem";
@@ -23,6 +23,7 @@ interface LeftPanelProps {
   agentsCount: number;
   t: any;
   className?: string;
+  isVisible?: boolean;
 }
 
 interface SectionDef {
@@ -74,6 +75,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
   agentsCount,
   t,
   className,
+  isVisible: _isVisible,
 }) => {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
@@ -90,7 +92,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
     sync: t.syncHelp || "Team sync settings — configure provider (Git/File/API), encryption, conflict resolution, and sync interval.",
   };
 
-  const sections: SectionDef[] = SECTIONS_CONFIG.map((s) => {
+  const sections = useMemo<SectionDef[]>(() => SECTIONS_CONFIG.map((s) => {
     const def: SectionDef = {
       key: s.key,
       label: t[`${s.key}Label`] || s.key,
@@ -100,7 +102,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
     if (s.key === "skills") def.count = skillsCount;
     if (s.key === "memory") def.count = memoryCount;
     return def;
-  });
+  }), [t, skillsCount, memoryCount]);
 
   const renderSectionHeader = (section: SectionDef) => {
     const Icon = section.icon;

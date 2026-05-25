@@ -1,8 +1,9 @@
-import React from "react";
+import { memo } from "react";
 import { AlertCircle } from "lucide-react";
 import { MessageList } from "./MessageList";
 import { InputArea } from "./InputArea";
 import type { Message } from "../../types/chat";
+import { cn } from "../../utils/cn";
 
 interface ChatContainerProps {
   messages: Message[];
@@ -27,7 +28,7 @@ interface ChatContainerProps {
   visionEnabled?: boolean | undefined;
 }
 
-export const ChatContainer: React.FC<ChatContainerProps> = ({
+export const ChatContainer = memo<ChatContainerProps>(({
   messages,
   input,
   onInputChange,
@@ -85,8 +86,4 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
       </div>
     </div>
   );
-};
-
-function cn(...inputs: any[]) {
-  return inputs.filter(Boolean).join(" ");
-}
+});

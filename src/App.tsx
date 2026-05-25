@@ -37,15 +37,16 @@ export default function App() {
       />
 
       <div className="flex flex-1 overflow-hidden">
-        {s.sidebarOpen && (
+        <div className={s.sidebarOpen ? "" : "hidden"}>
           <LeftPanel
             skillsCount={s.skillsCount}
             toolsCount={s.toolsCount}
             memoryCount={s.memoryCount}
             agentsCount={s.agentsCount}
             t={t}
+            isVisible={s.sidebarOpen}
           />
-        )}
+        </div>
 
         <main className="flex-1 flex flex-col overflow-hidden relative">
           {s.goalState ? (
