@@ -1,13 +1,13 @@
-import React, { useState } from "react";
+import React, { useState, memo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { cn } from "../../utils/cn";
 import { SettingsHeader } from "./SettingsHeader";
 import { SettingsFooter } from "./SettingsFooter";
-import type { Provider } from "./ProviderSelector";
-import type { ModelConfig as ModelConfigType, KeyValidationResult } from "./ModelConfig";
-import type { ChatConfig, Preset, ChatProviderId } from "../../types/settings";
-import { toChatProviderId } from "../../types/ai";
+import type { ChatConfig, Preset } from "../../types/settings";
 import { useAIProviders } from "../../hooks/useAIProviders";
+import { useSettingsValidation } from "../../hooks/useSettingsValidation";
+import { useSettingsConfig } from "../../hooks/useSettingsConfig";
+import { AI_PROVIDERS } from "../../constants/providers";
 import { SettingsBody } from "./SettingsBody";
 
 interface SettingsModalProps {
@@ -37,22 +37,7 @@ interface SettingsModalProps {
   className?: string;
 }
 
-const PROVIDERS: Provider[] = [
-  { id: toChatProviderId("gemini"), icon: { type: "lucide", name: "sparkles" }, label: "Google Gemini", type: "cloud" },
-  { id: toChatProviderId("openai"), icon: { type: "lucide", name: "bot" }, label: "OpenAI", type: "cloud" },
-  { id: toChatProviderId("anthropic"), icon: { type: "lucide", name: "brain" }, label: "Anthropic", type: "cloud" },
-  { id: toChatProviderId("deepseek"), icon: { type: "lucide", name: "search" }, label: "DeepSeek", type: "cloud" },
-  { id: toChatProviderId("grok"), icon: { type: "lucide", name: "zap" }, label: "Grok", type: "cloud" },
-  { id: toChatProviderId("groq"), icon: { type: "lucide", name: "cpu" }, label: "Groq", type: "cloud" },
-  { id: toChatProviderId("baseten"), icon: { type: "lucide", name: "box" }, label: "Baseten", type: "cloud" },
-  { id: toChatProviderId("openrouter"), icon: { type: "lucide", name: "router" }, label: "OpenRouter", type: "cloud" },
-  { id: toChatProviderId("together"), icon: { type: "lucide", name: "users" }, label: "Together AI", type: "cloud" },
-  { id: toChatProviderId("mistral"), icon: { type: "lucide", name: "wind" }, label: "Mistral AI", type: "cloud" },
-  { id: toChatProviderId("local"), icon: { type: "lucide", name: "server" }, label: "Local", type: "local" },
-  { id: toChatProviderId("custom"), icon: { type: "lucide", name: "settings" }, label: "Custom", type: "cloud" },
-];
-
-export const SettingsModal: React.FC<SettingsModalProps> = ({
+export const SettingsModal: React.FC<SettingsModalProps> = memo(({
   isOpen,
   onClose,
   config,
@@ -78,53 +63,31 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   lang = "en",
   className,
 }) => {
-  const [activeTab, setActiveTab] = useState("chat" as "chat" | "mcp" | "design");
-  const [localConfig, setLocalConfig] = useState<ChatConfig>(config);
+  const [activeTab, setActiveTab] = useState<"chat" | "mcp" | "design">("chat");
   const { getModelsForProvider, fetchRemoteModels, remoteModels, isRefreshingModels } = useAIProviders();
-  const [keyValidations, setKeyValidations] = useState<KeyValidationResult[]>([]);
-  const [isValidating, setIsValidating] = useState(false);
 
-  const handleSave = async () => {
-    const provider = localConfig.aiProvider;
-    const results: KeyValidationResult[] = [];
-    setIsValidating(true);
-    if (provider && provider !== "local" && provider !== "custom") {
-      const key = (localConfig.providerKeys?.[provider] || localConfig.apiKey || "").trim();
-      if (key) {
-        try {
-          const r = await fetch("/api/validate-key", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ provider, apiKey: key }),
-          });
-          const data = await r.json();
-          results.push({ provider, valid: data.valid, error: data.error || data.warning });
-        } catch {
-          results.push({ provider, valid: false, error: "Validation failed" });
-        }
-      }
-    }
-    setIsValidating(false);
-    setKeyValidations(results);
-    if (results.some(r => !r.valid)) return;
-    onSave(localConfig);
-    onClose();
-  };
+  const {
+    localConfig,
+    handleProviderChange,
+    handleModelConfigChange,
+    handleAgentChange,
+    handleTemperatureChange,
+    handleMaxTokensChange,
+    handleSystemPromptChange,
+    handleVisionToggle,
+    handleMaxImageSizeChange,
+    handleToggleMultiModel,
+    handleThinkingProviderChange,
+    handleThinkingModelChange,
+  } = useSettingsConfig(config);
 
-  const handleProviderChange = (providerId: string) => {
-    setLocalConfig((prev) => ({ ...prev, aiProvider: providerId as ChatConfig["aiProvider"] }));
-  };
-
-  const handleModelConfigChange = (modelConfig: Partial<ModelConfigType>) => {
-    setLocalConfig((prev) => {
-      const next = { ...prev, ...modelConfig };
-      if (modelConfig.providerKeys) {
-        next.providerKeys = { ...prev.providerKeys, ...modelConfig.providerKeys };
-      }
-      return next;
-    });
-    if (modelConfig.apiKey !== undefined) setKeyValidations([]);
-  };
+  const {
+    keyValidations,
+    isValidating,
+    handleSave,
+    handleVerifyKey,
+    setKeyValidations,
+  } = useSettingsValidation({ config: localConfig, onSave, onClose });
 
   const handleFetchRemoteModels = () => {
     const provider = localConfig.aiProvider;
@@ -132,23 +95,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     if (key) fetchRemoteModels(provider, key).catch(() => {});
   };
 
-  const handleVerifyKey = async () => {
-    const provider = localConfig.aiProvider;
-    const key = (localConfig.providerKeys?.[provider] || localConfig.apiKey || "").trim();
-    if (!key || !provider || provider === "local" || provider === "custom") return;
-    setIsValidating(true);
-    try {
-      const r = await fetch("/api/validate-key", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider, apiKey: key }),
-      });
-      const data = await r.json();
-      setKeyValidations([{ provider, valid: data.valid, error: data.error || data.warning }]);
-    } catch {
-      setKeyValidations([{ provider, valid: false, error: "Validation failed" }]);
-    }
-    setIsValidating(false);
+  const handleModelConfigChangeWithValidation = (modelConfig: any) => {
+    handleModelConfigChange(modelConfig);
+    if (modelConfig.apiKey !== undefined) setKeyValidations([]);
   };
 
   if (!isOpen) return null;
@@ -184,21 +133,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             isValidating={isValidating}
             keyValidations={keyValidations}
             config={localConfig}
-            providers={PROVIDERS}
+            providers={AI_PROVIDERS}
             remoteModels={remoteModels}
             isRefreshingModels={isRefreshingModels}
             getModelsForProvider={getModelsForProvider}
             onProviderChange={handleProviderChange}
-            onModelConfigChange={handleModelConfigChange}
-            onAgentChange={(agent) => setLocalConfig((prev) => ({ ...prev, agent }))}
-            onTemperatureChange={(temp) => setLocalConfig((prev) => ({ ...prev, temperature: temp }))}
-            onMaxTokensChange={(tokens) => setLocalConfig((prev) => ({ ...prev, maxTokens: tokens }))}
-            onSystemPromptChange={(prompt) => setLocalConfig((prev) => ({ ...prev, systemPrompt: prompt }))}
-            onVisionToggle={() => setLocalConfig((prev) => ({ ...prev, visionEnabled: !prev.visionEnabled }))}
-            onMaxImageSizeChange={(size) => setLocalConfig((prev) => ({ ...prev, maxImageSize: size }))}
-            onToggleMultiModel={() => setLocalConfig((prev) => ({ ...prev, multiModelEnabled: !prev.multiModelEnabled }))}
-            onThinkingProviderChange={(pid: ChatProviderId) => setLocalConfig((prev) => ({ ...prev, thinkingProvider: pid }))}
-            onThinkingModelChange={(model) => setLocalConfig((prev) => ({ ...prev, thinkingModel: model }))}
+            onModelConfigChange={handleModelConfigChangeWithValidation}
+            onAgentChange={handleAgentChange}
+            onTemperatureChange={handleTemperatureChange}
+            onMaxTokensChange={handleMaxTokensChange}
+            onSystemPromptChange={handleSystemPromptChange}
+            onVisionToggle={handleVisionToggle}
+            onMaxImageSizeChange={handleMaxImageSizeChange}
+            onToggleMultiModel={handleToggleMultiModel}
+            onThinkingProviderChange={handleThinkingProviderChange}
+            onThinkingModelChange={handleThinkingModelChange}
             onFetchRemoteModels={handleFetchRemoteModels}
             onVerifyKey={handleVerifyKey}
             onPresetSave={onPresetSave}
@@ -217,10 +166,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             isSaving={isValidating}
             lang={lang}
             onLanguageChange={onLanguageChange ?? (() => {})}
-            t={t as Record<string, string>}
+            t={t}
           />
         </motion.div>
       </motion.div>
     </AnimatePresence>
   );
-};
+});

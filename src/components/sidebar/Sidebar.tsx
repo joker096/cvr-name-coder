@@ -1,4 +1,4 @@
-import React from "react";
+import React, { memo, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { BookOpen, Rocket, Clock, Puzzle, Scale, MessageSquare, GitBranch, RefreshCw } from "lucide-react";
 import { cn } from "../../utils/cn";
@@ -34,7 +34,7 @@ interface SidebarProps {
   className?: string;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({
+export const Sidebar: React.FC<SidebarProps> = memo(({
   isOpen,
   activeTab,
   onTabChange,
@@ -43,7 +43,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   t,
   className,
 }) => {
-  const tabs: SidebarTab[] = ["memory", "skills", "sessions", "git", "sync", "cron", "plugins", "rules"];
+  const tabs: SidebarTab[] = useMemo(() => ["memory", "skills", "sessions", "git", "sync", "cron", "plugins", "rules"], []);
 
   return (
     <AnimatePresence>
@@ -175,4 +175,4 @@ export const Sidebar: React.FC<SidebarProps> = ({
       )}
     </AnimatePresence>
   );
-};
+});

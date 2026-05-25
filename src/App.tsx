@@ -1,4 +1,4 @@
-import { Suspense, lazy } from "react";
+import { Suspense, lazy, useMemo } from "react";
 import { ChatContainer } from "./components/chat/ChatContainer";
 import { useAppState } from "./hooks/useAppState";
 import { LeftPanel } from "./components/sidebar/LeftPanel";
@@ -13,6 +13,63 @@ export default function App() {
   const s = useAppState();
   const t = s.t;
 
+  const agentStep = useMemo(() => 
+    s.agentState ? `${s.agentState.currentStep}/${s.agentState.maxSteps}` : undefined,
+    [s.agentState]
+  );
+
+  const chatContainerProps = useMemo(() => ({
+    messages: s.messages,
+    input: s.input,
+    onInputChange: s.setInput,
+    onSendMessage: s.handleSendMessage,
+    onCancelMessage: s.handleCancelMessage,
+    isLooming: s.isLoading,
+    error: s.chatError,
+    agentLabel: "BUILD",
+    providerLabel: s.settings.chat.aiProvider,
+    modelName: s.settings.chat.aiModel,
+    t,
+    lang: s.lang,
+    loadingText: t.processing,
+    placeholder: t.promptPlaceholder,
+    voiceEnabled: s.settings.voiceEnabled,
+    voiceLanguage: s.settings.voiceLanguage,
+    voiceAutoSend: s.settings.voiceAutoSend,
+    visionEnabled: s.settings.chat.visionEnabled ?? true,
+  }), [s.messages, s.input, s.setInput, s.handleSendMessage, s.handleCancelMessage, s.isLoading, s.chatError, s.settings.chat.aiProvider, s.settings.chat.aiModel, s.settings.chat.visionEnabled, s.settings.voiceEnabled, s.settings.voiceLanguage, s.settings.voiceAutoSend, t, s.lang, t.processing, t.promptPlaceholder]);
+
+  const settingsModalProps = useMemo(() => ({
+    isOpen: s.showSettings,
+    onClose: () => s.setShowSettings(false),
+    config: s.settings.chat,
+    presets: s.settings.presets,
+    isAutonomous: s.settings.isAutonomous,
+    autoLoopDelay: s.settings.autoLoopDelay,
+    autoCommit: s.settings.autoCommit,
+    voiceEnabled: s.settings.voiceEnabled,
+    voiceLanguage: s.settings.voiceLanguage,
+    voiceAutoSend: s.settings.voiceAutoSend,
+    onSave: (cfg: any) => s.updateChatConfig(cfg),
+    onPresetSave: (preset: any) => s.addPreset(preset),
+    onPresetApply: (preset: any) => s.loadPreset(preset.id),
+    onPresetDelete: (id: string) => s.deletePreset(id),
+    onToggleAutonomous: s.toggleAutonomous,
+    onToggleAutoCommit: s.toggleAutoCommit,
+    onChangeAutoLoopDelay: s.updateAutoLoopDelay,
+    onLanguageChange: (newLang: string) => {
+      if ((s.ALL_LANGS as readonly string[]).includes(newLang)) {
+        s.setLang(newLang as typeof s.ALL_LANGS[number]);
+        s.setLanguage(newLang as "en" | "ru");
+      }
+    },
+    onToggleVoiceEnabled: s.toggleVoiceEnabled,
+    onChangeVoiceLanguage: s.setVoiceLanguage,
+    onToggleVoiceAutoSend: s.toggleVoiceAutoSend,
+    t,
+    lang: s.lang,
+  }), [s.showSettings, s.settings.chat, s.settings.presets, s.settings.isAutonomous, s.settings.autoLoopDelay, s.settings.autoCommit, s.settings.voiceEnabled, s.settings.voiceLanguage, s.settings.voiceAutoSend, s.updateChatConfig, s.addPreset, s.loadPreset, s.deletePreset, s.toggleAutonomous, s.toggleAutoCommit, s.updateAutoLoopDelay, s.setLang, s.setLanguage, s.toggleVoiceEnabled, s.setVoiceLanguage, s.toggleVoiceAutoSend, t, s.lang, s.ALL_LANGS]);
+
   return (
     <div className="h-screen w-screen bg-dash-bg text-dash-text-primary overflow-hidden flex flex-col">
       <AppHeader
@@ -24,7 +81,7 @@ export default function App() {
         canUndo={s.canUndo}
         canRedo={s.canRedo}
         sidebarOpen={s.sidebarOpen}
-        agentStep={s.agentState ? `${s.agentState.currentStep}/${s.agentState.maxSteps}` : undefined}
+        agentStep={agentStep}
         onAgentChange={(agent) => s.updateChatConfig({ agent })}
         onModeToggle={s.handleModeToggle}
         onUndo={s.undo}
@@ -59,64 +116,14 @@ export default function App() {
             </Suspense>
           ) : (
             <div className="flex-1 flex flex-col min-h-0">
-              <ChatContainer
-                messages={s.messages}
-                input={s.input}
-                onInputChange={s.setInput}
-                onSendMessage={s.handleSendMessage}
-                onCancelMessage={s.handleCancelMessage}
-                isLooming={s.isLoading}
-                error={s.chatError}
-                agentLabel="BUILD"
-                providerLabel={s.settings.chat.aiProvider}
-                modelName={s.settings.chat.aiModel}
-                t={t}
-                lang={s.lang}
-                loadingText={t.processing}
-                placeholder={t.promptPlaceholder}
-                voiceEnabled={s.settings.voiceEnabled}
-                voiceLanguage={s.settings.voiceLanguage}
-                voiceAutoSend={s.settings.voiceAutoSend}
-                visionEnabled={s.settings.chat.visionEnabled ?? true}
-              />
+              <ChatContainer {...chatContainerProps} />
             </div>
           )}
         </main>
       </div>
 
       <Suspense fallback={null}>
-        {s.showSettings && (
-          <SettingsModal
-            isOpen={s.showSettings}
-            onClose={() => s.setShowSettings(false)}
-            config={s.settings.chat}
-            presets={s.settings.presets}
-            isAutonomous={s.settings.isAutonomous}
-            autoLoopDelay={s.settings.autoLoopDelay}
-            autoCommit={s.settings.autoCommit}
-            voiceEnabled={s.settings.voiceEnabled}
-            voiceLanguage={s.settings.voiceLanguage}
-            voiceAutoSend={s.settings.voiceAutoSend}
-            onSave={(cfg) => s.updateChatConfig(cfg)}
-            onPresetSave={(preset) => s.addPreset(preset)}
-            onPresetApply={(preset) => s.loadPreset(preset.id)}
-            onPresetDelete={(id) => s.deletePreset(id)}
-            onToggleAutonomous={s.toggleAutonomous}
-            onToggleAutoCommit={s.toggleAutoCommit}
-            onChangeAutoLoopDelay={s.updateAutoLoopDelay}
-            onLanguageChange={(newLang) => {
-              if ((s.ALL_LANGS as readonly string[]).includes(newLang)) {
-                s.setLang(newLang as typeof s.ALL_LANGS[number]);
-                s.setLanguage(newLang as "en" | "ru");
-              }
-            }}
-            onToggleVoiceEnabled={s.toggleVoiceEnabled}
-            onChangeVoiceLanguage={s.setVoiceLanguage}
-            onToggleVoiceAutoSend={s.toggleVoiceAutoSend}
-            t={t}
-            lang={s.lang}
-          />
-        )}
+        {s.showSettings && <SettingsModal {...settingsModalProps} />}
       </Suspense>
 
       <Suspense fallback={null}>

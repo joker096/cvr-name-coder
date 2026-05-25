@@ -331,7 +331,7 @@ describe("CRITICAL_RULE compliance", () => {
     for (const [cmdName, cmd] of Object.entries(COMMANDS)) {
       expect(cmd.prompt).toContain("CRITICAL:");
       expect(cmd.prompt).toContain("NEVER invent file paths");
-      expect(cmd.prompt).toContain("NEVER generate fake tool call");
+      expect(cmd.prompt).toContain("ABSOLUTELY FORBIDDEN");
     }
   });
 
@@ -420,5 +420,33 @@ describe("Command and mode integration", () => {
 
     expect(getCommandMode("/review")).toBe("review");
     expect(getCommandAgent("/review")).toBe("build");
+  });
+});
+
+describe("Enhanced CRITICAL_RULE enforcement", () => {
+  it("should prevent all fake tool call syntax variants", () => {
+    for (const [cmdName, cmd] of Object.entries(COMMANDS)) {
+      expect(cmd.prompt).toContain("<invoke>");
+      expect(cmd.prompt).toContain("<parameter>");
+      expect(cmd.prompt).toContain("<tool_calls>");
+      expect(cmd.prompt).toContain("<｜DSML｜invoke>");
+      expect(cmd.prompt).toContain("<｜DSML｜parameter>");
+      expect(cmd.prompt).toContain("<｜DSML｜tool_calls>");
+    }
+  });
+
+  it("should include FUNCTION CALLING requirement", () => {
+    for (const [cmdName, cmd] of Object.entries(COMMANDS)) {
+      expect(cmd.prompt).toContain("FUNCTION CALLING");
+      expect(cmd.prompt).toContain("function calling mechanism");
+    }
+  });
+
+  it("should include clear REQUIRED section", () => {
+    for (const [cmdName, cmd] of Object.entries(COMMANDS)) {
+      expect(cmd.prompt).toContain("REQUIRED:");
+      expect(cmd.prompt).toContain("system will call it for you");
+      expect(cmd.prompt).toContain("system handles tool execution");
+    }
   });
 });

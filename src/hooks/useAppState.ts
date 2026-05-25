@@ -9,7 +9,7 @@ import { useBrowserStatus } from "./useBrowserStatus";
 import { useGoal } from "./useGoal";
 import type { Message } from "../types/chat";
 import { completeTask, commitCode } from "../server/gamerState";
-import { parseGoalCommand } from "../utils/commands";
+import { parseCommand, getCommandMode, parseGoalCommand } from "../utils/commands";
 import { getTranslationsSync, loadTranslations } from "../i18n";
 
 const ALL_LANGS = ["en", "ru", "es", "zh", "de", "fr", "pt", "it", "ja", "ko", "ar", "tr", "pl", "uk", "vi", "hi"] as const;
@@ -57,6 +57,16 @@ export function useAppState() {
 
     setInput("");
     const trimmed = currentInput.trim();
+
+    // Auto-switch mode based on command
+    const { command } = parseCommand(currentInput);
+    if (command) {
+      const commandMode = getCommandMode(command);
+      if (commandMode && commandMode !== settings.chat.mode) {
+        updateChatConfig({ mode: commandMode });
+      }
+    }
+
     if (trimmed === "/undo") {
       const result = await undo();
       addMessage({
@@ -131,7 +141,7 @@ export function useAppState() {
     if (result?.continueNeeded && settings.isAutonomous) {
       startLoop(currentInput, settings.chat.aiProvider, settings.chat.aiModel);
     }
-  }, [sendMessage, settings, startLoop, undo, redo, addMessage, deleteMessage, tt]);
+  }, [sendMessage, settings, startLoop, undo, redo, addMessage, deleteMessage, tt, updateChatConfig]);
 
   const handleCancelMessage = useCallback(() => {
     cancelMessage();

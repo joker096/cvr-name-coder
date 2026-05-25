@@ -1,10 +1,5 @@
-import React from 'react';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
-
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
+import React, { memo, useMemo } from 'react';
+import { cn } from '../../utils/cn';
 
 interface InputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'onChange'> {
   label?: string;
@@ -12,13 +7,19 @@ interface InputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, '
   onChange: (value: string) => void;
 }
 
-export const Input = React.forwardRef<HTMLInputElement, InputProps>(({ 
-  label, 
-  error, 
-  className, 
-  onChange, 
-  ...props 
+export const Input = memo(React.forwardRef<HTMLInputElement, InputProps>(({
+  label,
+  error,
+  className,
+  onChange,
+  ...props
 }, ref) => {
+  const inputClassName = useMemo(() => cn(
+    'w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500',
+    error ? 'border-red-500' : 'border-gray-300',
+    className
+  ), [error, className]);
+
   return (
     <div className="w-full">
       {label && (
@@ -28,11 +29,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(({
       )}
       <input
         ref={ref}
-        className={cn(
-          'w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500',
-          error ? 'border-red-500' : 'border-gray-300',
-          className
-        )}
+        className={inputClassName}
         onChange={(e) => onChange(e.target.value)}
         {...props}
       />
@@ -41,6 +38,6 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(({
       )}
     </div>
   );
-});
+}));
 
 Input.displayName = 'Input';

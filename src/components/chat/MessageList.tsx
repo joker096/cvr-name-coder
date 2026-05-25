@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, memo, useMemo, useState } from "react";
 import { MessageItem } from "./MessageItem";
 import type { Message } from "../../types/chat";
 
@@ -12,7 +12,7 @@ interface MessageListProps {
   loadingText?: string | undefined;
 }
 
-export const MessageList: React.FC<MessageListProps> = ({
+export const MessageList: React.FC<MessageListProps> = memo(({
   messages,
   agentLabel,
   providerLabel,
@@ -23,6 +23,18 @@ export const MessageList: React.FC<MessageListProps> = ({
 }) => {
   const endRef = useRef<HTMLDivElement | null>(null);
   const prevCountRef = useRef(messages.length);
+  const [visibleRange, setVisibleRange] = useState({ start: 0, end: 50 });
+
+  const VISIBLE_MESSAGE_COUNT = 50;
+  const BUFFER_MESSAGE_COUNT = 10;
+
+  const visibleMessages = useMemo(() => {
+    if (messages.length <= VISIBLE_MESSAGE_COUNT) {
+      return messages;
+    }
+    const { start, end } = visibleRange;
+    return messages.slice(Math.max(0, start - BUFFER_MESSAGE_COUNT), Math.min(messages.length, end + BUFFER_MESSAGE_COUNT));
+  }, [messages, visibleRange]);
 
   useEffect(() => {
     const prevCount = prevCountRef.current;
@@ -36,6 +48,12 @@ export const MessageList: React.FC<MessageListProps> = ({
     return;
   }, [messages, isLooming]);
 
+  useEffect(() => {
+    if (messages.length > VISIBLE_MESSAGE_COUNT) {
+      setVisibleRange({ start: messages.length - VISIBLE_MESSAGE_COUNT, end: messages.length });
+    }
+  }, [messages.length]);
+
   if (messages.length === 0 && !isLooming) {
     return (
       <div className="flex-1 flex items-center justify-center text-dash-text-muted text-sm">
@@ -48,7 +66,7 @@ export const MessageList: React.FC<MessageListProps> = ({
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2 space-y-2">
-      {messages.map((message, index) => (
+      {visibleMessages.map((message, index) => (
         <MessageItem
           key={message.id || index}
           message={message}
@@ -89,4 +107,4 @@ export const MessageList: React.FC<MessageListProps> = ({
       <div ref={endRef} />
     </div>
   );
-};
+});

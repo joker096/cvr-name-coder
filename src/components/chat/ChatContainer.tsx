@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useMemo } from "react";
 import { AlertCircle } from "lucide-react";
 import { MessageList } from "./MessageList";
 import { InputArea } from "./InputArea";
@@ -50,6 +50,16 @@ export const ChatContainer = memo<ChatContainerProps>(({
   voiceAutoSend,
   visionEnabled,
 }) => {
+  const errorDisplay = useMemo(() => {
+    if (!error) return null;
+    return (
+      <div className="mx-2 mb-1 px-2 py-1.5 bg-red-500/10 border border-red-500/30 rounded text-[11px] text-red-400 flex items-center gap-1.5">
+        <AlertCircle className="w-3 h-3 shrink-0" />
+        <span className="truncate">{error}</span>
+      </div>
+    );
+  }, [error]);
+
   return (
     <div className={cn("flex flex-col h-full min-h-0", className)}>
       <MessageList
@@ -61,12 +71,7 @@ export const ChatContainer = memo<ChatContainerProps>(({
         isLooming={isLooming}
         loadingText={loadingText}
       />
-      {error && (
-        <div className="mx-2 mb-1 px-2 py-1.5 bg-red-500/10 border border-red-500/30 rounded text-[11px] text-red-400 flex items-center gap-1.5">
-          <AlertCircle className="w-3 h-3 shrink-0" />
-          <span className="truncate">{error}</span>
-        </div>
-      )}
+      {errorDisplay}
       <div className="border-t border-dash-border p-1.5 bg-dash-bg">
         <InputArea
           value={input}

@@ -140,11 +140,11 @@ describe("Command Integration Flow", () => {
         const prompt = getCommandPrompt(cmd as any, "");
         expect(prompt).toContain("CRITICAL:");
         expect(prompt).toContain("NEVER invent file paths");
-        expect(prompt).toContain("NEVER generate fake tool call");
+        expect(prompt).toContain("ABSOLUTELY FORBIDDEN");
       }
     });
 
-    it("should prevent fake tool call generation in prompts", () => {
+    it("should prevent all fake tool call syntax variants", () => {
       const commands = ["/analyze", "/fix", "/optimize", "/audit", "/explain", "/refactor", "/review", "/undo", "/redo", "/goal"];
 
       for (const cmd of commands) {
@@ -152,6 +152,19 @@ describe("Command Integration Flow", () => {
         expect(prompt).toContain("<invoke>");
         expect(prompt).toContain("<parameter>");
         expect(prompt).toContain("<tool_calls>");
+        expect(prompt).toContain("<｜DSML｜invoke>");
+        expect(prompt).toContain("<｜DSML｜parameter>");
+        expect(prompt).toContain("<｜DSML｜tool_calls>");
+      }
+    });
+
+    it("should include FUNCTION CALLING requirement", () => {
+      const commands = ["/analyze", "/fix", "/optimize", "/audit", "/explain", "/refactor", "/review", "/undo", "/redo", "/goal"];
+
+      for (const cmd of commands) {
+        const prompt = getCommandPrompt(cmd as any, "");
+        expect(prompt).toContain("FUNCTION CALLING");
+        expect(prompt).toContain("function calling mechanism");
       }
     });
   });

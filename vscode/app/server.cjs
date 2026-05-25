@@ -6658,7 +6658,20 @@ ${agentIdentity}
 
 ${modeDirective}
 
-CRITICAL: You have REAL tools available via function calling. NEVER generate fake tool call syntax (like \`<\uFF5CDSML\uFF5Cinvoke>\`, \`<\uFF5CDSML\uFF5Cparameter>\`, \`<\uFF5CDSML\uFF5Ctool_calls>\` or similar XML/markup) in your response TEXT. Those tags are internal protocol \u2014 use actual tool calls via the function calling mechanism instead.
+CRITICAL: You have REAL tools available via FUNCTION CALLING.
+
+ABSOLUTELY FORBIDDEN:
+- NEVER generate fake tool call syntax in your response text
+- NEVER use tags like <invoke>, <parameter>, <tool_calls>, <\uFF5CDSML\uFF5Cinvoke>, <\uFF5CDSML\uFF5Cparameter>, <\uFF5CDSML\uFF5Ctool_calls>
+- NEVER write XML/markup that looks like tool calls
+- NEVER pretend to call tools in your text response
+
+REQUIRED:
+- Use actual function calling mechanism provided by the system
+- If you need to use a tool, the system will call it for you
+- Just respond normally with your analysis or request
+- The system handles tool execution automatically
+
 Also: NEVER invent file paths or code \u2014 only reference files and code you have actually read via tools. If asked to find or fix errors, you MUST first read the actual files using read_file tools. Do not fabricate error reports or fixes based on assumptions. If a file doesn't exist in the codebase, say so rather than guessing its contents.
 
 AVAILABLE TOOLS:
@@ -6927,7 +6940,21 @@ function buildDualModelConfig(cfg) {
 init_logger();
 
 // src/utils/commands.ts
-var CRITICAL_RULE = `CRITICAL: Use ONLY the real tools provided to you. NEVER invent file paths \u2014 only reference files you actually read via tools. NEVER generate fake tool call XML/markup (<invoke>, <parameter>, <tool_calls>) in your response text.`;
+var CRITICAL_RULE = `CRITICAL: Use ONLY the real tools provided to you via FUNCTION CALLING. NEVER invent file paths \u2014 only reference files you actually read via tools.
+
+ABSOLUTELY FORBIDDEN:
+- NEVER generate fake tool call syntax in your response text
+- NEVER use tags like <invoke>, <parameter>, <tool_calls>, <\uFF5CDSML\uFF5Cinvoke>, <\uFF5CDSML\uFF5Cparameter>, <\uFF5CDSML\uFF5Ctool_calls>
+- NEVER write XML/markup that looks like tool calls
+- NEVER pretend to call tools in your text response
+
+REQUIRED:
+- Use actual function calling mechanism provided by the system
+- If you need to use a tool, the system will call it for you
+- Just respond normally with your analysis or request
+- The system handles tool execution automatically
+
+If you need to list directories, read files, or perform any action, simply state what you need in plain text. The system will handle the tool calls.`;
 var COMMANDS = {
   "/analyze": {
     command: "/analyze",
