@@ -19,21 +19,13 @@ export interface CommandDefinition {
   prompt: string;
 }
 
-const CRITICAL_RULE = `CRITICAL: Use ONLY the real tools provided to you via FUNCTION CALLING. NEVER invent file paths — only reference files you actually read via tools.
+const CRITICAL_RULE = `Use the real tools provided via function calling. Verify file paths before referencing them.
 
-ABSOLUTELY FORBIDDEN:
-- NEVER generate fake tool call syntax in your response text
-- NEVER use tags like <invoke>, <parameter>, <tool_calls>, <｜DSML｜invoke>, <｜DSML｜parameter>, <｜DSML｜tool_calls>
-- NEVER write XML/markup that looks like tool calls
-- NEVER pretend to call tools in your text response
+- Respond in plain text only
+- If you need to use a tool, describe what you need in plain text
+- The system will handle tool execution
 
-REQUIRED:
-- Use actual function calling mechanism provided by the system
-- If you need to use a tool, the system will call it for you
-- Just respond normally with your analysis or request
-- The system handles tool execution automatically
-
-If you need to list directories, read files, or perform any action, simply state what you need in plain text. The system will handle the tool calls.`;
+If you need to list directories, read files, or perform any action, state what you need. The system will handle the tool calls.`;
 
 export const COMMANDS: Record<SlashCommand, CommandDefinition> = {
   "/analyze": {

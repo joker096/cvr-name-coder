@@ -313,13 +313,17 @@ function sseWrite(res: Response, data: Record<string, unknown>) {
   res.write(`data: ${JSON.stringify(data)}\n\n`);
 }
 
-const HALLUCINATED_TOOL_PATTERN = /<\s*(?:invoke|parameter|tool_calls?|function_calls?|function_call)[\s\S]*?<\/\s*(?:invoke|parameter|tool_calls?|function_calls?|function_call)\s*>/gi;
+const HALLUCINATED_TOOL_PATTERN = /<\s*(?:invoke|parameter|tool_calls?|function_calls?|function_call|DSML)[\s\S]*?<\/\s*(?:invoke|parameter|tool_calls?|function_calls?|function_call|DSML)\s*>/gi;
 const FAKE_PATH_PREFIX = /(^|\n)\s*(?:Now let me read|Let me read|I'll read|Reading)\s+/gi;
+const SPECIAL_TAG_PATTERN = /<\|DSML\|[^>]*>/gi;
+const STANDALONE_DSML = /\|\|DSML\|\|/gi;
 
 function sanitizeAIResponse(text: string): string {
-  let sanitized = text.replace(HALLUCINATED_TOOL_PATTERN, '[tool call removed]');
+  let sanitized = text.replace(HALLUCINATED_TOOL_PATTERN, '');
   sanitized = sanitized.replace(FAKE_PATH_PREFIX, '$1');
-  return sanitized;
+  sanitized = sanitized.replace(SPECIAL_TAG_PATTERN, '');
+  sanitized = sanitized.replace(STANDALONE_DSML, '');
+  return sanitized.trim();
 }
 
 class SSETokenFilter {
@@ -329,7 +333,7 @@ class SSETokenFilter {
   feed(token: string): string {
     this.buf += token;
     if (!this.inTag) {
-      const tagIdx = this.buf.search(/<\s*(invoke|parameter|tool_calls?|function_calls?|function_call)/i);
+      const tagIdx = this.buf.search(/<\s*(invoke|parameter|tool_calls?|function_calls?|function_call|DSML|\|DSML\|)/i);
       if (tagIdx === -1) {
         const out = this.buf;
         this.buf = '';
@@ -340,7 +344,7 @@ class SSETokenFilter {
       this.inTag = true;
       return before;
     }
-    const closeIdx = this.buf.search(/<\/\s*(invoke|parameter|tool_calls?|function_calls?|function_call)\s*>/i);
+    const closeIdx = this.buf.search(/<\/\s*(invoke|parameter|tool_calls?|function_calls?|function_call|DSML)\s*>/i);
     if (closeIdx !== -1) {
       this.buf = this.buf.slice(closeIdx + this.buf.slice(closeIdx).indexOf('>') + 1);
       this.inTag = false;

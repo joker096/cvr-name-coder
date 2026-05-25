@@ -329,9 +329,9 @@ describe("COMMAND_LIST", () => {
 describe("CRITICAL_RULE compliance", () => {
   it("should include CRITICAL_RULE in all command prompts", () => {
     for (const [cmdName, cmd] of Object.entries(COMMANDS)) {
-      expect(cmd.prompt).toContain("CRITICAL:");
-      expect(cmd.prompt).toContain("NEVER invent file paths");
-      expect(cmd.prompt).toContain("ABSOLUTELY FORBIDDEN");
+      expect(cmd.prompt).toContain("Use the real tools");
+      expect(cmd.prompt).toContain("Verify file paths before referencing");
+      expect(cmd.prompt).not.toContain("ABSOLUTELY FORBIDDEN");
     }
   });
 
@@ -424,29 +424,28 @@ describe("Command and mode integration", () => {
 });
 
 describe("Enhanced CRITICAL_RULE enforcement", () => {
-  it("should prevent all fake tool call syntax variants", () => {
+  it("should not contain any forbidden tag patterns in prompts", () => {
     for (const [cmdName, cmd] of Object.entries(COMMANDS)) {
-      expect(cmd.prompt).toContain("<invoke>");
-      expect(cmd.prompt).toContain("<parameter>");
-      expect(cmd.prompt).toContain("<tool_calls>");
-      expect(cmd.prompt).toContain("<｜DSML｜invoke>");
-      expect(cmd.prompt).toContain("<｜DSML｜parameter>");
-      expect(cmd.prompt).toContain("<｜DSML｜tool_calls>");
+      expect(cmd.prompt).not.toContain("<invoke>");
+      expect(cmd.prompt).not.toContain("<parameter>");
+      expect(cmd.prompt).not.toContain("<tool_calls>");
+      expect(cmd.prompt).not.toContain("<｜DSML｜invoke>");
+      expect(cmd.prompt).not.toContain("<｜DSML｜parameter>");
+      expect(cmd.prompt).not.toContain("<｜DSML｜tool_calls>");
     }
   });
 
-  it("should include FUNCTION CALLING requirement", () => {
+  it("should include function calling requirement", () => {
     for (const [cmdName, cmd] of Object.entries(COMMANDS)) {
-      expect(cmd.prompt).toContain("FUNCTION CALLING");
-      expect(cmd.prompt).toContain("function calling mechanism");
+      expect(cmd.prompt).toContain("function calling");
+      expect(cmd.prompt).not.toContain("function calling mechanism");
     }
   });
 
-  it("should include clear REQUIRED section", () => {
+  it("should include DIRECTIONS section", () => {
     for (const [cmdName, cmd] of Object.entries(COMMANDS)) {
-      expect(cmd.prompt).toContain("REQUIRED:");
-      expect(cmd.prompt).toContain("system will call it for you");
-      expect(cmd.prompt).toContain("system handles tool execution");
+      expect(cmd.prompt).toContain("The system will handle tool execution");
     }
   });
 });
+

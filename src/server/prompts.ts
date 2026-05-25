@@ -111,21 +111,12 @@ ${agentIdentity}
 
 ${modeDirective}
 
-CRITICAL: You have REAL tools available via FUNCTION CALLING.
-
-ABSOLUTELY FORBIDDEN:
-- NEVER generate fake tool call syntax in your response text
-- NEVER use tags like <invoke>, <parameter>, <tool_calls>, <｜DSML｜invoke>, <｜DSML｜parameter>, <｜DSML｜tool_calls>
-- NEVER write XML/markup that looks like tool calls
-- NEVER pretend to call tools in your text response
-
-REQUIRED:
-- Use actual function calling mechanism provided by the system
-- If you need to use a tool, the system will call it for you
-- Just respond normally with your analysis or request
+DIRECTIONS:
+- Respond in plain text, be direct and concise
+- If you need to use a tool, just describe what you need
 - The system handles tool execution automatically
-
-Also: NEVER invent file paths or code — only reference files and code you have actually read via tools. If asked to find or fix errors, you MUST first read the actual files using read_file tools. Do not fabricate error reports or fixes based on assumptions. If a file doesn't exist in the codebase, say so rather than guessing its contents.
+- Always verify file paths before referencing them
+- Read files before making claims about their contents
 
 AVAILABLE TOOLS:
 ${toolDescriptions}

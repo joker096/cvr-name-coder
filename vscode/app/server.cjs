@@ -6658,21 +6658,12 @@ ${agentIdentity}
 
 ${modeDirective}
 
-CRITICAL: You have REAL tools available via FUNCTION CALLING.
-
-ABSOLUTELY FORBIDDEN:
-- NEVER generate fake tool call syntax in your response text
-- NEVER use tags like <invoke>, <parameter>, <tool_calls>, <\uFF5CDSML\uFF5Cinvoke>, <\uFF5CDSML\uFF5Cparameter>, <\uFF5CDSML\uFF5Ctool_calls>
-- NEVER write XML/markup that looks like tool calls
-- NEVER pretend to call tools in your text response
-
-REQUIRED:
-- Use actual function calling mechanism provided by the system
-- If you need to use a tool, the system will call it for you
-- Just respond normally with your analysis or request
+DIRECTIONS:
+- Respond in plain text, be direct and concise
+- If you need to use a tool, just describe what you need
 - The system handles tool execution automatically
-
-Also: NEVER invent file paths or code \u2014 only reference files and code you have actually read via tools. If asked to find or fix errors, you MUST first read the actual files using read_file tools. Do not fabricate error reports or fixes based on assumptions. If a file doesn't exist in the codebase, say so rather than guessing its contents.
+- Always verify file paths before referencing them
+- Read files before making claims about their contents
 
 AVAILABLE TOOLS:
 ${toolDescriptions}
@@ -6940,21 +6931,13 @@ function buildDualModelConfig(cfg) {
 init_logger();
 
 // src/utils/commands.ts
-var CRITICAL_RULE = `CRITICAL: Use ONLY the real tools provided to you via FUNCTION CALLING. NEVER invent file paths \u2014 only reference files you actually read via tools.
+var CRITICAL_RULE = `Use the real tools provided via function calling. Verify file paths before referencing them.
 
-ABSOLUTELY FORBIDDEN:
-- NEVER generate fake tool call syntax in your response text
-- NEVER use tags like <invoke>, <parameter>, <tool_calls>, <\uFF5CDSML\uFF5Cinvoke>, <\uFF5CDSML\uFF5Cparameter>, <\uFF5CDSML\uFF5Ctool_calls>
-- NEVER write XML/markup that looks like tool calls
-- NEVER pretend to call tools in your text response
+- Respond in plain text only
+- If you need to use a tool, describe what you need in plain text
+- The system will handle tool execution
 
-REQUIRED:
-- Use actual function calling mechanism provided by the system
-- If you need to use a tool, the system will call it for you
-- Just respond normally with your analysis or request
-- The system handles tool execution automatically
-
-If you need to list directories, read files, or perform any action, simply state what you need in plain text. The system will handle the tool calls.`;
+If you need to list directories, read files, or perform any action, state what you need. The system will handle the tool calls.`;
 var COMMANDS = {
   "/analyze": {
     command: "/analyze",
@@ -7332,12 +7315,16 @@ function sseWrite(res, data) {
 
 `);
 }
-var HALLUCINATED_TOOL_PATTERN = /<\s*(?:invoke|parameter|tool_calls?|function_calls?|function_call)[\s\S]*?<\/\s*(?:invoke|parameter|tool_calls?|function_calls?|function_call)\s*>/gi;
+var HALLUCINATED_TOOL_PATTERN = /<\s*(?:invoke|parameter|tool_calls?|function_calls?|function_call|DSML)[\s\S]*?<\/\s*(?:invoke|parameter|tool_calls?|function_calls?|function_call|DSML)\s*>/gi;
 var FAKE_PATH_PREFIX = /(^|\n)\s*(?:Now let me read|Let me read|I'll read|Reading)\s+/gi;
+var SPECIAL_TAG_PATTERN = /<\|DSML\|[^>]*>/gi;
+var STANDALONE_DSML = /\|\|DSML\|\|/gi;
 function sanitizeAIResponse(text) {
-  let sanitized = text.replace(HALLUCINATED_TOOL_PATTERN, "[tool call removed]");
+  let sanitized = text.replace(HALLUCINATED_TOOL_PATTERN, "");
   sanitized = sanitized.replace(FAKE_PATH_PREFIX, "$1");
-  return sanitized;
+  sanitized = sanitized.replace(SPECIAL_TAG_PATTERN, "");
+  sanitized = sanitized.replace(STANDALONE_DSML, "");
+  return sanitized.trim();
 }
 var SSETokenFilter = class {
   buf = "";
@@ -7345,7 +7332,7 @@ var SSETokenFilter = class {
   feed(token) {
     this.buf += token;
     if (!this.inTag) {
-      const tagIdx = this.buf.search(/<\s*(invoke|parameter|tool_calls?|function_calls?|function_call)/i);
+      const tagIdx = this.buf.search(/<\s*(invoke|parameter|tool_calls?|function_calls?|function_call|DSML|\|DSML\|)/i);
       if (tagIdx === -1) {
         const out = this.buf;
         this.buf = "";
@@ -7356,7 +7343,7 @@ var SSETokenFilter = class {
       this.inTag = true;
       return before;
     }
-    const closeIdx = this.buf.search(/<\/\s*(invoke|parameter|tool_calls?|function_calls?|function_call)\s*>/i);
+    const closeIdx = this.buf.search(/<\/\s*(invoke|parameter|tool_calls?|function_calls?|function_call|DSML)\s*>/i);
     if (closeIdx !== -1) {
       this.buf = this.buf.slice(closeIdx + this.buf.slice(closeIdx).indexOf(">") + 1);
       this.inTag = false;

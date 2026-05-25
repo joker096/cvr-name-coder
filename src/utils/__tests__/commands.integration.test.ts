@@ -22,7 +22,7 @@ describe("Command Integration Flow", () => {
       expect(agent).toBe("scout");
       expect(mode).toBe("plan");
       expect(prompt).toContain("ANALYZE mode");
-      expect(prompt).toContain("CRITICAL:");
+      expect(prompt).toContain("Use the real tools");
     });
 
     it("should process /fix command with arguments correctly", () => {
@@ -138,33 +138,33 @@ describe("Command Integration Flow", () => {
 
       for (const cmd of commands) {
         const prompt = getCommandPrompt(cmd as any, "");
-        expect(prompt).toContain("CRITICAL:");
-        expect(prompt).toContain("NEVER invent file paths");
-        expect(prompt).toContain("ABSOLUTELY FORBIDDEN");
+        expect(prompt).toContain("Use the real tools");
+        expect(prompt).toContain("Verify file paths before referencing");
+        expect(prompt).not.toContain("ABSOLUTELY FORBIDDEN");
       }
     });
 
-    it("should prevent all fake tool call syntax variants", () => {
+    it("should not contain any forbidden tag patterns", () => {
       const commands = ["/analyze", "/fix", "/optimize", "/audit", "/explain", "/refactor", "/review", "/undo", "/redo", "/goal"];
 
       for (const cmd of commands) {
         const prompt = getCommandPrompt(cmd as any, "");
-        expect(prompt).toContain("<invoke>");
-        expect(prompt).toContain("<parameter>");
-        expect(prompt).toContain("<tool_calls>");
-        expect(prompt).toContain("<｜DSML｜invoke>");
-        expect(prompt).toContain("<｜DSML｜parameter>");
-        expect(prompt).toContain("<｜DSML｜tool_calls>");
+        expect(prompt).not.toContain("<invoke>");
+        expect(prompt).not.toContain("<parameter>");
+        expect(prompt).not.toContain("<tool_calls>");
+        expect(prompt).not.toContain("<｜DSML｜invoke>");
+        expect(prompt).not.toContain("<｜DSML｜parameter>");
+        expect(prompt).not.toContain("<｜DSML｜tool_calls>");
       }
     });
 
-    it("should include FUNCTION CALLING requirement", () => {
+    it("should include function calling requirement", () => {
       const commands = ["/analyze", "/fix", "/optimize", "/audit", "/explain", "/refactor", "/review", "/undo", "/redo", "/goal"];
 
       for (const cmd of commands) {
         const prompt = getCommandPrompt(cmd as any, "");
-        expect(prompt).toContain("FUNCTION CALLING");
-        expect(prompt).toContain("function calling mechanism");
+        expect(prompt).toContain("function calling");
+        expect(prompt).not.toContain("function calling mechanism");
       }
     });
   });

@@ -2,7 +2,7 @@
   "name": "cvr-name-coder",
   "displayName": "cvr.name.coder",
   "description": "Autonomous AI coding agent for VS Code with persistent memory, Goal Loop, Project Oracle RAG, design systems, code review, browser automation, vision, cron tasks, Agent Marketplace, team sync, MCP tools/server, and local or cloud LLM support.",
-  "version": "1.5.46",
+  "version": "1.5.47",
   "publisher": "cvr-name",
   "author": {
     "name": "cvr.name",
