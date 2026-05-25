@@ -15,6 +15,7 @@ export interface CommandDefinition {
   label: string;
   description: string;
   agent: string;
+  mode: "plan" | "build" | "review";
   prompt: string;
 }
 
@@ -26,6 +27,7 @@ export const COMMANDS: Record<SlashCommand, CommandDefinition> = {
     label: "Analyze Project",
     description: "Deep project structure analysis",
     agent: "scout",
+    mode: "plan",
     prompt: `You are in ANALYZE mode. Perform a deep analysis of THIS project structure.
 ${CRITICAL_RULE}
 
@@ -40,6 +42,7 @@ ${CRITICAL_RULE}
     label: "Fix Code Errors",
     description: "Scan and repair code anomalies",
     agent: "build",
+    mode: "build",
     prompt: `You are in FIX mode. Scan THIS codebase for errors and anomalies.
 ${CRITICAL_RULE}
 
@@ -55,6 +58,7 @@ Workflow:
     label: "Optimize Complexity",
     description: "Code complexity optimization",
     agent: "build",
+    mode: "build",
     prompt: `You are in OPTIMIZE mode. Analyze and optimize code in THIS project.
 ${CRITICAL_RULE}
 
@@ -69,6 +73,7 @@ ${CRITICAL_RULE}
     label: "Audit Agent Harness",
     description: "Security and best practices audit",
     agent: "scout",
+    mode: "plan",
     prompt: `You are in AUDIT mode. Perform a security audit of THIS codebase.
 ${CRITICAL_RULE}
 
@@ -84,6 +89,7 @@ ${CRITICAL_RULE}
     label: "Explain Logic",
     description: "Decode logic and architecture",
     agent: "explore",
+    mode: "plan",
     prompt: `You are in EXPLAIN mode. Explain the logic and architecture of THIS codebase.
 ${CRITICAL_RULE}
 
@@ -98,6 +104,7 @@ ${CRITICAL_RULE}
     label: "Refactor Entry",
     description: "Optimize and clean code",
     agent: "build",
+    mode: "build",
     prompt: `You are in REFACTOR mode. Clean up and refactor THIS codebase.
 ${CRITICAL_RULE}
 
@@ -113,6 +120,7 @@ ${CRITICAL_RULE}
     label: "Review Changes",
     description: "Review code changes and provide feedback",
     agent: "build",
+    mode: "review",
     prompt: `REVIEW: Review the current code changes in THIS project and provide structured feedback. Use real git diff tools, never invent paths.
 ${CRITICAL_RULE}`,
   },
@@ -121,21 +129,33 @@ ${CRITICAL_RULE}`,
     label: "Undo Change",
     description: "Revert the last file modification",
     agent: "build",
-    prompt: "UNDO: Revert the most recent file change.",
+    mode: "build",
+    prompt: `UNDO: Revert the most recent file change.
+${CRITICAL_RULE}`,
   },
   "/redo": {
     command: "/redo",
     label: "Redo Change",
     description: "Re-apply the last undone file modification",
     agent: "build",
-    prompt: "REDO: Re-apply the most recently undone file change.",
+    mode: "build",
+    prompt: `REDO: Re-apply the most recently undone file change.
+${CRITICAL_RULE}`,
   },
   "/goal": {
     command: "/goal",
     label: "Autonomous Goal",
     description: "Start an autonomous goal loop with judge evaluation",
     agent: "hephaestus",
-    prompt: "",
+    mode: "build",
+    prompt: `GOAL MODE: You are in autonomous goal mode. Work towards the stated goal systematically.
+${CRITICAL_RULE}
+
+1. Break down the goal into actionable steps
+2. Use tools to explore and understand the codebase
+3. Implement changes incrementally
+4. Verify each step before proceeding
+5. Provide progress updates`,
   },
 };
 
@@ -158,6 +178,10 @@ export function parseCommand(input: string): {
 
 export function getCommandAgent(command: SlashCommand): string | undefined {
   return COMMANDS[command]?.agent;
+}
+
+export function getCommandMode(command: SlashCommand): "plan" | "build" | "review" | undefined {
+  return COMMANDS[command]?.mode;
 }
 
 export function getCommandPrompt(command: SlashCommand, userArgs: string): string {

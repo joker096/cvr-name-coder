@@ -43,6 +43,7 @@ import { SettingsSchema } from '../../src/server/validation.js';
 import { McpManager } from './mcp/McpManager.js';
 import type { McpServerConfig } from './mcp/McpManager.js';
 import { generateEmbeddings, hasGeminiEmbeddingsConfigured, getGemini } from './embeddings/geminiEmbeddings.js';
+import { parseCommand, getCommandPrompt, getCommandAgent, getCommandMode } from '../../src/utils/commands.js';
 
 const $fetch = (globalThis as { fetch: (url: string, init?: RequestInit) => Promise<Response> }).fetch;
 
@@ -489,19 +490,19 @@ ${messages.slice(-10).map((m: any) => `${m.role}: ${m.content}`).join('\n')}`;
   setRagEmbedFn(generateEmbeddings);
 
   const AGENT_PROMPTS: Record<string, string> = {
-    build: '[ROLE: BUILD] - DEFAULT DEVELOPER AGENT. You have full access to developer tools (read/write files, execute bash). Focus on iterative coding, bug fixing, and implementation.',
-    general: '[ROLE: GENERAL] - UNIVERSAL ASSISTANT. Help with complex, multi-stage tasks. You can modify files, run parallel processes, and coordinate broad workflows.',
-    explore: '[ROLE: EXPLORE] - CODEBASE EXPLORER. Read-only specialist. Efficiently search patterns, find keywords, and explain codebase structure. Use fast search tools. You CANNOT write files.',
-    scout: '[ROLE: SCOUT] - ANALYST. Read-only. Specialized in external documentation research and dependency analysis. Focus on architectural auditing and research.',
-    prometheus: '[ROLE: PROMETHEUS] - STRATEGIC PLANNER. You are a strategic architect. Before any code is written, you must clarify requirements, define architecture, and scope the work. You create comprehensive plans.',
-    hephaestus: '[ROLE: HEPHAESTUS] - DEEP EXECUTOR. Autonomous specialist. Given a goal, independently research patterns, write code, and finish the task without requiring step-by-step guidance.',
+    build: '[ROLE: BUILD] - DEFAULT DEVELOPER AGENT. You have full access to developer tools (read/write files, execute bash). First explore the codebase with list_directory/read_file to understand the actual project structure, then implement changes. NEVER invent file names or code. Focus on iterative coding, bug fixing, and implementation.',
+    general: '[ROLE: GENERAL] - UNIVERSAL ASSISTANT. Help with complex, multi-stage tasks. You can modify files, run parallel processes, and coordinate broad workflows. Always verify file existence before referencing them — use list_directory and read_file to explore first.',
+    explore: '[ROLE: EXPLORE] - CODEBASE EXPLORER. Read-only specialist. Efficiently search patterns, find keywords, and explain codebase structure. Use fast search tools. You CANNOT write files. Only report on files you have actually read.',
+    scout: '[ROLE: SCOUT] - ANALYST. Read-only. Specialized in external documentation research and dependency analysis. Focus on architectural auditing and research. Verify file existence before analysis.',
+    prometheus: '[ROLE: PROMETHEUS] - STRATEGIC PLANNER. You are a strategic architect. Before any code is written, you must explore the actual codebase with list_directory/read_file, clarify requirements, define architecture, and scope the work. Do not invent file names — base your plan on REAL files. You create comprehensive plans.',
+    hephaestus: '[ROLE: HEPHAESTUS] - DEEP EXECUTOR. Autonomous specialist. Given a goal, independently research patterns by reading actual files, write code, and finish the task without requiring step-by-step guidance. Always verify file paths before editing — never hallucinate file names or code.',
   };
 
   function buildSystemPrompt(agent: string, memories: any[], mcpCtx: string, workspaceCtx: string): string {
     const contextParts = memories.slice(-5).map((m: any) => `[CLUSTER_DATA]: ${m.content}`).join('\n');
     const customAgent = getAgentById(agent);
     const agentIdentity = customAgent?.systemPrompt || AGENT_PROMPTS[agent] || AGENT_PROMPTS.build;
-    return `You are "cvr.name", the world's most advanced autonomous coding kernel. 
+    return `You are "cvr.name", the world's most advanced autonomous coding kernel.
 
 CURRENT_AGENT_IDENTITY:
 ${agentIdentity}
@@ -513,10 +514,13 @@ INTEGRATED PROTOCOLS:
 - [MCP_TOOLS]: You have access to external tools.
 ${mcpCtx}
 
+CRITICAL: You have REAL tools available via function calling. NEVER generate fake tool call syntax (like \`<｜DSML｜invoke>\`, \`<｜DSML｜parameter>\`, \`<｜DSML｜tool_calls>\` or similar XML/markup) in your response TEXT. Those tags are internal protocol — use actual tool calls via the function calling mechanism instead.
+Also: NEVER invent file paths or code — only reference files and code you have actually read via tools. If asked to find or fix errors, you MUST first read the actual files using read_file tools. Do not fabricate error reports or fixes based on assumptions. If a file doesn't exist in the codebase, say so rather than guessing its contents.
+
 WORKSPACE CONTEXT:
 ${workspaceCtx || 'No workspace open. The user is not currently editing a project.'}
 
-SYSTEM ARCHITECTURE: 
+SYSTEM ARCHITECTURE:
 - Local Persistent Memory (.opencode-infinite)
 - Recursive Task Execution Pipeline
 - Dreamer Semantic Compression Engine
@@ -554,21 +558,37 @@ ${contextParts || 'No previous knowledge clusters found. Cold-start mode.'}
 
   app.post('/api/chat', async (req: any, res: any) => {
     try {
-      const { message, config = {}, kernelConfig = {}, agent: bodyAgent } = req.body;
-      const { aiProvider, localUrl, aiModel, localModelName, apiKey, temperature, maxTokens, systemPrompt: customSystemPrompt, agent: configAgent } = config;
+      const { message, config = {}, kernelConfig = {}, agent: bodyAgent, mode: bodyMode } = req.body;
+      const { aiProvider, localUrl, aiModel, localModelName, apiKey, temperature, maxTokens, systemPrompt: customSystemPrompt, agent: configAgent, mode: configMode } = config;
       const resolvedModel = aiProvider === "local" ? (localModelName || aiModel) : aiModel;
       const kConfig = kernelConfig.aiProvider ? kernelConfig : config;
 
       const history = JSON.parse(await fs.promises.readFile(historyFile, 'utf-8'));
       const memories = JSON.parse(await fs.promises.readFile(memoryFile, 'utf-8'));
-      const agent = bodyAgent || configAgent || 'build';
+
+      // Parse command and integrate command prompt into system prompt
+      const { command, args } = parseCommand(message);
+      const commandAgent = command ? getCommandAgent(command) : undefined;
+      const commandMode = command ? getCommandMode(command) : undefined;
+
+      // Command agent/mode take priority over UI settings
+      const agent = commandAgent || bodyAgent || configAgent || 'build';
+      const mode = commandMode || bodyMode || configMode || 'build';
+
+      let commandPrompt = "";
+      if (command) {
+        commandPrompt = getCommandPrompt(command, args);
+      }
 
       let systemPrompt = buildSystemPrompt(agent, memories, mcpManager.getToolsContext(), getWorkspaceContext());
-      
+
       if (customSystemPrompt && customSystemPrompt.trim()) {
         const customAgent = getAgentById(agent);
         const agentIdentity = customAgent?.systemPrompt || AGENT_PROMPTS[agent] || AGENT_PROMPTS.build;
         systemPrompt = `${customSystemPrompt}\n\n${agentIdentity}\n\nWORKSPACE CONTEXT:\n${getWorkspaceContext() || 'No workspace open.'}`;
+      } else if (commandPrompt) {
+        // Integrate command prompt into system prompt
+        systemPrompt = `${commandPrompt}\n\n${systemPrompt}`;
       }
 
       res.writeHead(200, {

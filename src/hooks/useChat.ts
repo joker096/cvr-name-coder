@@ -3,7 +3,7 @@ import type { Message } from "../types/chat";
 import type { ChatConfig } from "../types/settings";
 import type { ToolCall } from "../types/tools";
 import { toMessageId } from "../types/ai";
-import { parseCommand, getCommandPrompt, getCommandAgent } from "../utils/commands";
+import { parseCommand, getCommandAgent, getCommandMode } from "../utils/commands";
 import type { HistoryEntry } from "../types/api";
 
 interface ChatState {
@@ -152,9 +152,11 @@ export const useChat = (config: ChatConfig) => {
     }
 
     // Parse slash commands
-    const { command, args } = parseCommand(content);
+    const { command } = parseCommand(content);
     const agent = command ? getCommandAgent(command) : undefined;
-    const messageContent = command ? getCommandPrompt(command, args) : content;
+    const mode = command ? getCommandMode(command) : undefined;
+    // Keep original content as message, command prompt will be handled by server
+    const messageContent = content;
 
     const userMessage: Message = {
       id: toMessageId(crypto.randomUUID()),
@@ -185,6 +187,7 @@ export const useChat = (config: ChatConfig) => {
           images,
           config: configRef.current,
           agent,
+          mode,
         }),
         signal: abortControllerRef.current.signal,
       });

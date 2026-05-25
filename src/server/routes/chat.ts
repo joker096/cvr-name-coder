@@ -15,6 +15,7 @@ import { validateBody, ChatRequestSchema } from "../validation.js";
 import { executeTool } from "../tools.js";
 import { log } from "../logger.js";
 import { validateFileAccess, scanResponse } from "../antiHallucination.js";
+import { parseCommand, getCommandPrompt, getCommandAgent, getCommandMode } from "../../utils/commands.js";
 
 /** Configuration for AI chat provider and model settings. */
 interface ChatConfig {
@@ -376,15 +377,26 @@ export function registerRoutes(app: Application) {
       const history = await getHistoryCached();
       const memories = await getMemoriesCached();
 
-      const agent = (bodyAgent || configAgent || "build") as import("../../types/settings.js").AgentId;
-      const mode = config.mode || "build";
+      // Parse command and integrate command prompt into system prompt
+      const { command, args } = parseCommand(message);
+      const commandAgent = command ? getCommandAgent(command) : undefined;
+      const commandMode = command ? getCommandMode(command) : undefined;
+
+      // Command agent/mode take priority over UI settings
+      const agent = (commandAgent || bodyAgent || configAgent || "build") as import("../../types/settings.js").AgentId;
+      const mode = (commandMode || config.mode || "build") as "plan" | "build" | "review";
       const contextParts = memories.slice(-5).map((m) => `[CLUSTER_DATA]: ${m.content}`).join('\n');
+
+      let commandPrompt = "";
+      if (command) {
+        commandPrompt = getCommandPrompt(command, args);
+      }
 
       const systemPrompt = await buildSystemPrompt({
         agent,
         mode,
         contextParts,
-        customSystemPrompt: customSystemPrompt && customSystemPrompt.trim() ? customSystemPrompt : undefined,
+        customSystemPrompt: (customSystemPrompt && customSystemPrompt.trim() ? customSystemPrompt : undefined) || commandPrompt,
       } as Parameters<typeof buildSystemPrompt>[0]);
 
       const rawImages = body.images ?? [];

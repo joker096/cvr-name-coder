@@ -2,10 +2,12 @@ import { describe, it, expect } from "vitest";
 import {
   parseCommand,
   getCommandAgent,
+  getCommandMode,
   getCommandPrompt,
   parseGoalCommand,
   COMMANDS,
   COMMAND_LIST,
+  type SlashCommand,
 } from "../commands";
 
 describe("parseCommand", () => {
@@ -133,6 +135,52 @@ describe("getCommandAgent", () => {
   });
 });
 
+describe("getCommandMode", () => {
+  it("should return plan for /analyze", () => {
+    expect(getCommandMode("/analyze")).toBe("plan");
+  });
+
+  it("should return build for /fix", () => {
+    expect(getCommandMode("/fix")).toBe("build");
+  });
+
+  it("should return build for /optimize", () => {
+    expect(getCommandMode("/optimize")).toBe("build");
+  });
+
+  it("should return plan for /audit", () => {
+    expect(getCommandMode("/audit")).toBe("plan");
+  });
+
+  it("should return plan for /explain", () => {
+    expect(getCommandMode("/explain")).toBe("plan");
+  });
+
+  it("should return build for /refactor", () => {
+    expect(getCommandMode("/refactor")).toBe("build");
+  });
+
+  it("should return review for /review", () => {
+    expect(getCommandMode("/review")).toBe("review");
+  });
+
+  it("should return build for /undo", () => {
+    expect(getCommandMode("/undo")).toBe("build");
+  });
+
+  it("should return build for /redo", () => {
+    expect(getCommandMode("/redo")).toBe("build");
+  });
+
+  it("should return build for /goal", () => {
+    expect(getCommandMode("/goal")).toBe("build");
+  });
+
+  it("should return undefined for unknown command", () => {
+    expect(getCommandMode("/unknown" as any)).toBeUndefined();
+  });
+});
+
 describe("getCommandPrompt", () => {
   it("should include prompt prefix for /optimize", () => {
     const result = getCommandPrompt("/optimize", "");
@@ -191,9 +239,10 @@ describe("getCommandPrompt", () => {
     expect(result).toContain("REDO: Re-apply the most recently undone file change.");
   });
 
-  it("should return empty prompt for /goal with empty args", () => {
+  it("should return goal prompt for /goal with empty args", () => {
     const result = getCommandPrompt("/goal", "");
-    expect(result.trim()).toBe("");
+    expect(result).toContain("GOAL MODE");
+    expect(result).toContain("autonomous goal");
   });
 });
 
@@ -274,5 +323,102 @@ describe("COMMAND_LIST", () => {
 
   it("should have 10 entries", () => {
     expect(COMMAND_LIST).toHaveLength(10);
+  });
+});
+
+describe("CRITICAL_RULE compliance", () => {
+  it("should include CRITICAL_RULE in all command prompts", () => {
+    for (const [cmdName, cmd] of Object.entries(COMMANDS)) {
+      expect(cmd.prompt).toContain("CRITICAL:");
+      expect(cmd.prompt).toContain("NEVER invent file paths");
+      expect(cmd.prompt).toContain("NEVER generate fake tool call");
+    }
+  });
+
+  it("should have mode field for all commands", () => {
+    for (const [cmdName, cmd] of Object.entries(COMMANDS)) {
+      expect(cmd.mode).toBeDefined();
+      expect(["plan", "build", "review"]).toContain(cmd.mode);
+    }
+  });
+
+  it("should have valid mode for read-only commands", () => {
+    // Commands that should be read-only (plan mode)
+    const readOnlyCommands = ["/analyze", "/audit", "/explain"];
+    for (const cmdName of readOnlyCommands) {
+      expect(COMMANDS[cmdName as SlashCommand].mode).toBe("plan");
+    }
+  });
+
+  it("should have valid mode for write commands", () => {
+    // Commands that should allow writing (build mode)
+    const writeCommands = ["/fix", "/optimize", "/refactor", "/undo", "/redo", "/goal"];
+    for (const cmdName of writeCommands) {
+      expect(COMMANDS[cmdName as SlashCommand].mode).toBe("build");
+    }
+  });
+
+  it("should have review mode for review command", () => {
+    expect(COMMANDS["/review"].mode).toBe("review");
+  });
+});
+
+describe("Command and mode integration", () => {
+  it("should map commands to correct agents", () => {
+    const agentMappings: Record<string, string> = {
+      "/analyze": "scout",
+      "/audit": "scout",
+      "/explain": "explore",
+      "/fix": "build",
+      "/optimize": "build",
+      "/refactor": "build",
+      "/review": "build",
+      "/undo": "build",
+      "/redo": "build",
+      "/goal": "hephaestus",
+    };
+
+    for (const [cmd, expectedAgent] of Object.entries(agentMappings)) {
+      expect(getCommandAgent(cmd as SlashCommand)).toBe(expectedAgent);
+    }
+  });
+
+  it("should map commands to correct modes", () => {
+    const modeMappings: Record<string, "plan" | "build" | "review"> = {
+      "/analyze": "plan",
+      "/audit": "plan",
+      "/explain": "plan",
+      "/fix": "build",
+      "/optimize": "build",
+      "/refactor": "build",
+      "/review": "review",
+      "/undo": "build",
+      "/redo": "build",
+      "/goal": "build",
+    };
+
+    for (const [cmd, expectedMode] of Object.entries(modeMappings)) {
+      expect(getCommandMode(cmd as SlashCommand)).toBe(expectedMode);
+    }
+  });
+
+  it("should have consistent agent and mode combinations", () => {
+    // scout agent should always use plan mode
+    expect(getCommandMode("/analyze")).toBe("plan");
+    expect(getCommandAgent("/analyze")).toBe("scout");
+
+    expect(getCommandMode("/audit")).toBe("plan");
+    expect(getCommandAgent("/audit")).toBe("scout");
+
+    // explore agent should always use plan mode
+    expect(getCommandMode("/explain")).toBe("plan");
+    expect(getCommandAgent("/explain")).toBe("explore");
+
+    // build agent can use build or review mode
+    expect(getCommandMode("/fix")).toBe("build");
+    expect(getCommandAgent("/fix")).toBe("build");
+
+    expect(getCommandMode("/review")).toBe("review");
+    expect(getCommandAgent("/review")).toBe("build");
   });
 });
