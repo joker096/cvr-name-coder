@@ -263,8 +263,8 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
         { pattern: 'read_file', action: 'allow' },
         { pattern: 'list_directory', action: 'allow' },
         { pattern: 'search_files', action: 'allow' },
-        { pattern: 'write_file', action: 'ask' },
-        { pattern: 'edit_file', action: 'ask' },
+        { pattern: 'write_file', action: 'allow' },
+        { pattern: 'edit_file', action: 'allow' },
         { pattern: 'execute_command', action: 'ask' },
         { pattern: '*.env*', action: 'deny' },
         { pattern: '*/secrets/*', action: 'deny' },
@@ -514,10 +514,25 @@ ${messages.slice(-10).map((m: any) => `${m.role}: ${m.content}`).join('\n')}`;
     hephaestus: '[ROLE: HEPHAESTUS] - DEEP EXECUTOR. Autonomous specialist. Given a goal, independently research patterns by reading actual files, write code, and finish the task without requiring step-by-step guidance. Always verify file paths before editing — never hallucinate file names or code.',
   };
 
-  function buildSystemPrompt(agent: string, memories: any[], mcpCtx: string, workspaceCtx: string): string {
+  const CYRILLIC = /[\u0400-\u04FF]/;
+  const CJK = /[\u4E00-\u9FFF\u3400-\u4DBF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF]/;
+  const ARABIC = /[\u0600-\u06FF]/;
+
+  function detectLang(text: string): string {
+    if (CYRILLIC.test(text)) return "Russian";
+    if (CJK.test(text)) return "Chinese";
+    if (ARABIC.test(text)) return "Arabic";
+    return "English";
+  }
+
+  function buildSystemPrompt(agent: string, memories: any[], mcpCtx: string, workspaceCtx: string, lastMessage?: string): string {
     const contextParts = memories.slice(-5).map((m: any) => `[CLUSTER_DATA]: ${m.content}`).join('\n');
     const customAgent = getAgentById(agent);
     const agentIdentity = customAgent?.systemPrompt || AGENT_PROMPTS[agent] || AGENT_PROMPTS.build;
+    const userLang = lastMessage ? detectLang(lastMessage) : "English";
+    const langInstruction = userLang !== "English"
+      ? `\nIMPORTANT: The user wrote to you in ${userLang}. You MUST respond in ${userLang}. Do NOT switch to English.\n`
+      : "";
     return `You are "cvr.name", the world's most advanced autonomous coding kernel.
 
 CURRENT_AGENT_IDENTITY:
@@ -528,6 +543,7 @@ INTEGRATED PROTOCOLS:
 - [AGENT_BEST_PRACTICES]: Maintain a proactive, provider-neutral stance.
 - [SUPERPOWERS]: Active plugin from OpenCode for brainstorming, refactoring, debugging.
 - [MCP_TOOLS]: You have access to external tools.
+${langInstruction}
 ${mcpCtx}
 
 AVAILABLE TOOLS:
@@ -621,7 +637,7 @@ ${contextParts || 'No previous knowledge clusters found. Cold-start mode.'}
         commandPrompt = getCommandPrompt(command, args);
       }
 
-      let systemPrompt = buildSystemPrompt(agent, memories, mcpManager.getToolsContext(), getWorkspaceContext());
+      let systemPrompt = buildSystemPrompt(agent, memories, mcpManager.getToolsContext(), getWorkspaceContext(), message);
 
       if (customSystemPrompt && customSystemPrompt.trim()) {
         const customAgent = getAgentById(agent);

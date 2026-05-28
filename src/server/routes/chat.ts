@@ -400,6 +400,7 @@ export function registerRoutes(app: Application) {
         agent,
         mode,
         contextParts,
+        lastMessage: message,
         customSystemPrompt: (customSystemPrompt && customSystemPrompt.trim() ? customSystemPrompt : undefined) || commandPrompt,
       } as Parameters<typeof buildSystemPrompt>[0]);
 

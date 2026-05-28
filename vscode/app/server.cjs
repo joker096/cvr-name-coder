@@ -6630,8 +6630,17 @@ async function getMemoryMtime() {
 function getCacheKey(agent, mode, contextParts, customSystemPrompt) {
   return `${agent}|${mode}|${contextParts?.slice(0, 50) || ""}|${customSystemPrompt ? "1" : "0"}`;
 }
+var CYRILLIC = /[\u0400-\u04FF]/;
+var CJK = /[\u4E00-\u9FFF\u3400-\u4DBF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF]/;
+var ARABIC = /[\u0600-\u06FF]/;
+function detectLanguage(text) {
+  if (CYRILLIC.test(text)) return "Russian";
+  if (CJK.test(text)) return "Chinese";
+  if (ARABIC.test(text)) return "Arabic";
+  return "English";
+}
 async function buildSystemPrompt(options) {
-  const { agent, mode, contextParts, customSystemPrompt } = options;
+  const { agent, mode, contextParts, lastMessage, customSystemPrompt } = options;
   const cacheKey = getCacheKey(agent, mode, contextParts, customSystemPrompt);
   const { memory: memoryMtime, user: userMtime } = await getMemoryMtime();
   const cached = _promptCache.get(cacheKey);
@@ -6666,6 +6675,10 @@ IMPORTANT: Before making ANY changes, you MUST first explore the codebase to und
   const instructionsContext = await getInstructionsContext();
   const activeDesignContext = await getActiveDesignSystem();
   const persistentContext = contextParts || memoryContext || "No previous knowledge clusters found. Kernel is in cold-start mode.";
+  const userLang = lastMessage ? detectLanguage(lastMessage) : "English";
+  const langInstruction = userLang !== "English" ? `
+IMPORTANT: The user wrote to you in ${userLang}. You MUST respond in ${userLang}. Do NOT switch to English.
+` : "";
   const basePrompt = `You are "cvr.name", an autonomous coding agent.
 
 ${agentIdentity}
@@ -6678,6 +6691,7 @@ DIRECTIONS:
 - The system handles tool execution automatically
 - Always verify file paths before referencing them
 - Read files before making claims about their contents
+${langInstruction}
 
 AVAILABLE TOOLS:
 ${toolDescriptions}
@@ -7404,6 +7418,7 @@ function registerRoutes(app2) {
         agent,
         mode,
         contextParts,
+        lastMessage: message,
         customSystemPrompt: (customSystemPrompt && customSystemPrompt.trim() ? customSystemPrompt : void 0) || commandPrompt
       });
       const rawImages = body.images ?? [];
@@ -10019,8 +10034,8 @@ try {
       { pattern: "read_file", action: "allow" },
       { pattern: "list_directory", action: "allow" },
       { pattern: "search_files", action: "allow" },
-      { pattern: "write_file", action: "ask" },
-      { pattern: "edit_file", action: "ask" },
+      { pattern: "write_file", action: "allow" },
+      { pattern: "edit_file", action: "allow" },
       { pattern: "execute_command", action: "ask" },
       { pattern: "*.env*", action: "deny" },
       { pattern: "*/secrets/*", action: "deny" },

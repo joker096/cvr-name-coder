@@ -50,6 +50,17 @@ function getCacheKey(agent: string, mode: string, contextParts?: string, customS
   return `${agent}|${mode}|${contextParts?.slice(0, 50) || ''}|${customSystemPrompt ? '1' : '0'}`;
 }
 
+const CYRILLIC = /[\u0400-\u04FF]/;
+const CJK = /[\u4E00-\u9FFF\u3400-\u4DBF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF]/;
+const ARABIC = /[\u0600-\u06FF]/;
+
+function detectLanguage(text: string): string {
+  if (CYRILLIC.test(text)) return "Russian";
+  if (CJK.test(text)) return "Chinese";
+  if (ARABIC.test(text)) return "Arabic";
+  return "English";
+}
+
 /**
  * Builds the full system prompt for the AI model, combining agent identity,
  * mode directives, tool descriptions, memory context, and design system state.
@@ -57,6 +68,7 @@ function getCacheKey(agent: string, mode: string, contextParts?: string, customS
  * @param options.agent - Agent ID to determine role prompt
  * @param options.mode - Operation mode: plan, build, or review
  * @param options.contextParts - Optional pre-assembled context string
+ * @param options.lastMessage - The last user message, used to detect response language
  * @param options.customSystemPrompt - Optional fully custom system prompt override
  * @returns Assembled system prompt string
  */
@@ -64,9 +76,10 @@ export async function buildSystemPrompt(options: {
   agent: AgentId;
   mode: "plan" | "build" | "review";
   contextParts?: string;
+  lastMessage?: string;
   customSystemPrompt?: string;
 }): Promise<string> {
-  const { agent, mode, contextParts, customSystemPrompt } = options;
+  const { agent, mode, contextParts, lastMessage, customSystemPrompt } = options;
 
   const cacheKey = getCacheKey(agent, mode, contextParts, customSystemPrompt);
   const { memory: memoryMtime, user: userMtime } = await getMemoryMtime();
@@ -105,6 +118,11 @@ export async function buildSystemPrompt(options: {
   const activeDesignContext = await getActiveDesignSystem();
   const persistentContext = contextParts || memoryContext || "No previous knowledge clusters found. Kernel is in cold-start mode.";
 
+  const userLang = lastMessage ? detectLanguage(lastMessage) : "English";
+  const langInstruction = userLang !== "English"
+    ? `\nIMPORTANT: The user wrote to you in ${userLang}. You MUST respond in ${userLang}. Do NOT switch to English.\n`
+    : "";
+
   const basePrompt = `You are "cvr.name", an autonomous coding agent.
 
 ${agentIdentity}
@@ -117,6 +135,7 @@ DIRECTIONS:
 - The system handles tool execution automatically
 - Always verify file paths before referencing them
 - Read files before making claims about their contents
+${langInstruction}
 
 AVAILABLE TOOLS:
 ${toolDescriptions}
