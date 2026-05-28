@@ -212,7 +212,7 @@ describe("ModelConfig", () => {
     expect(modelNameLabels.length).toBe(1);
   });
 
-  it("should show generic model input for non-local provider", () => {
+  it("should show dropdown (not text input) for non-local provider", () => {
     render(
       <ModelConfig
         {...defaultProps}
@@ -222,7 +222,8 @@ describe("ModelConfig", () => {
       />
     );
 
-    expect(screen.getByPlaceholderText("Enter model name")).toHaveValue("deepseek-chat");
+    expect(screen.getByRole("combobox")).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("Enter model name")).not.toBeInTheDocument();
   });
 
   it("should show model selector when models list is provided", () => {

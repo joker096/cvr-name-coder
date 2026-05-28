@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import { cn } from "../../utils/cn";
 import { KeyRound } from "lucide-react";
 import type { ChatProviderId } from "../../types/settings";
@@ -53,6 +53,7 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
 }) => {
   const [isCustomModel, setIsCustomModel] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
+  const prevProvider = useRef(provider);
 
   const requiresApiKey =
     provider === "openai" ||
@@ -73,6 +74,17 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
   const mergedModels = [...models, ...remoteModels.filter(
     (rm) => !models.some((m) => m.id === rm.id)
   )];
+
+  useEffect(() => {
+    if (prevProvider.current !== provider) {
+      setIsCustomModel(false);
+      prevProvider.current = provider;
+      const hasKey = Boolean(config.providerKeys?.[provider] ?? config.apiKey);
+      if (provider !== "local" && provider !== "custom" && hasKey && onRefreshModels && !isRefreshingModels) {
+        onRefreshModels();
+      }
+    }
+  }, [provider]);
 
   const handleModelChange = (value: string) => {
     if (value === "__custom__") {
@@ -255,43 +267,33 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
             )}
           </div>
 
-          {mergedModels.length > 0 && provider !== "custom" ? (
-            <div className="space-y-2">
-              <select
-                value={isCustomModel ? "__custom__" : config.aiModel || ""}
-                onChange={(e) => handleModelChange(e.target.value)}
-                className="w-full px-2.5 py-1.5 bg-dash-bg border border-dash-border rounded text-dash-text-primary focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs"
-              >
-                <option value="" disabled>{t.selectModel || "Select a model..."}</option>
-                {mergedModels.map((model) => (
-                  <option key={model.id} value={model.id}>
-                    {model.name}
-                  </option>
-                ))}
-                <option value="__custom__">{t.customModel || "Custom / Other..."}</option>
-              </select>
-              {isCustomModel && (
-                <input
-                  type="text"
-                  value={config.aiModel || ""}
-                  onChange={(e) => onChange({ aiModel: e.target.value })}
-                  className="w-full px-2.5 py-1.5 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs"
-                  placeholder={t.enterModelName || "Enter model name"}
-                />
-              )}
-            </div>
-          ) : (
-            <input
-              type="text"
-              value={config.aiModel || ""}
-              onChange={(e) => onChange({ aiModel: e.target.value })}
-              className="w-full px-2.5 py-1.5 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs"
-              placeholder={t.enterModelName || "Enter model name"}
-            />
-          )}
+          <div className="space-y-2">
+            <select
+              value={isCustomModel ? "__custom__" : config.aiModel || ""}
+              onChange={(e) => handleModelChange(e.target.value)}
+              className="w-full px-2.5 py-1.5 bg-dash-bg border border-dash-border rounded text-dash-text-primary focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs"
+            >
+              <option value="" disabled>{t.selectModel || "Select a model..."}</option>
+              {mergedModels.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.name}
+                </option>
+              ))}
+              <option value="__custom__">{t.customModel || "Custom / Other..."}</option>
+            </select>
+            {isCustomModel && (
+              <input
+                type="text"
+                value={config.aiModel || ""}
+                onChange={(e) => onChange({ aiModel: e.target.value })}
+                className="w-full px-2.5 py-1.5 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs"
+                placeholder={t.enterModelName || "Enter model name"}
+              />
+            )}
+          </div>
           {remoteModels.length > 0 && (
             <p className="text-[10px] text-dash-text-muted mt-1">
-              {remoteModels.length} models fetched from API. Predefined models are also included.
+              {remoteModels.length} actual models from API + predefined
             </p>
           )}
         </div>

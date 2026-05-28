@@ -44,7 +44,7 @@ export const AppHeader = memo<AppHeaderProps>(({
   onClearChat,
   t,
 }) => (
-  <header className="flex items-center justify-between px-3 py-1 bg-dash-elevated border-b border-dash-border shrink-0">
+  <header className="flex items-center justify-between px-3 py-1 bg-dash-elevated border-b border-dash-border shrink-0 min-h-[36px]">
     <div className="flex items-center gap-2">
       <span className="text-[12px] font-mono text-dash-text-primary font-bold tracking-wide">
         cvr.name<span className="text-green-500">.coder</span>

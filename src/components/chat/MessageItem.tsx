@@ -142,17 +142,6 @@ export const MessageItem = memo<MessageItemProps>(({
         ) : (
           <Brain className="w-3 h-3" />
         )}
-        {message.role !== "user" && providerLabel && (
-          <div className="text-[8px] text-dash-text-muted font-normal normal-case mt-0.5 leading-tight">
-            {providerLabel}
-            {modelName && <span className="block">{modelName}</span>}
-            {message.tokenUsage && (
-              <span className="block text-dash-text-label mt-0.5">
-                ↓{message.tokenUsage.input.toLocaleString()} ↑{message.tokenUsage.output.toLocaleString()} tok
-              </span>
-            )}
-          </div>
-        )}
       </span>
       <div
         className={cn(
@@ -178,6 +167,14 @@ export const MessageItem = memo<MessageItemProps>(({
           </div>
         )}
         <MarkdownRenderer content={message.content} />
+        {message.role !== "user" && (providerLabel || modelName || message.tokenUsage) && (
+          <div className="mt-1.5 text-[9px] text-dash-text-label font-mono text-right leading-tight opacity-60 group-hover:opacity-100 transition-opacity">
+            {providerLabel}{modelName && <span>/{modelName.split("/").pop()}</span>}
+            {message.tokenUsage && (
+              <span> · ↓{message.tokenUsage.input.toLocaleString()} ↑{message.tokenUsage.output.toLocaleString()} tok</span>
+            )}
+          </div>
+        )}
         {message.role !== "user" && (
           <button
             onClick={handleCopy}
