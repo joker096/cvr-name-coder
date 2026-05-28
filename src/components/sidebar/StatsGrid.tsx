@@ -20,7 +20,7 @@ export const StatsGrid: React.FC<StatsGridProps> = ({
     <div className="grid grid-cols-2 gap-1.5 px-3 pt-2 pb-1.5">
       <SidebarStatCard label={t.skillsLabel || "Skills"} value={skillsCount} />
       <SidebarStatCard label={t.toolsLabel || "Tools"} value={toolsCount} />
-      <SidebarStatCard label={t.memoryLabel || "Memory"} value={`${memoryCount} ${t.items || "items"}`} />
+      <SidebarStatCard label={t.memoryLabel || "Memory"} value={memoryCount} />
       <SidebarStatCard label={t.agentsLabel || "Agents"} value={agentsCount} />
     </div>
   );

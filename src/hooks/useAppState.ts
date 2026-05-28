@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { TOOL_DEFINITIONS } from "../types/tools";
 import { useSettings } from "./useSettings";
 import { useChat } from "./useChat";
-import { useMemory } from "./useMemory";
 import { useChanges } from "./useChanges";
 import { usePermissions } from "./usePermissions";
 import { useAgentLoop } from "./useAgentLoop";
@@ -27,7 +27,24 @@ export function useAppState() {
   const { settings, isLoading: settingsLoading, updateChatConfig, toggleAutonomous, updateAutoLoopDelay, toggleAutoCommit, toggleVoiceEnabled, setVoiceLanguage, toggleVoiceAutoSend, setLanguage, addPreset, deletePreset, loadPreset } = useSettings();
   const { state: agentState, isRunning: isAgentRunning, startLoop, abortLoop } = useAgentLoop();
   const { messages, isLoading, error: chatError, sendMessage, cancelMessage, addMessage, deleteMessage, clearHistory } = useChat(settings.chat);
-  const { memories } = useMemory();
+  const [memoryCount, setMemoryCount] = useState(0);
+  useEffect(() => {
+    fetch("/api/memory")
+      .then((r) => r.json())
+      .then((data: any) => {
+        if (data.raw) {
+          const sectionCount = data.sections
+            ? typeof data.sections === "object"
+              ? Object.keys(data.sections).length
+              : 0
+            : 0;
+          setMemoryCount(sectionCount);
+        } else {
+          setMemoryCount(0);
+        }
+      })
+      .catch(() => setMemoryCount(0));
+  }, []);
   const { undo, redo, canUndo, canRedo } = useChanges();
   const { pending, approve, deny } = usePermissions();
   const { isActive: isBrowserActive } = useBrowserStatus();
@@ -196,8 +213,7 @@ export function useAppState() {
       .catch(() => {});
   }, []);
 
-  const toolsCount = 3;
-  const memoryCount = memories.length;
+  const toolsCount = TOOL_DEFINITIONS.length;
   const agentsCount = 6;
 
   return {
@@ -231,7 +247,6 @@ export function useAppState() {
     clearHistory,
     addMessage,
     deleteMessage,
-    memories,
     undo,
     redo,
     canUndo,
