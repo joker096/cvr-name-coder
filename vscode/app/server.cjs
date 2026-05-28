@@ -1138,6 +1138,291 @@ var PermissionEngine = class {
   }
 };
 
+// src/server/memoryStore.ts
+var import_promises = require("fs/promises");
+var path = __toESM(require("path"), 1);
+var _memoryDir = path.resolve(process.cwd(), ".opencode-infinite");
+var _memCache = null;
+var _userCache = null;
+var _contextCache = null;
+var _contextTimestamp = 0;
+function setMemoryDir(dir) {
+  _memoryDir = dir;
+  _memCache = null;
+  _userCache = null;
+  _contextCache = null;
+}
+function getMemoryPath() {
+  return path.join(_memoryDir, "MEMORY.md");
+}
+function getUserPath() {
+  return path.join(_memoryDir, "USER.md");
+}
+function parseMemoryMarkdown(raw) {
+  const sections = [];
+  const lines = raw.split("\n");
+  let current = null;
+  for (const line of lines) {
+    const headingMatch = line.match(/^(#{2,3})\s+(.+)$/);
+    if (headingMatch && headingMatch[2]) {
+      if (current) sections.push(current);
+      current = { title: headingMatch[2].trim(), lines: [] };
+    } else if (current) {
+      current.lines.push(line);
+    }
+  }
+  if (current) sections.push(current);
+  return { sections, raw };
+}
+async function ensureFile(filePath, defaultContent) {
+  try {
+    await (0, import_promises.access)(filePath);
+    const current = await (0, import_promises.readFile)(filePath, "utf-8");
+    const oldDefault = `# Project Memory
+
+## Project Facts
+
+## Architecture Decisions
+
+## Code Patterns
+
+## Known Issues
+`;
+    const oldUserDefault = `# User Preferences
+
+## Coding Style
+
+## Tech Stack Preferences
+
+## Communication Preferences
+`;
+    if (current.trim() === oldDefault.trim() || current.trim() === oldUserDefault.trim()) {
+      await (0, import_promises.writeFile)(filePath, defaultContent, "utf-8");
+    }
+  } catch {
+    await (0, import_promises.writeFile)(filePath, defaultContent, "utf-8");
+  }
+}
+async function readMemory() {
+  const memoryPath = getMemoryPath();
+  await ensureFile(
+    memoryPath,
+    `# Project Memory
+
+## Project Overview
+- **Name:** cvr.name.coder
+- **Type:** VS Code Extension / AI Coding Agent
+- **Stack:** TypeScript, React, Express, Vite
+- **Description:** Autonomous AI coding agent with multi-provider support, streaming responses, persistent memory, and skills system.
+
+## Architecture
+- Dual entry points: \`server.ts\` (standalone) and \`vscode/src/extension.ts\` (VS Code extension)
+- Shared code in \`src/server/\` directory
+- Frontend: React with Vite, components in \`src/components/\`
+- AI providers: Gemini, OpenAI, Anthropic, DeepSeek, Groq, local LLMs
+- Memory system: MEMORY.md / USER.md with auto-compression
+
+## Key Files
+| File | Purpose |
+|------|---------|
+| \`server.ts\` | Standalone Express server |
+| \`vscode/src/extension.ts\` | VS Code extension entry |
+| \`src/server/tools.ts\` | Tool execution logic |
+| \`src/server/prompts.ts\` | System prompt builder |
+| \`src/server/agentLoop.ts\` | Autonomous agent loop |
+| \`src/hooks/useChat.ts\` | Chat state management |
+| \`src/App.tsx\` | Main UI component |
+
+## Code Patterns
+- TypeScript strict mode, no \`any\` types
+- React functional components with hooks
+- Zod for runtime validation
+- SSE for streaming responses
+- Atomic file writes via temp files
+
+## Known Issues
+- Some tests are flaky (network-dependent)
+- Duplicate code patterns being migrated to shared modules
+- Memory compression threshold may need tuning
+
+## Commands
+- \`npm run dev\` \u2014 Start dev server
+- \`npm test\` \u2014 Run tests
+- \`npm run type-check\` \u2014 TypeScript validation
+- \`npm run build\` \u2014 Production build
+`
+  );
+  if (_memCache && _memCache.mtime === (await (0, import_promises.stat)(memoryPath).catch(() => ({ mtimeMs: 0 }))).mtimeMs) {
+    return _memCache.data;
+  }
+  const raw = await (0, import_promises.readFile)(memoryPath, "utf-8");
+  const data = parseMemoryMarkdown(raw);
+  _memCache = { data, mtime: (await (0, import_promises.stat)(memoryPath).catch(() => ({ mtimeMs: 0 }))).mtimeMs };
+  return data;
+}
+async function writeMemory(content, section) {
+  const data = await readMemory();
+  const timestamp = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+  const entry = `- [${timestamp}] ${content}`;
+  if (section) {
+    const target = data.sections.find((s) => s.title.toLowerCase() === section.toLowerCase());
+    if (target) {
+      target.lines.push(entry);
+    } else {
+      data.sections.push({ title: section, lines: [entry] });
+    }
+  } else {
+    const facts = data.sections.find((s) => s.title.toLowerCase() === "project facts");
+    if (facts) {
+      facts.lines.push(entry);
+    } else {
+      data.sections.push({ title: "Project Facts", lines: [entry] });
+    }
+  }
+  const raw = rebuildMarkdown("Project Memory", data.sections);
+  await atomicWriteFile(getMemoryPath(), raw);
+  _memCache = null;
+  _contextCache = null;
+}
+async function replaceMemorySection(section, lines) {
+  const data = await readMemory();
+  const target = data.sections.find((s) => s.title.toLowerCase() === section.toLowerCase());
+  if (target) {
+    target.lines = lines.filter((l) => l.trim() !== "");
+  } else {
+    data.sections.push({ title: section, lines: lines.filter((l) => l.trim() !== "") });
+  }
+  const raw = rebuildMarkdown("Project Memory", data.sections);
+  await atomicWriteFile(getMemoryPath(), raw);
+  _memCache = null;
+  _contextCache = null;
+}
+async function deleteMemorySection(section) {
+  const data = await readMemory();
+  data.sections = data.sections.filter((s) => s.title.toLowerCase() !== section.toLowerCase());
+  const raw = rebuildMarkdown("Project Memory", data.sections);
+  await atomicWriteFile(getMemoryPath(), raw);
+  _memCache = null;
+  _contextCache = null;
+}
+async function readUser() {
+  const userPath = getUserPath();
+  await ensureFile(
+    userPath,
+    `# User Preferences
+
+## Coding Style
+- Use TypeScript strict mode
+- Prefer functional React components with hooks
+- Use \`cn()\` utility for conditional CSS classes
+- Follow existing code patterns in the project
+- No unnecessary comments \u2014 code should be self-documenting
+- Use Zod for runtime validation of API inputs
+
+## Tech Stack Preferences
+- TypeScript 5.x with ES modules
+- React 18+ with functional components
+- Express.js for backend APIs
+- Vite for frontend bundling
+- Vitest for testing (not Jest)
+- TailwindCSS for styling (via utility classes)
+
+## Communication Preferences
+- Be concise \u2014 answer in 1-3 sentences when possible
+- Use Russian when communicating with the user
+- Show code changes before applying them
+- Run type-check (\`npx tsc --noEmit\`) after each change
+- Delete precompiled .js/.d.ts files in src/ \u2014 let Vite compile .tsx directly
+
+## Common Tasks
+- \`npm run type-check\` \u2014 verify TypeScript
+- \`npm test\` \u2014 run test suite
+- \`npm run dev\` \u2014 start development server
+`
+  );
+  if (_userCache && _userCache.mtime === (await (0, import_promises.stat)(userPath).catch(() => ({ mtimeMs: 0 }))).mtimeMs) {
+    return _userCache.data;
+  }
+  const raw = await (0, import_promises.readFile)(userPath, "utf-8");
+  const data = parseMemoryMarkdown(raw);
+  _userCache = { data, mtime: (await (0, import_promises.stat)(userPath).catch(() => ({ mtimeMs: 0 }))).mtimeMs };
+  return data;
+}
+async function writeUser(content, section) {
+  const data = await readUser();
+  const timestamp = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+  const entry = `- [${timestamp}] ${content}`;
+  if (section) {
+    const target = data.sections.find((s) => s.title.toLowerCase() === section.toLowerCase());
+    if (target) {
+      target.lines.push(entry);
+    } else {
+      data.sections.push({ title: section, lines: [entry] });
+    }
+  } else {
+    const style = data.sections.find((s) => s.title.toLowerCase() === "coding style");
+    if (style) {
+      style.lines.push(entry);
+    } else {
+      data.sections.push({ title: "Coding Style", lines: [entry] });
+    }
+  }
+  const raw = rebuildMarkdown("User Preferences", data.sections);
+  await atomicWriteFile(getUserPath(), raw);
+  _userCache = null;
+  _contextCache = null;
+}
+async function replaceUserSection(section, lines) {
+  const data = await readUser();
+  const target = data.sections.find((s) => s.title.toLowerCase() === section.toLowerCase());
+  if (target) {
+    target.lines = lines.filter((l) => l.trim() !== "");
+  } else {
+    data.sections.push({ title: section, lines: lines.filter((l) => l.trim() !== "") });
+  }
+  const raw = rebuildMarkdown("User Preferences", data.sections);
+  await atomicWriteFile(getUserPath(), raw);
+  _userCache = null;
+  _contextCache = null;
+}
+async function deleteUserSection(section) {
+  const data = await readUser();
+  data.sections = data.sections.filter((s) => s.title.toLowerCase() !== section.toLowerCase());
+  const raw = rebuildMarkdown("User Preferences", data.sections);
+  await atomicWriteFile(getUserPath(), raw);
+  _userCache = null;
+  _contextCache = null;
+}
+async function atomicWriteFile(filePath, content) {
+  const tmp = filePath + ".tmp";
+  await (0, import_promises.writeFile)(tmp, content, "utf-8");
+  await (0, import_promises.rename)(tmp, filePath);
+}
+function rebuildMarkdown(kind, sections) {
+  const lines = [`# ${kind}
+`];
+  for (const section of sections) {
+    lines.push(`## ${section.title}`);
+    lines.push(...section.lines.filter((l) => l.trim() !== ""));
+    lines.push("");
+  }
+  return lines.join("\n").trim() + "\n";
+}
+async function getMemoryContext() {
+  if (_contextCache && Date.now() - _contextTimestamp < 1e4) return _contextCache;
+  const [memory, user] = await Promise.all([readMemory(), readUser()]);
+  const parts = [];
+  if (memory.sections.some((s) => s.lines.some((l) => l.trim() !== ""))) {
+    parts.push("## Project Memory\n" + memory.raw.replace(/^# Project Memory\n?/i, "").trim());
+  }
+  if (user.sections.some((s) => s.lines.some((l) => l.trim() !== ""))) {
+    parts.push("## User Preferences\n" + user.raw.replace(/^# User Preferences\n?/i, "").trim());
+  }
+  _contextCache = parts.join("\n\n---\n\n");
+  _contextTimestamp = Date.now();
+  return _contextCache;
+}
+
 // src/types/tools.ts
 var TOOL_DEFINITIONS = [
   {
@@ -1692,31 +1977,31 @@ function registerBuiltinHooks() {
 }
 
 // src/server/customToolLoader.ts
-var import_promises = require("fs/promises");
-var path = __toESM(require("path"), 1);
+var import_promises2 = require("fs/promises");
+var path2 = __toESM(require("path"), 1);
 var import_child_process = require("child_process");
 var import_util = require("util");
 init_errors();
 init_logger();
 var execFileAsync = (0, import_util.promisify)(import_child_process.execFile);
-var TOOLS_DIR = path.resolve(process.cwd(), ".cvr", "tools");
+var TOOLS_DIR = path2.resolve(process.cwd(), ".cvr", "tools");
 var _toolsDir = TOOLS_DIR;
 function setCustomToolsDir(dir) {
   _toolsDir = dir;
 }
 async function loadCustomTools() {
   try {
-    await (0, import_promises.access)(_toolsDir);
+    await (0, import_promises2.access)(_toolsDir);
   } catch {
     return [];
   }
-  const entries = await (0, import_promises.readdir)(_toolsDir, { withFileTypes: true });
+  const entries = await (0, import_promises2.readdir)(_toolsDir, { withFileTypes: true });
   const tools = [];
   for (const entry of entries) {
     if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-    const filePath = path.join(_toolsDir, entry.name);
+    const filePath = path2.join(_toolsDir, entry.name);
     try {
-      const raw = await (0, import_promises.readFile)(filePath, "utf-8");
+      const raw = await (0, import_promises2.readFile)(filePath, "utf-8");
       const parsed = JSON.parse(raw);
       if (parsed.id && parsed.name && parsed.handler) {
         if (parsed.handler.type === "node") {
@@ -1741,7 +2026,7 @@ async function executeCustomTool(definition, params) {
       for (const [key, value] of Object.entries(params)) {
         command = command.replace(new RegExp(`\\{${key}\\}`, "g"), shellEscape(String(value)));
       }
-      const cwd2 = definition.handler.cwd ? path.resolve(process.cwd(), definition.handler.cwd) : process.cwd();
+      const cwd2 = definition.handler.cwd ? path2.resolve(process.cwd(), definition.handler.cwd) : process.cwd();
       if (/[;&|`$(){}[\]<>!\\]/.test(command)) {
         return { success: false, output: "", error: "Command contains unsafe shell metacharacters" };
       }
@@ -2030,8 +2315,8 @@ async function getLinearIssue(id) {
 init_errors();
 
 // src/server/tools/file.ts
-var import_promises2 = require("fs/promises");
-var path2 = __toESM(require("path"), 1);
+var import_promises3 = require("fs/promises");
+var path3 = __toESM(require("path"), 1);
 init_logger();
 var _projectRoot = null;
 function getProjectRoot() {
@@ -2040,19 +2325,19 @@ function getProjectRoot() {
   return _projectRoot;
 }
 function resolveProjectPath(requestedPath) {
-  const resolved = path2.resolve(getProjectRoot(), requestedPath);
-  const relative4 = path2.relative(getProjectRoot(), resolved);
-  if (relative4.startsWith("..") || path2.isAbsolute(relative4)) {
+  const resolved = path3.resolve(getProjectRoot(), requestedPath);
+  const relative4 = path3.relative(getProjectRoot(), resolved);
+  if (relative4.startsWith("..") || path3.isAbsolute(relative4)) {
     throw new Error("Path escapes project root: " + requestedPath);
   }
   return resolved;
 }
 async function searchDir(dir, query) {
-  const entries = await (0, import_promises2.readdir)(dir, { withFileTypes: true });
+  const entries = await (0, import_promises3.readdir)(dir, { withFileTypes: true });
   const results = [];
   for (const entry of entries) {
-    const fullPath = path2.join(dir, entry.name);
-    const relPath = path2.relative(getProjectRoot(), fullPath);
+    const fullPath = path3.join(dir, entry.name);
+    const relPath = path3.relative(getProjectRoot(), fullPath);
     if (entry.isDirectory() && entry.name !== "node_modules" && entry.name !== ".git") {
       results.push(...await searchDir(fullPath, query));
     } else if (entry.isFile()) {
@@ -2060,7 +2345,7 @@ async function searchDir(dir, query) {
         results.push(`[MATCH] ${relPath} (filename)`);
       } else {
         try {
-          const content = await (0, import_promises2.readFile)(fullPath, "utf-8");
+          const content = await (0, import_promises3.readFile)(fullPath, "utf-8");
           if (content.toLowerCase().includes(query)) {
             results.push(`[MATCH] ${relPath} (content)`);
           }
@@ -2074,12 +2359,12 @@ async function searchDir(dir, query) {
 }
 async function executeReadFile(params) {
   const filePath = resolveProjectPath(String(params.path));
-  const content = await (0, import_promises2.readFile)(filePath, "utf-8");
+  const content = await (0, import_promises3.readFile)(filePath, "utf-8");
   return { success: true, output: content };
 }
 async function executeListDirectory(params) {
   const dirPath = resolveProjectPath(String(params.path || "."));
-  const entries = await (0, import_promises2.readdir)(dirPath, { withFileTypes: true });
+  const entries = await (0, import_promises3.readdir)(dirPath, { withFileTypes: true });
   const lines = entries.map((e) => e.isDirectory() ? `[DIR]  ${e.name}` : `[FILE] ${e.name}`);
   return { success: true, output: lines.join("\n") };
 }
@@ -2093,8 +2378,8 @@ async function executeWriteFile(params, sessionId = "default") {
   const writePath = resolveProjectPath(String(params.path));
   const content = String(params.content);
   await hookRegistry.execute("file.write.before", { path: writePath, content }, sessionId);
-  await (0, import_promises2.mkdir)(path2.dirname(writePath), { recursive: true });
-  await (0, import_promises2.writeFile)(writePath, content, "utf-8");
+  await (0, import_promises3.mkdir)(path3.dirname(writePath), { recursive: true });
+  await (0, import_promises3.writeFile)(writePath, content, "utf-8");
   await hookRegistry.execute("file.write.after", { path: writePath, content, success: true }, sessionId);
   return { success: true, output: `File written: ${String(params.path)}` };
 }
@@ -2102,13 +2387,13 @@ async function executeEditFile(params, sessionId = "default") {
   const editPath = resolveProjectPath(String(params.path));
   const oldString = String(params.oldString);
   const newString = String(params.newString);
-  const content = await (0, import_promises2.readFile)(editPath, "utf-8");
+  const content = await (0, import_promises3.readFile)(editPath, "utf-8");
   if (!content.includes(oldString)) {
     return { success: false, output: "", error: "oldString not found in file" };
   }
   const updated = content.replace(oldString, newString);
   await hookRegistry.execute("file.write.before", { path: editPath, content: updated }, sessionId);
-  await (0, import_promises2.writeFile)(editPath, updated, "utf-8");
+  await (0, import_promises3.writeFile)(editPath, updated, "utf-8");
   await hookRegistry.execute("file.write.after", { path: editPath, content: updated, success: true }, sessionId);
   return { success: true, output: `File edited: ${String(params.path)}` };
 }
@@ -2185,285 +2470,6 @@ async function executeCommand(params) {
       }
     });
   });
-}
-
-// src/server/memoryStore.ts
-var import_promises3 = require("fs/promises");
-var path3 = __toESM(require("path"), 1);
-var _memoryDir = path3.resolve(process.cwd(), ".opencode-infinite");
-var _memCache = null;
-var _userCache = null;
-var _contextCache = null;
-var _contextTimestamp = 0;
-function getMemoryPath() {
-  return path3.join(_memoryDir, "MEMORY.md");
-}
-function getUserPath() {
-  return path3.join(_memoryDir, "USER.md");
-}
-function parseMemoryMarkdown(raw) {
-  const sections = [];
-  const lines = raw.split("\n");
-  let current = null;
-  for (const line of lines) {
-    const headingMatch = line.match(/^(#{2,3})\s+(.+)$/);
-    if (headingMatch && headingMatch[2]) {
-      if (current) sections.push(current);
-      current = { title: headingMatch[2].trim(), lines: [] };
-    } else if (current) {
-      current.lines.push(line);
-    }
-  }
-  if (current) sections.push(current);
-  return { sections, raw };
-}
-async function ensureFile(filePath, defaultContent) {
-  try {
-    await (0, import_promises3.access)(filePath);
-    const current = await (0, import_promises3.readFile)(filePath, "utf-8");
-    const oldDefault = `# Project Memory
-
-## Project Facts
-
-## Architecture Decisions
-
-## Code Patterns
-
-## Known Issues
-`;
-    const oldUserDefault = `# User Preferences
-
-## Coding Style
-
-## Tech Stack Preferences
-
-## Communication Preferences
-`;
-    if (current.trim() === oldDefault.trim() || current.trim() === oldUserDefault.trim()) {
-      await (0, import_promises3.writeFile)(filePath, defaultContent, "utf-8");
-    }
-  } catch {
-    await (0, import_promises3.writeFile)(filePath, defaultContent, "utf-8");
-  }
-}
-async function readMemory() {
-  const memoryPath = getMemoryPath();
-  await ensureFile(
-    memoryPath,
-    `# Project Memory
-
-## Project Overview
-- **Name:** cvr.name.coder
-- **Type:** VS Code Extension / AI Coding Agent
-- **Stack:** TypeScript, React, Express, Vite
-- **Description:** Autonomous AI coding agent with multi-provider support, streaming responses, persistent memory, and skills system.
-
-## Architecture
-- Dual entry points: \`server.ts\` (standalone) and \`vscode/src/extension.ts\` (VS Code extension)
-- Shared code in \`src/server/\` directory
-- Frontend: React with Vite, components in \`src/components/\`
-- AI providers: Gemini, OpenAI, Anthropic, DeepSeek, Groq, local LLMs
-- Memory system: MEMORY.md / USER.md with auto-compression
-
-## Key Files
-| File | Purpose |
-|------|---------|
-| \`server.ts\` | Standalone Express server |
-| \`vscode/src/extension.ts\` | VS Code extension entry |
-| \`src/server/tools.ts\` | Tool execution logic |
-| \`src/server/prompts.ts\` | System prompt builder |
-| \`src/server/agentLoop.ts\` | Autonomous agent loop |
-| \`src/hooks/useChat.ts\` | Chat state management |
-| \`src/App.tsx\` | Main UI component |
-
-## Code Patterns
-- TypeScript strict mode, no \`any\` types
-- React functional components with hooks
-- Zod for runtime validation
-- SSE for streaming responses
-- Atomic file writes via temp files
-
-## Known Issues
-- Some tests are flaky (network-dependent)
-- Duplicate code patterns being migrated to shared modules
-- Memory compression threshold may need tuning
-
-## Commands
-- \`npm run dev\` \u2014 Start dev server
-- \`npm test\` \u2014 Run tests
-- \`npm run type-check\` \u2014 TypeScript validation
-- \`npm run build\` \u2014 Production build
-`
-  );
-  if (_memCache && _memCache.mtime === (await (0, import_promises3.stat)(memoryPath).catch(() => ({ mtimeMs: 0 }))).mtimeMs) {
-    return _memCache.data;
-  }
-  const raw = await (0, import_promises3.readFile)(memoryPath, "utf-8");
-  const data = parseMemoryMarkdown(raw);
-  _memCache = { data, mtime: (await (0, import_promises3.stat)(memoryPath).catch(() => ({ mtimeMs: 0 }))).mtimeMs };
-  return data;
-}
-async function writeMemory(content, section) {
-  const data = await readMemory();
-  const timestamp = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
-  const entry = `- [${timestamp}] ${content}`;
-  if (section) {
-    const target = data.sections.find((s) => s.title.toLowerCase() === section.toLowerCase());
-    if (target) {
-      target.lines.push(entry);
-    } else {
-      data.sections.push({ title: section, lines: [entry] });
-    }
-  } else {
-    const facts = data.sections.find((s) => s.title.toLowerCase() === "project facts");
-    if (facts) {
-      facts.lines.push(entry);
-    } else {
-      data.sections.push({ title: "Project Facts", lines: [entry] });
-    }
-  }
-  const raw = rebuildMarkdown("Project Memory", data.sections);
-  await atomicWriteFile(getMemoryPath(), raw);
-  _memCache = null;
-  _contextCache = null;
-}
-async function replaceMemorySection(section, lines) {
-  const data = await readMemory();
-  const target = data.sections.find((s) => s.title.toLowerCase() === section.toLowerCase());
-  if (target) {
-    target.lines = lines.filter((l) => l.trim() !== "");
-  } else {
-    data.sections.push({ title: section, lines: lines.filter((l) => l.trim() !== "") });
-  }
-  const raw = rebuildMarkdown("Project Memory", data.sections);
-  await atomicWriteFile(getMemoryPath(), raw);
-  _memCache = null;
-  _contextCache = null;
-}
-async function deleteMemorySection(section) {
-  const data = await readMemory();
-  data.sections = data.sections.filter((s) => s.title.toLowerCase() !== section.toLowerCase());
-  const raw = rebuildMarkdown("Project Memory", data.sections);
-  await atomicWriteFile(getMemoryPath(), raw);
-  _memCache = null;
-  _contextCache = null;
-}
-async function readUser() {
-  const userPath = getUserPath();
-  await ensureFile(
-    userPath,
-    `# User Preferences
-
-## Coding Style
-- Use TypeScript strict mode
-- Prefer functional React components with hooks
-- Use \`cn()\` utility for conditional CSS classes
-- Follow existing code patterns in the project
-- No unnecessary comments \u2014 code should be self-documenting
-- Use Zod for runtime validation of API inputs
-
-## Tech Stack Preferences
-- TypeScript 5.x with ES modules
-- React 18+ with functional components
-- Express.js for backend APIs
-- Vite for frontend bundling
-- Vitest for testing (not Jest)
-- TailwindCSS for styling (via utility classes)
-
-## Communication Preferences
-- Be concise \u2014 answer in 1-3 sentences when possible
-- Use Russian when communicating with the user
-- Show code changes before applying them
-- Run type-check (\`npx tsc --noEmit\`) after each change
-- Delete precompiled .js/.d.ts files in src/ \u2014 let Vite compile .tsx directly
-
-## Common Tasks
-- \`npm run type-check\` \u2014 verify TypeScript
-- \`npm test\` \u2014 run test suite
-- \`npm run dev\` \u2014 start development server
-`
-  );
-  if (_userCache && _userCache.mtime === (await (0, import_promises3.stat)(userPath).catch(() => ({ mtimeMs: 0 }))).mtimeMs) {
-    return _userCache.data;
-  }
-  const raw = await (0, import_promises3.readFile)(userPath, "utf-8");
-  const data = parseMemoryMarkdown(raw);
-  _userCache = { data, mtime: (await (0, import_promises3.stat)(userPath).catch(() => ({ mtimeMs: 0 }))).mtimeMs };
-  return data;
-}
-async function writeUser(content, section) {
-  const data = await readUser();
-  const timestamp = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
-  const entry = `- [${timestamp}] ${content}`;
-  if (section) {
-    const target = data.sections.find((s) => s.title.toLowerCase() === section.toLowerCase());
-    if (target) {
-      target.lines.push(entry);
-    } else {
-      data.sections.push({ title: section, lines: [entry] });
-    }
-  } else {
-    const style = data.sections.find((s) => s.title.toLowerCase() === "coding style");
-    if (style) {
-      style.lines.push(entry);
-    } else {
-      data.sections.push({ title: "Coding Style", lines: [entry] });
-    }
-  }
-  const raw = rebuildMarkdown("User Preferences", data.sections);
-  await atomicWriteFile(getUserPath(), raw);
-  _userCache = null;
-  _contextCache = null;
-}
-async function replaceUserSection(section, lines) {
-  const data = await readUser();
-  const target = data.sections.find((s) => s.title.toLowerCase() === section.toLowerCase());
-  if (target) {
-    target.lines = lines.filter((l) => l.trim() !== "");
-  } else {
-    data.sections.push({ title: section, lines: lines.filter((l) => l.trim() !== "") });
-  }
-  const raw = rebuildMarkdown("User Preferences", data.sections);
-  await atomicWriteFile(getUserPath(), raw);
-  _userCache = null;
-  _contextCache = null;
-}
-async function deleteUserSection(section) {
-  const data = await readUser();
-  data.sections = data.sections.filter((s) => s.title.toLowerCase() !== section.toLowerCase());
-  const raw = rebuildMarkdown("User Preferences", data.sections);
-  await atomicWriteFile(getUserPath(), raw);
-  _userCache = null;
-  _contextCache = null;
-}
-async function atomicWriteFile(filePath, content) {
-  const tmp = filePath + ".tmp";
-  await (0, import_promises3.writeFile)(tmp, content, "utf-8");
-  await (0, import_promises3.rename)(tmp, filePath);
-}
-function rebuildMarkdown(kind, sections) {
-  const lines = [`# ${kind}
-`];
-  for (const section of sections) {
-    lines.push(`## ${section.title}`);
-    lines.push(...section.lines.filter((l) => l.trim() !== ""));
-    lines.push("");
-  }
-  return lines.join("\n").trim() + "\n";
-}
-async function getMemoryContext() {
-  if (_contextCache && Date.now() - _contextTimestamp < 1e4) return _contextCache;
-  const [memory, user] = await Promise.all([readMemory(), readUser()]);
-  const parts = [];
-  if (memory.sections.some((s) => s.lines.some((l) => l.trim() !== ""))) {
-    parts.push("## Project Memory\n" + memory.raw.replace(/^# Project Memory\n?/i, "").trim());
-  }
-  if (user.sections.some((s) => s.lines.some((l) => l.trim() !== ""))) {
-    parts.push("## User Preferences\n" + user.raw.replace(/^# User Preferences\n?/i, "").trim());
-  }
-  _contextCache = parts.join("\n\n---\n\n");
-  _contextTimestamp = Date.now();
-  return _contextCache;
 }
 
 // src/server/tools/memory.ts
@@ -10071,6 +10077,7 @@ async function startServer() {
   await ensureStorage();
   await initSync();
   await initMarketplace();
+  setMemoryDir(STORAGE_DIR2);
   setSessionDbPath(STORAGE_DIR2);
   setSkillsDir(path24.join(process.cwd(), ".cvr", "skills"));
   setSkillCreatorDir(path24.join(process.cwd(), ".cvr", "skills"));

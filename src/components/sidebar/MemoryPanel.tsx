@@ -10,7 +10,7 @@ interface MemoryPanelProps {
 
 export const MemoryPanel: React.FC<MemoryPanelProps> = ({ t, className }) => {
   const {
-    memory, user, loading, saving,
+    memory, user, loading, saving, error,
     updateMemorySection, updateUserSection,
     deleteMemorySection, deleteUserSection,
     refresh,
@@ -123,6 +123,12 @@ export const MemoryPanel: React.FC<MemoryPanelProps> = ({ t, className }) => {
           {t.user || "User"}
         </button>
       </div>
+
+      {error && (
+        <div className="p-2 text-[10px] text-red-400 bg-red-400/10 border border-red-400/30 rounded text-center">
+          {t.loadError || "Failed to load:"} {error}
+        </div>
+      )}
 
       <div className="space-y-2">
         {showNewSection && (

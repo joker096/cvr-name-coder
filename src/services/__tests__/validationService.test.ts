@@ -33,6 +33,22 @@ describe('validationService', () => {
       expect(result.isValid).toBe(false);
       expect(result.errors.localUrl).toBeTruthy();
     });
+
+    it('should accept local config with URL', () => {
+      const config: ChatConfig = {
+        aiProvider: 'local',
+        aiModel: 'llama3',
+        localUrl: 'http://localhost:11434',
+      };
+      const result = validateAIConfig(config);
+      expect(result.isValid).toBe(true);
+    });
+
+    it('should return errors for empty config', () => {
+      const config = {} as ChatConfig;
+      const result = validateAIConfig(config);
+      expect(Object.keys(result.errors).length).toBeGreaterThanOrEqual(1);
+    });
   });
 
   describe('validateAPIKey', () => {
@@ -43,6 +59,16 @@ describe('validationService', () => {
 
     it('should reject short API key', () => {
       const result = validateAPIKey('short');
+      expect(result.isValid).toBe(false);
+    });
+
+    it('should reject empty API key', () => {
+      const result = validateAPIKey('');
+      expect(result.isValid).toBe(false);
+    });
+
+    it('should reject whitespace-only API key', () => {
+      const result = validateAPIKey('   ');
       expect(result.isValid).toBe(false);
     });
   });
@@ -57,6 +83,16 @@ describe('validationService', () => {
       const result = validateURL('not-a-url');
       expect(result.isValid).toBe(false);
     });
+
+    it('should accept HTTPS URL', () => {
+      const result = validateURL('https://api.openai.com');
+      expect(result.isValid).toBe(true);
+    });
+
+    it('should reject empty URL', () => {
+      const result = validateURL('');
+      expect(result.isValid).toBe(false);
+    });
   });
 
   describe('validateModelName', () => {
@@ -68,6 +104,16 @@ describe('validationService', () => {
     it('should reject empty model name', () => {
       const result = validateModelName('');
       expect(result.isValid).toBe(false);
+    });
+
+    it('should accept model name with version suffix', () => {
+      const result = validateModelName('deepseek-coder-v2');
+      expect(result.isValid).toBe(true);
+    });
+
+    it('should accept model name with slash (provider/model pattern)', () => {
+      const result = validateModelName('Qwen/Qwen3-235B-A22B');
+      expect(result.isValid).toBe(true);
     });
   });
 });

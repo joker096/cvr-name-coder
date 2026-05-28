@@ -327,5 +327,16 @@ const translations = {    title: "cvr.name.coder",
     pluginPuppeteer: "Browser automation",
     pluginBraveSearch: "Web search via Brave API",
     clearChat: "Clear chat",
-    newChat: "New chat",};
+    newChat: "New chat",
+
+    // Memory Panel
+    persistentMemory: "Persistent Memory",
+    userPreferences: "User Preferences",
+    memory: "Memory",
+    user: "User",
+    edit: "Edit",
+    saving: "Saving...",
+    noUserPrefs: "No user preferences yet. Click + to add a section.",
+    loadError: "Failed to load",
+};
 export default translations;

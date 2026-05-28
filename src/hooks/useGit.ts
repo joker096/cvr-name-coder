@@ -41,46 +41,34 @@ export const useGit = () => {
     status: null,
     diffs: [],
     commits: [],
-    loading: false,
+    loading: true,
     committing: false,
     pushing: false,
     error: null,
   });
 
   const fetchStatus = useCallback(async () => {
-    setState((prev) => ({ ...prev, loading: true, error: null }));
-    try {
-      const res = await fetch("/api/git/status");
-      if (!res.ok) throw new Error(await res.text());
-      const status = await res.json();
-      setState((prev) => ({ ...prev, status, loading: false }));
-    } catch (err: any) {
-      setState((prev) => ({ ...prev, error: err.message, loading: false }));
-    }
+    const res = await fetch("/api/git/status");
+    if (!res.ok) throw new Error(await res.text());
+    const status = await res.json();
+    setState((prev) => ({ ...prev, status }));
+    return status;
   }, []);
 
   const fetchDiff = useCallback(async (stagedOnly = false) => {
-    setState((prev) => ({ ...prev, loading: true, error: null }));
-    try {
-      const res = await fetch(`/api/git/diff?staged=${stagedOnly}`);
-      if (!res.ok) throw new Error(await res.text());
-      const data = await res.json();
-      setState((prev) => ({ ...prev, diffs: data.diffs || [], loading: false }));
-    } catch (err: any) {
-      setState((prev) => ({ ...prev, error: err.message, loading: false }));
-    }
+    const res = await fetch(`/api/git/diff?staged=${stagedOnly}`);
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    setState((prev) => ({ ...prev, diffs: data.diffs || [] }));
+    return data;
   }, []);
 
   const fetchLog = useCallback(async (limit = 10) => {
-    setState((prev) => ({ ...prev, loading: true, error: null }));
-    try {
-      const res = await fetch(`/api/git/log?limit=${limit}`);
-      if (!res.ok) throw new Error(await res.text());
-      const data = await res.json();
-      setState((prev) => ({ ...prev, commits: data.commits || [], loading: false }));
-    } catch (err: any) {
-      setState((prev) => ({ ...prev, error: err.message, loading: false }));
-    }
+    const res = await fetch(`/api/git/log?limit=${limit}`);
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    setState((prev) => ({ ...prev, commits: data.commits || [] }));
+    return data;
   }, []);
 
   const commit = useCallback(async (message: string) => {
@@ -94,13 +82,13 @@ export const useGit = () => {
       if (!res.ok) throw new Error(await res.text());
       const result = await res.json();
       setState((prev) => ({ ...prev, committing: false }));
-      await fetchStatus();
+      await refresh();
       return result;
     } catch (err: any) {
       setState((prev) => ({ ...prev, error: err.message, committing: false }));
       throw err;
     }
-  }, [fetchStatus]);
+  }, []);
 
   const push = useCallback(async () => {
     setState((prev) => ({ ...prev, pushing: true, error: null }));
@@ -109,23 +97,28 @@ export const useGit = () => {
       if (!res.ok) throw new Error(await res.text());
       const result = await res.json();
       setState((prev) => ({ ...prev, pushing: false }));
-      await fetchStatus();
+      await refresh();
       return result;
     } catch (err: any) {
       setState((prev) => ({ ...prev, error: err.message, pushing: false }));
       throw err;
     }
-  }, [fetchStatus]);
+  }, []);
 
   const refresh = useCallback(async () => {
-    await Promise.all([fetchStatus(), fetchDiff(false), fetchLog(10)]);
+    setState((prev) => ({ ...prev, loading: true, error: null }));
+    try {
+      await Promise.all([fetchStatus(), fetchDiff(false), fetchLog(10)]);
+    } catch {
+      // Errors are handled per-fetch and stored in state
+    } finally {
+      setState((prev) => ({ ...prev, loading: false }));
+    }
   }, [fetchStatus, fetchDiff, fetchLog]);
 
   useEffect(() => {
-    fetchStatus();
-    fetchDiff(false);
-    fetchLog(10);
-  }, [fetchStatus, fetchDiff, fetchLog]);
+    refresh();
+  }, [refresh]);
 
   return {
     ...state,

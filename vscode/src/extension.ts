@@ -25,6 +25,7 @@ import { setSkillCreatorDir } from '../../src/server/skillCreator.js';
 import { ingestDocument, searchRAG, listSources, clearSource, setRagDbPath } from '../../src/server/ragEngine.js';
 import { setRagEmbedFn } from '../../src/server/tools.js';
 import { setProjectRoot } from '../../src/server/tools/file.js';
+import { setGitProjectRoot } from '../../src/server/gitTools.js';
 import { setCacheDbPath } from '../../src/server/cache.js';
 import { indexProject } from '../../src/server/projectOracle.js';
 import { loadInstructions, getInstructionsContext, setRulesDir, saveInstruction, deleteInstruction } from '../../src/server/instructionLoader.js';
@@ -203,17 +204,26 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
   const historyFile = path.join(storagePath, 'history.json');
   const memoryFile = path.join(storagePath, 'memory.json');
 
-  await ensureStorage(storagePath);
-  setMemoryDir(storagePath);
-  setSessionDbPath(storagePath);
-
   // Auto-resolve workspace .cvr/ directories with fallback to extension storage
   const workspaceRoot = (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0)
     ? vscode.workspace.workspaceFolders[0].uri.fsPath
     : null;
 
+  // Use workspace-root memory if it exists (preferred), otherwise fallback to extension storage
+  const workspaceMemoryDir = workspaceRoot
+    ? path.join(workspaceRoot, '.opencode-infinite')
+    : null;
+  const memoryDir = (workspaceMemoryDir && fs.existsSync(workspaceMemoryDir))
+    ? workspaceMemoryDir
+    : storagePath;
+
+  await ensureStorage(memoryDir);
+  setMemoryDir(memoryDir);
+  setSessionDbPath(memoryDir);
+
   if (workspaceRoot) {
     setProjectRoot(workspaceRoot);
+    setGitProjectRoot(workspaceRoot);
   }
 
   function resolveCvrDir(name: string): string {

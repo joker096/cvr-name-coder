@@ -57,18 +57,21 @@ export const GitPanel: React.FC<GitPanelProps> = ({ t, className }) => {
     <div className={cn("flex flex-col gap-3", className)}>
       <GitPanelHeader title={t.gitPanel || "Git"} loading={loading} onRefresh={refresh} t={t} />
 
-      {status && status.branch && (
-        <GitBranchInfo branch={status.branch} ahead={status.ahead} behind={status.behind} />
-      )}
-
       {error && <GitErrorMessage error={error} />}
 
-      {!isRepo ? (
+      {loading && !status ? (
+        <div className="p-3 text-[11px] text-dash-text-muted italic border border-dashed border-dash-border rounded text-center">
+          {t.loading || "Loading..."}
+        </div>
+      ) : !isRepo ? (
         <div className="p-3 text-[11px] text-dash-text-muted italic border border-dashed border-dash-border rounded text-center">
           {t.noGitRepo || "Not a git repository."}
         </div>
       ) : (
         <>
+          {status.branch && (
+            <GitBranchInfo branch={status.branch} ahead={status.ahead} behind={status.behind} />
+          )}
           <GitSectionTabs active={activeSection} onChange={setActiveSection} t={t} />
 
           <AnimatePresence mode="wait">

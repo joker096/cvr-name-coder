@@ -3,7 +3,12 @@ import { promisify } from "util";
 import { getErrorMessage } from "../types/errors";
 
 const execFileAsync = promisify(execFile);
-const PROJECT_ROOT = process.cwd();
+let PROJECT_ROOT = process.cwd();
+
+/** Overrides the project root directory used for git commands. Call this early (e.g. in VS Code extension activation) to ensure git operations target the correct repository. */
+export function setGitProjectRoot(root: string): void {
+  PROJECT_ROOT = root;
+}
 
 /**
  * @interface GitStatus

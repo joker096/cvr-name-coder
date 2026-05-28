@@ -68,18 +68,22 @@ export const validationService = {
   },
 };
 
+/** Validates an AI provider configuration and returns validation errors/warnings. */
 export const validateAIConfig = (config: ChatConfig): ValidationResult => {
   return validationService.validateConfig(config);
 };
 
+/** Validates an API key string — must be at least 10 characters. */
 export const validateAPIKey = (apiKey: string): FieldValidation => {
   return validationService.validateAPIKey(apiKey);
 };
 
+/** Validates that a string is a well-formed URL. */
 export const validateURL = (url: string): FieldValidation => {
   return validationService.validateURL(url);
 };
 
+/** Validates that a model name string is not empty and at least 2 characters. */
 export const validateModelName = (modelName: string): FieldValidation => {
   return validationService.validateModelName(modelName);
 };

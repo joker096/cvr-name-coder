@@ -124,6 +124,23 @@ export interface GitStatus {
   staged: string[];
   modified: string[];
   untracked: string[];
+  deleted: string[];
+  renamed: string[];
+  clean: boolean;
+}
+
+export interface GitCommit {
+  hash: string;
+  shortHash: string;
+  message: string;
+  author: string;
+  date: string;
+}
+
+export interface GitResult {
+  success: boolean;
+  output: string;
+  error?: string;
 }
 
 export interface GitDiff {

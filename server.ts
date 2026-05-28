@@ -5,6 +5,7 @@ import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import { PermissionEngine } from "./src/server/permissions.js";
 import type { PermissionConfig } from "./src/types/permissions.js";
+import { setMemoryDir } from "./src/server/memoryStore.js";
 import { setRagEmbedFn } from "./src/server/tools.js";
 import { registerBuiltinHooks } from "./src/server/hooks.js";
 import { loadAgents } from "./src/server/agentLoader.js";
@@ -232,6 +233,7 @@ async function startServer() {
   await ensureStorage();
   await initSync();
   await initMarketplace();
+  setMemoryDir(STORAGE_DIR);
   setSessionDbPath(STORAGE_DIR);
   setSkillsDir(path.join(process.cwd(), ".cvr", "skills"));
   setSkillCreatorDir(path.join(process.cwd(), ".cvr", "skills"));
