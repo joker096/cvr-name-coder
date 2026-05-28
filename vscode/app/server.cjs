@@ -2033,10 +2033,15 @@ init_errors();
 var import_promises2 = require("fs/promises");
 var path2 = __toESM(require("path"), 1);
 init_logger();
-var PROJECT_ROOT = process.cwd();
+var _projectRoot = null;
+function getProjectRoot() {
+  if (_projectRoot) return _projectRoot;
+  _projectRoot = process.cwd();
+  return _projectRoot;
+}
 function resolveProjectPath(requestedPath) {
-  const resolved = path2.resolve(PROJECT_ROOT, requestedPath);
-  const relative4 = path2.relative(PROJECT_ROOT, resolved);
+  const resolved = path2.resolve(getProjectRoot(), requestedPath);
+  const relative4 = path2.relative(getProjectRoot(), resolved);
   if (relative4.startsWith("..") || path2.isAbsolute(relative4)) {
     throw new Error("Path escapes project root: " + requestedPath);
   }
@@ -2047,7 +2052,7 @@ async function searchDir(dir, query) {
   const results = [];
   for (const entry of entries) {
     const fullPath = path2.join(dir, entry.name);
-    const relPath = path2.relative(PROJECT_ROOT, fullPath);
+    const relPath = path2.relative(getProjectRoot(), fullPath);
     if (entry.isDirectory() && entry.name !== "node_modules" && entry.name !== ".git") {
       results.push(...await searchDir(fullPath, query));
     } else if (entry.isFile()) {
@@ -2110,7 +2115,7 @@ async function executeEditFile(params, sessionId = "default") {
 
 // src/server/tools/system.ts
 var import_child_process2 = require("child_process");
-var PROJECT_ROOT2 = process.cwd();
+var PROJECT_ROOT = process.cwd();
 function splitArgs(cmd) {
   const args = [];
   let current = "";
@@ -2139,7 +2144,7 @@ function splitArgs(cmd) {
   return args;
 }
 async function executeCommand(params) {
-  const resolvedCwd = params.cwd !== void 0 && params.cwd !== null ? resolveProjectPath(String(params.cwd)) : PROJECT_ROOT2;
+  const resolvedCwd = params.cwd !== void 0 && params.cwd !== null ? resolveProjectPath(String(params.cwd)) : PROJECT_ROOT;
   const command = String(params.command);
   const args = splitArgs(command);
   if (args.length === 0) {
@@ -2820,9 +2825,9 @@ var import_child_process3 = require("child_process");
 var import_util2 = require("util");
 init_errors();
 var execFileAsync2 = (0, import_util2.promisify)(import_child_process3.execFile);
-var PROJECT_ROOT3 = process.cwd();
+var PROJECT_ROOT2 = process.cwd();
 async function runGit(args) {
-  const { stdout, stderr } = await execFileAsync2("git", args, { cwd: PROJECT_ROOT3, timeout: 3e4 });
+  const { stdout, stderr } = await execFileAsync2("git", args, { cwd: PROJECT_ROOT2, timeout: 3e4 });
   if (stderr && !stderr.includes("warning")) {
     throw new Error(stderr);
   }
@@ -2967,10 +2972,10 @@ async function hasGitRepo() {
 var import_child_process4 = require("child_process");
 var import_util3 = require("util");
 var execFileAsync3 = (0, import_util3.promisify)(import_child_process4.execFile);
-var PROJECT_ROOT4 = process.cwd();
+var PROJECT_ROOT3 = process.cwd();
 async function runGit2(args) {
   const { stdout, stderr } = await execFileAsync3("git", args, {
-    cwd: PROJECT_ROOT4,
+    cwd: PROJECT_ROOT3,
     timeout: 3e4
   });
   if (stderr && !stderr.startsWith("warning:")) throw new Error(stderr);
@@ -4906,10 +4911,10 @@ function setPermissionEngine(pe) {
 
 // src/server/mcpServer.ts
 init_logger();
-var PROJECT_ROOT5 = process.cwd();
+var PROJECT_ROOT4 = process.cwd();
 async function loadMcpConfig() {
   try {
-    const configPath = path15.join(PROJECT_ROOT5, ".cvr", "mcp.json");
+    const configPath = path15.join(PROJECT_ROOT4, ".cvr", "mcp.json");
     const data = await (0, import_promises11.readFile)(configPath, "utf-8");
     return JSON.parse(data);
   } catch {
@@ -4992,11 +4997,11 @@ async function createMcpServer() {
   });
   server.setRequestHandler(import_types.ListResourcesRequestSchema, async () => {
     try {
-      const entries = await (0, import_promises11.readdir)(PROJECT_ROOT5, { withFileTypes: true });
+      const entries = await (0, import_promises11.readdir)(PROJECT_ROOT4, { withFileTypes: true });
       const resources = entries.filter(
         (e) => !e.name.startsWith(".") && !e.name.startsWith("node_modules") && e.isFile()
       ).map((e) => ({
-        uri: `file://${path15.join(PROJECT_ROOT5, e.name)}`,
+        uri: `file://${path15.join(PROJECT_ROOT4, e.name)}`,
         name: e.name,
         mimeType: "text/plain"
       }));
@@ -5018,7 +5023,7 @@ async function createMcpServer() {
     }
     const filePath = uri.slice(7);
     const resolved = path15.resolve(filePath);
-    if (!resolved.startsWith(PROJECT_ROOT5)) {
+    if (!resolved.startsWith(PROJECT_ROOT4)) {
       throw new import_types.McpError(
         import_types.ErrorCode.InvalidRequest,
         "Path escapes project root"

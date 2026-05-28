@@ -4,7 +4,17 @@ import type { ToolResult } from "../../types/tools";
 import { hookRegistry } from "../hooks.js";
 import { log } from "../logger.js";
 
-const PROJECT_ROOT = process.cwd();
+let _projectRoot: string | null = null;
+
+export function getProjectRoot(): string {
+  if (_projectRoot) return _projectRoot;
+  _projectRoot = process.cwd();
+  return _projectRoot;
+}
+
+export function setProjectRoot(root: string): void {
+  _projectRoot = root;
+}
 
 /**
  * Resolves a user-requested path relative to the project root and validates it does not escape.
@@ -13,8 +23,8 @@ const PROJECT_ROOT = process.cwd();
  * @throws {Error} If the resolved path escapes the project root directory.
  */
 export function resolveProjectPath(requestedPath: string): string {
-  const resolved = path.resolve(PROJECT_ROOT, requestedPath);
-  const relative = path.relative(PROJECT_ROOT, resolved);
+  const resolved = path.resolve(getProjectRoot(), requestedPath);
+  const relative = path.relative(getProjectRoot(), resolved);
   if (relative.startsWith("..") || path.isAbsolute(relative)) {
     throw new Error("Path escapes project root: " + requestedPath);
   }
@@ -32,7 +42,7 @@ async function searchDir(dir: string, query: string): Promise<string[]> {
   const results: string[] = [];
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name);
-    const relPath = path.relative(PROJECT_ROOT, fullPath);
+    const relPath = path.relative(getProjectRoot(), fullPath);
     if (entry.isDirectory() && entry.name !== "node_modules" && entry.name !== ".git") {
       results.push(...(await searchDir(fullPath, query)));
     } else if (entry.isFile()) {

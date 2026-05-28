@@ -24,6 +24,7 @@ import { loadSkills, getSkillById, setSkillsDir } from '../../src/server/skillLo
 import { setSkillCreatorDir } from '../../src/server/skillCreator.js';
 import { ingestDocument, searchRAG, listSources, clearSource, setRagDbPath } from '../../src/server/ragEngine.js';
 import { setRagEmbedFn } from '../../src/server/tools.js';
+import { setProjectRoot } from '../../src/server/tools/file.js';
 import { setCacheDbPath } from '../../src/server/cache.js';
 import { indexProject } from '../../src/server/projectOracle.js';
 import { loadInstructions, getInstructionsContext, setRulesDir, saveInstruction, deleteInstruction } from '../../src/server/instructionLoader.js';
@@ -210,6 +211,10 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
   const workspaceRoot = (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0)
     ? vscode.workspace.workspaceFolders[0].uri.fsPath
     : null;
+
+  if (workspaceRoot) {
+    setProjectRoot(workspaceRoot);
+  }
 
   function resolveCvrDir(name: string): string {
     if (workspaceRoot) {
