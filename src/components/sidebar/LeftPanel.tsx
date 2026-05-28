@@ -85,7 +85,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = memo(({
   }), [t, skillsCount, memoryCount]);
 
   return (
-    <div className={cn("w-[380px] min-w-[380px] border-r border-[#1a1a1a] bg-[#0d0d0d] flex flex-col overflow-y-auto", className)}>
+    <div className={cn("w-[300px] min-w-[300px] border-r border-[#1a1a1a] bg-[#0d0d0d] flex flex-col overflow-y-auto", className)}>
       <StatsGrid
         skillsCount={skillsCount}
         toolsCount={toolsCount}

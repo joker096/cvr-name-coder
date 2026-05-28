@@ -12,6 +12,7 @@ import { DiagnosticsProvider } from './providers/DiagnosticsProvider.js';
 import { PermissionEngine } from '../../src/server/permissions.js';
 import type { PermissionConfig } from '../../src/types/permissions.js';
 import { AgentLoop } from '../../src/server/agentLoop.js';
+import { executeTool } from '../../src/server/tools.js';
 import { createPlan } from '../../src/server/planner.js';
 import { SubagentManager } from '../../src/server/subagentManager.js';
 import { loadAgents, setAgentsDir, getAgentById } from '../../src/server/agentLoader.js';
@@ -514,21 +515,33 @@ INTEGRATED PROTOCOLS:
 - [MCP_TOOLS]: You have access to external tools.
 ${mcpCtx}
 
-CRITICAL: You have REAL tools available via FUNCTION CALLING.
+AVAILABLE TOOLS:
+You have the following built-in tools. To use a tool, include a tool call block in your response:
 
-ABSOLUTELY FORBIDDEN:
-- NEVER generate fake tool call syntax in your response text
-- NEVER use tags like <invoke>, <parameter>, <tool_calls>, <｜DSML｜invoke>, <｜DSML｜parameter>, <｜DSML｜tool_calls>
-- NEVER write XML/markup that looks like tool calls
-- NEVER pretend to call tools in your text response
+ACTION: tool_name
+PARAMS: {"param1": "value1"}
 
-REQUIRED:
-- Use actual function calling mechanism provided by the system
-- If you need to use a tool, the system will call it for you
-- Just respond normally with your analysis or request
-- The system handles tool execution automatically
+For example, to list a directory:
+ACTION: list_directory
+PARAMS: {"path": "src"}
 
-Also: NEVER invent file paths or code — only reference files and code you have actually read via tools. If asked to find or fix errors, you MUST first read the actual files using read_file tools. Do not fabricate error reports or fixes based on assumptions. If a file doesn't exist in the codebase, say so rather than guessing its contents.
+To read a file:
+ACTION: read_file
+PARAMS: {"path": "src/index.ts"}
+
+Available tools:
+- read_file (path) - Read file contents
+- list_directory (path) - List directory contents
+- search_files (pattern, path?) - Search for files by pattern
+- write_file (path, content) - Write content to a file
+- edit_file (path, oldString, newString) - Edit file content
+- execute_command (command) - Execute a shell command
+- git_status, git_diff, git_commit, git_push - Git operations
+- browser_navigate, browser_click, browser_type - Browser automation
+- memory_read, memory_write - Memory operations
+- rag_search (q, topK?) - Search RAG index
+
+Always explore the codebase with list_directory first to understand structure, then read_file to see actual contents. NEVER invent file paths or code.
 
 WORKSPACE CONTEXT:
 ${workspaceCtx || 'No workspace open. The user is not currently editing a project.'}
@@ -631,24 +644,88 @@ ${contextParts || 'No previous knowledge clusters found. Cold-start mode.'}
         return;
       }
 
-      // MCP tool call processing
-      const toolCallRegex = /```tool_call\n([\s\S]*?)```/g;
-      let match;
-      while ((match = toolCallRegex.exec(fullText)) !== null) {
-        try {
-          const call = JSON.parse(match[1]);
-          if (call.server && call.tool) {
-            const result = await mcpManager.callTool(call.server, call.tool, call.arguments || {});
-            const resultText = `\n\n**MCP Tool ${call.server}/${call.tool}:** ${JSON.stringify(result)}\n\n`;
-            fullText += resultText;
-            res.write(`data: ${JSON.stringify(resultText)}\n\n`);
-          }
-        } catch (e: any) {
-          const errText = `\n\n**MCP Error:** ${e.message}\n\n`;
-          fullText += errText;
-          res.write(`data: ${JSON.stringify(errText)}\n\n`);
+      // Multi-turn tool loop: think → act → observe → think again
+      const MAX_TOOL_TURNS = 15;
+      let messages = [
+        ...history.slice(-10).map((m: any) => ({ role: m.role, parts: [{ text: m.content }] })),
+        { role: 'user', parts: [{ text: message }] }
+      ];
+      let accumulatedText = fullText;
+      let latestResponse = fullText;
+
+      for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
+        // Parse tool calls from the *latest* response only
+        const actionRegex = /ACTION:\s*(\w+)/g;
+        const paramsRegex = /PARAMS:\s*(\{[\s\S]*?\})/g;
+        let toolName: string | null = null;
+        let toolParams: Record<string, unknown> = {};
+        let aMatch;
+        while ((aMatch = actionRegex.exec(latestResponse)) !== null) {
+          paramsRegex.lastIndex = actionRegex.lastIndex;
+          const pMatch = paramsRegex.exec(latestResponse);
+          toolName = aMatch[1];
+          try { toolParams = pMatch?.[1] ? JSON.parse(pMatch[1]) : {}; } catch { toolParams = {}; }
         }
+
+        const mcpCallRegex = /```tool_call\n([\s\S]*?)```/g;
+        let mcpTool: string | null = null;
+        let mcpServer: string | null = null;
+        let mcpArgs: Record<string, unknown> = {};
+        let mcpMatch;
+        while ((mcpMatch = mcpCallRegex.exec(latestResponse)) !== null) {
+          try {
+            const call = JSON.parse(mcpMatch[1]);
+            if (call.server && call.tool) { mcpServer = call.server; mcpTool = call.tool; mcpArgs = call.arguments || {}; }
+          } catch {}
+        }
+
+        if (!toolName && !mcpTool) break;
+        if (toolName === "COMPLETE") break;
+
+        // Execute tool
+        let resultText: string;
+        if (mcpTool && mcpServer) {
+          try {
+            const result = await mcpManager.callTool(mcpServer, mcpTool, mcpArgs);
+            resultText = `\n\n**MCP Tool ${mcpServer}/${mcpTool}:** ${JSON.stringify(result)}\n\n`;
+          } catch (e: any) {
+            resultText = `\n\n**MCP Error:** ${e.message}\n\n`;
+          }
+        } else {
+          try {
+            const result = await executeTool(
+              { name: toolName!, params: toolParams },
+              mode === "plan" ? "plan" : "build",
+              permissionEngine,
+              "chat-session"
+            );
+            resultText = `\n\n**Tool ${toolName}:** ${result.success ? result.output : `Error: ${result.error}`}\n\n`;
+          } catch (e: any) {
+            resultText = `\n\n**Tool Error:** ${e.message}\n\n`;
+          }
+        }
+
+        accumulatedText += resultText;
+        res.write(`data: ${JSON.stringify({ content: resultText })}\n\n`);
+
+        // Feed result back to AI for next thinking round
+        messages.push({ role: 'assistant', parts: [{ text: latestResponse }] });
+        messages.push({ role: 'user', parts: [{ text: `[Tool result] ${resultText.trim()}\n\nContinue with your next step or respond COMPLETE: summary if the goal is reached.` }] });
+
+        latestResponse = '';
+        const nextOnToken = (token: string) => {
+          latestResponse += token;
+          res.write(`data: ${JSON.stringify({ content: token })}\n\n`);
+        };
+        try {
+          await generateContentStream(systemPrompt, messages, nextOnToken, aiProvider, localUrl, resolvedModel, apiKey, temperature, maxTokens, req.signal, onReasoning);
+        } catch (e: any) {
+          res.write(`data: ${JSON.stringify({ error: e.message })}\n\n`);
+          break;
+        }
+        accumulatedText += `\n\n${latestResponse}`;
       }
+      fullText = accumulatedText;
 
       const updatedHistory = [...history, { role: 'user', content: message, createdAt: new Date() }, { role: 'model', content: fullText, createdAt: new Date() }];
       await fs.promises.writeFile(historyFile, JSON.stringify(updatedHistory));

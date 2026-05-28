@@ -4720,18 +4720,21 @@ ${this.state.goal}
 
 Previous steps:
 ${context}
+
+You have access to the following tools:
+- read_file: Reads the contents of a file.
+- list_directory: Lists the contents of a directory.  **Use this tool to explore the file system before attempting to read files.**
+- ... (other tools)
+Important: Before attempting to access or modify a file, ALWAYS use the 'list_directory' tool to ensure the file exists and to understand the directory structure. This will prevent errors and improve your ability to complete the task.
+To use a tool, respond in this format:
+ACTION: tool_name
+PARAMS: {"param": "value"}
+If the task is complete, respond with:
+COMPLETE: brief summary
 ${this.additionalContext ? `
 Additional context:
 ${this.additionalContext}
 ` : ""}
-
-Think about what to do next. If you need to use a tool, respond in this format:
-ACTION: tool_name
-PARAMS: {"param": "value"}
-
-If the task is complete, respond with:
-COMPLETE: brief summary
-
 Your thought:`;
     return (await this.thinkFn(prompt)).trim();
   }

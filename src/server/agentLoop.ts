@@ -6,14 +6,12 @@ import { hookRegistry } from "./hooks";
 import { maybeCreateSkill } from "./skillCreator";
 import { getErrorMessage } from "../types/errors";
 import { validateFileAccess } from "./antiHallucination";
-
 /**
  * A function that takes a prompt string and returns an AI-generated response.
  * @param prompt - The prompt to send to the AI model
  * @returns A Promise resolving to the AI's text response
  */
 export type ThinkFunction = (prompt: string) => Promise<string>;
-
 /**
  * A function that executes a tool call and returns the result.
  * @param toolCall - The tool call to execute
@@ -21,7 +19,6 @@ export type ThinkFunction = (prompt: string) => Promise<string>;
  * @returns A Promise resolving to the tool execution result
  */
 export type ExecuteToolFunction = (toolCall: ToolCall, mode?: "plan" | "build" | "review") => Promise<import("../types/tools").ToolResult>;
-
 /**
  * Autonomous agent loop that manages multi-step task execution.
  *
@@ -50,7 +47,6 @@ export class AgentLoop {
   private _abort = false;
   private sessionId: string;
   private additionalContext = "";
-
   /**
    * Creates a new agent loop instance.
    * @param goal - The goal/task description for the agent to accomplish
@@ -91,7 +87,6 @@ export class AgentLoop {
     this.onStep = options.onStep;
     this.onStatus = options.onStatus;
   }
-
   /**
    * Runs the agent loop until completion, error, or abort.
    *
@@ -105,7 +100,6 @@ export class AgentLoop {
   async run(): Promise<LoopState> {
     try {
       await hookRegistry.execute("loop.start", { goal: this.state.goal }, this.sessionId);
-
       while (
         this.state.status !== "completed" &&
         this.state.status !== "error" &&
@@ -119,20 +113,16 @@ export class AgentLoop {
           this.state.status = "error";
           break;
         }
-
         const step = await this.runSingleStep();
         if (!step.action) {
           break;
         }
       }
-
       if (this.state.status !== "error" && this.state.status !== "aborted") {
         this.state.status = "completed";
       }
       this.onStatus?.(this.state.status);
-
       await hookRegistry.execute("loop.complete", { state: this.state }, this.sessionId);
-
       // Auto skill creation on successful multi-step tasks
       if (this.state.status === "completed" && this.state.steps.length >= 3) {
         const toolNames = this.state.steps.map((s) => s.action?.tool || "");
@@ -144,7 +134,6 @@ export class AgentLoop {
           success: true,
         }).catch(() => {});
       }
-
       return this.state;
     } catch (err: unknown) {
       this.state.status = "error";
@@ -152,7 +141,6 @@ export class AgentLoop {
       throw err;
     }
   }
-
   /**
    * Aborts the agent loop. Sets internal abort flag and updates state.
    * Safe to call multiple times; only affects non-terminal states.
@@ -163,7 +151,6 @@ export class AgentLoop {
       this.state.status = "aborted";
     }
   }
-
   /**
    * Appends additional context that will be included in the prompt for each thinking step.
    * Useful for injecting extra instructions or situational awareness mid-loop.
@@ -172,7 +159,6 @@ export class AgentLoop {
   setAdditionalContext(ctx: string): void {
     this.additionalContext = ctx;
   }
-
   /**
    * Executes a single think-act-observe step: thinks, parses action, executes tool, records result.
    * Handles abort detection both before thinking and after tool execution.
@@ -197,11 +183,9 @@ export class AgentLoop {
       thought,
       timestamp: Date.now(),
     };
-
     const action = this.parseAction(thought);
     if (action) {
       step.action = action;
-
       const pathParam = typeof action.params?.path === "string" ? action.params.path : undefined;
       if (pathParam) {
         const validation = await validateFileAccess(action.tool, pathParam);
@@ -209,10 +193,8 @@ export class AgentLoop {
           this.additionalContext = (this.additionalContext ? this.additionalContext + "\n" : "") + validation.warning;
         }
       }
-
       this.state.status = "executing";
       this.onStatus?.("executing");
-
       try {
         const result = await this.executeToolFn(
           { name: action.tool as ToolCall["name"], params: action.params },
@@ -227,19 +209,14 @@ export class AgentLoop {
         step.observation = `Error: ${getErrorMessage(err)}`;
       }
     }
-
     this.state.steps.push(step);
     this.onStep?.(step);
     this.state.currentStep++;
-
     await hookRegistry.execute("loop.step", { step }, this.sessionId);
-
     this.state.status = this._abort ? "aborted" : "observing";
     this.onStatus?.(this.state.status);
-
     return step;
   }
-
   /**
    * Sends the current context + goal to the AI and returns its thinking response.
    * @returns A Promise resolving to the trimmed AI response text
@@ -251,20 +228,21 @@ ${this.state.goal}
 
 Previous steps:
 ${context}
-${this.additionalContext ? `\nAdditional context:\n${this.additionalContext}\n` : ""}
 
-Think about what to do next. If you need to use a tool, respond in this format:
+You have access to the following tools:
+- read_file: Reads the contents of a file.
+- list_directory: Lists the contents of a directory.  **Use this tool to explore the file system before attempting to read files.**
+- ... (other tools)
+Important: Before attempting to access or modify a file, ALWAYS use the 'list_directory' tool to ensure the file exists and to understand the directory structure. This will prevent errors and improve your ability to complete the task.
+To use a tool, respond in this format:
 ACTION: tool_name
 PARAMS: {"param": "value"}
-
 If the task is complete, respond with:
 COMPLETE: brief summary
-
+${this.additionalContext ? `\nAdditional context:\n${this.additionalContext}\n` : ""}
 Your thought:`;
-
     return (await this.thinkFn(prompt)).trim();
   }
-
   /**
    * Builds a truncated context string from the last 5 steps.
    * @returns Context string summarizing recent steps with truncated thoughts and observations
@@ -282,7 +260,6 @@ Your thought:`;
       )
       .join("\n");
   }
-
   /**
    * Parses an ACTION and PARAMS block from the AI's thought text.
    * @param thought - The AI's raw thought text
@@ -303,7 +280,6 @@ Your thought:`;
     }
     return null;
   }
-
   /**
    * Returns a shallow copy of the current loop state.
    * @returns The current loop state (snapshot)
