@@ -16,6 +16,7 @@ import { executeTool } from '../../src/server/tools.js';
 import { createPlan } from '../../src/server/planner.js';
 import { SubagentManager } from '../../src/server/subagentManager.js';
 import { loadAgents, setAgentsDir, getAgentById } from '../../src/server/agentLoader.js';
+import { toOpenAITools, type OpenAITool, type OpenAIToolCall } from '../../src/types/tools.js';
 import { randomUUID } from 'crypto';
 import { readMemory, writeMemory, replaceMemorySection, deleteMemorySection, readUser, writeUser, replaceUserSection, deleteUserSection, setMemoryDir } from '../../src/server/memoryStore.js';
 import { createSession, addMessage, getSession, listSessions, searchSessions, deleteSession, setSessionDbPath } from '../../src/server/sessionStore.js';
@@ -304,12 +305,31 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
     return full;
   }
 
-  async function generateContentStream(prompt: string, contents: any[], onToken: (token: string) => void, provider?: string, localUrl?: string, modelName?: string, apiKey?: string, temperature?: number, maxTokens?: number, signal?: AbortSignal, onReasoning?: (token: string) => void): Promise<void> {
+  async function generateContentStream(prompt: string, contents: any[], onToken: (token: string) => void, provider?: string, localUrl?: string, modelName?: string, apiKey?: string, temperature?: number, maxTokens?: number, signal?: AbortSignal, onReasoning?: (token: string) => void, tools?: OpenAITool[]): Promise<{ text: string; toolCalls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }> }> {
     if (!provider) throw new Error('No AI provider configured. Set it in Settings.');
     const msgs = [
       { role: 'system', content: prompt },
       ...contents.map((c: any) => ({ role: c.role === 'model' ? 'assistant' : c.role, content: c.parts[0].text }))
     ];
+
+    let fullText = '';
+    const toolCallAccum: Map<number, { id: string; name: string; args: string }> = new Map();
+
+    function processStreamChunk(chunk: any): void {
+      const delta = chunk.choices?.[0]?.delta;
+      if (delta?.reasoning_content && onReasoning) onReasoning(delta.reasoning_content);
+      if (delta?.content) { fullText += delta.content; onToken(delta.content); }
+      if (delta?.tool_calls) {
+        for (const tc of delta.tool_calls) {
+          const idx = tc.index ?? 0;
+          let entry = toolCallAccum.get(idx);
+          if (!entry) { entry = { id: "", name: "", args: "" }; toolCallAccum.set(idx, entry); }
+          if (tc.id) entry.id = tc.id;
+          if (tc.function?.name) entry.name = tc.function.name;
+          if (tc.function?.arguments) entry.args += tc.function.arguments;
+        }
+      }
+    }
 
     if (provider === 'local') {
       if (!localUrl) throw new Error('Local provider requires a URL. Configure it in Settings.');
@@ -317,8 +337,8 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
       const bodyObj: any = { model: modelName || 'local-model', messages: msgs, stream: true };
       if (temperature !== undefined) bodyObj.temperature = temperature;
       if (maxTokens !== undefined) bodyObj.max_tokens = maxTokens;
-      const body = JSON.stringify(bodyObj);
-      const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, signal });
+      if (tools?.length) bodyObj.tools = tools;
+      const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(bodyObj), signal });
       if (!response.ok) {
         const text = await response.text();
         let message: string;
@@ -339,20 +359,11 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
           const trimmed = line.trim();
           if (!trimmed || !trimmed.startsWith('data: ')) continue;
           const jsonStr = trimmed.slice(6);
-          if (jsonStr === '[DONE]') return;
-          try {
-            const chunk = JSON.parse(jsonStr);
-            const delta = chunk.choices?.[0]?.delta;
-            if (delta?.reasoning_content && onReasoning) onReasoning(delta.reasoning_content);
-            const text = delta?.content || chunk.choices?.[0]?.text || '';
-            if (text) onToken(text);
-          } catch {}
+          if (jsonStr === '[DONE]') break;
+          try { processStreamChunk(JSON.parse(jsonStr)); } catch {}
         }
       }
-      return;
-    }
-
-    if (provider === 'custom' || provider === 'openai' || provider === 'deepseek' || provider === 'grok' || provider === 'groq' || provider === 'baseten' || provider === 'openrouter' || provider === 'together' || provider === 'mistral') {
+    } else if (provider === 'custom' || provider === 'openai' || provider === 'deepseek' || provider === 'grok' || provider === 'groq' || provider === 'baseten' || provider === 'openrouter' || provider === 'together' || provider === 'mistral') {
       // Provider-model mismatch guard
       if ((provider === 'openai' || provider === 'groq') && modelName?.toLowerCase().includes('claude')) {
         throw new Error(`Model "${modelName}" is an Anthropic Claude model, but provider is ${provider}. To use Claude models, select provider "anthropic" instead.`);
@@ -374,6 +385,8 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
       const bodyObj: any = { model, messages: msgs, stream: true };
       if (temperature !== undefined) bodyObj.temperature = temperature;
       if (maxTokens !== undefined) bodyObj.max_tokens = maxTokens;
+      if (tools?.length) bodyObj.tools = tools;
+
       const authHeader = `Bearer ${key}`;
       const response = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
         method: 'POST',
@@ -401,21 +414,11 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
           const trimmed = line.trim();
           if (!trimmed || !trimmed.startsWith('data: ')) continue;
           const jsonStr = trimmed.slice(6);
-          if (jsonStr === '[DONE]') return;
-          try {
-            const chunk = JSON.parse(jsonStr);
-            const delta = chunk.choices?.[0]?.delta;
-            const reasoningText = delta?.reasoning_content;
-            if (reasoningText && onReasoning) onReasoning(reasoningText);
-            const text = delta?.content || chunk.choices?.[0]?.text || '';
-            if (text) onToken(text);
-          } catch {}
+          if (jsonStr === '[DONE]') break;
+          try { processStreamChunk(JSON.parse(jsonStr)); } catch {}
         }
       }
-      return;
-    }
-
-    if (provider === 'anthropic') {
+    } else if (provider === 'anthropic') {
       const apiKeyValue = apiKey || process.env.ANTHROPIC_API_KEY;
       if (!apiKeyValue) throw new Error('Anthropic requires an API key.');
       const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -461,16 +464,13 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
           try {
             const chunk = JSON.parse(jsonStr);
             if (chunk.type === 'content_block_delta') {
-              if (chunk.delta?.text) onToken(chunk.delta.text);
+              if (chunk.delta?.text) { fullText += chunk.delta.text; onToken(chunk.delta.text); }
               if (chunk.delta?.thinking && onReasoning) onReasoning(chunk.delta.thinking);
             }
           } catch {}
         }
       }
-      return;
-    }
-
-    if (provider === 'gemini') {
+    } else if (provider === 'gemini') {
       if (!process.env.GEMINI_API_KEY) throw new Error('Gemini requires GEMINI_API_KEY environment variable.');
       const streamResult = await getGemini().models.generateContentStream({
         model: modelName || 'gemini-2.5-flash',
@@ -478,13 +478,21 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
       });
       for await (const chunk of streamResult) {
         const text = chunk.text;
-        if (text) onToken(text);
+        if (text) { fullText += text; onToken(text); }
       }
-      return;
+    } else {
+      throw new Error(`Unknown provider: ${provider}. Please configure a valid provider in Settings.`);
     }
 
-    // Unknown provider
-    throw new Error(`Unknown provider: ${provider}. Please configure a valid provider in Settings.`);
+    const toolCalls = toolCallAccum.size > 0
+      ? Array.from(toolCallAccum.values()).filter(tc => tc.name).map(tc => ({
+          id: tc.id,
+          name: tc.name,
+          arguments: JSON.parse(tc.args || "{}") as Record<string, unknown>,
+        }))
+      : undefined;
+
+    return { text: fullText, toolCalls };
   }
 
   async function summarizeLongHistory(messages: any[], provider?: string, localUrl?: string, modelName?: string, apiKey?: string) {
@@ -547,18 +555,12 @@ ${langInstruction}
 ${mcpCtx}
 
 AVAILABLE TOOLS:
-You have the following built-in tools. To use a tool, include a tool call block in your response:
+You have the following built-in tools available via function calling. Use them when you need to read files, search the codebase, execute commands, or make changes. The system will automatically handle function call execution — just tell the system what you need and use the available functions.
 
-ACTION: tool_name
-PARAMS: {"param1": "value1"}
-
-For example, to list a directory:
-ACTION: list_directory
-PARAMS: {"path": "src"}
-
-To read a file:
-ACTION: read_file
-PARAMS: {"path": "src/index.ts"}
+To use MCP (external) tools, include a fenced code block:
+```tool_call
+{"server": "server-name", "tool": "tool-name", "arguments": {...}}
+```
 
 Available tools:
 - read_file (path) - Read file contents
@@ -664,11 +666,13 @@ ${contextParts || 'No previous knowledge clusters found. Cold-start mode.'}
         res.write(`data: ${JSON.stringify({ reasoning: token })}\n\n`);
       };
 
+      const tools = toOpenAITools();
+      let result: { text: string; toolCalls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }> };
       try {
-        await generateContentStream(systemPrompt, [
+        result = await generateContentStream(systemPrompt, [
           ...history.slice(-10).map((m: any) => ({ role: m.role, parts: [{ text: m.content }] })),
           { role: 'user', parts: [{ text: message }] }
-        ], onToken, aiProvider, localUrl, resolvedModel, apiKey, temperature, maxTokens, req.signal, onReasoning);
+        ], onToken, aiProvider, localUrl, resolvedModel, apiKey, temperature, maxTokens, req.signal, onReasoning, tools);
       } catch (e: any) {
         res.write(`data: ${JSON.stringify({ error: e.message })}\n\n`);
         res.end();
@@ -681,23 +685,14 @@ ${contextParts || 'No previous knowledge clusters found. Cold-start mode.'}
         ...history.slice(-10).map((m: any) => ({ role: m.role, parts: [{ text: m.content }] })),
         { role: 'user', parts: [{ text: message }] }
       ];
-      let accumulatedText = fullText;
-      let latestResponse = fullText;
+      let accumulatedText = result.text;
+      let latestResponse = result.text;
 
       for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
-        // Parse tool calls from the *latest* response only
-        const actionRegex = /ACTION:\s*(\w+)/g;
-        const paramsRegex = /PARAMS:\s*(\{[\s\S]*?\})/g;
-        let toolName: string | null = null;
-        let toolParams: Record<string, unknown> = {};
-        let aMatch;
-        while ((aMatch = actionRegex.exec(latestResponse)) !== null) {
-          paramsRegex.lastIndex = actionRegex.lastIndex;
-          const pMatch = paramsRegex.exec(latestResponse);
-          toolName = aMatch[1];
-          try { toolParams = pMatch?.[1] ? JSON.parse(pMatch[1]) : {}; } catch { toolParams = {}; }
-        }
+        // Use native tool_calls from AI response (replaces brittle ACTION:/PARAMS: regex)
+        const toolCalls = result.toolCalls;
 
+        // Also check for MCP tool calls in text (still text-based)
         const mcpCallRegex = /```tool_call\n([\s\S]*?)```/g;
         let mcpTool: string | null = null;
         let mcpServer: string | null = null;
@@ -710,29 +705,30 @@ ${contextParts || 'No previous knowledge clusters found. Cold-start mode.'}
           } catch {}
         }
 
-        if (!toolName && !mcpTool) break;
-        if (toolName === "COMPLETE") break;
+        if (!toolCalls?.length && !mcpTool) break;
 
-        // Execute tool
-        let resultText: string;
-        if (mcpTool && mcpServer) {
+        // Execute tool calls (natively parsed, no regex fragility)
+        let resultText = '';
+        for (const tc of toolCalls || []) {
           try {
-            const result = await mcpManager.callTool(mcpServer, mcpTool, mcpArgs);
-            resultText = `\n\n**MCP Tool ${mcpServer}/${mcpTool}:** ${JSON.stringify(result)}\n\n`;
-          } catch (e: any) {
-            resultText = `\n\n**MCP Error:** ${e.message}\n\n`;
-          }
-        } else {
-          try {
-            const result = await executeTool(
-              { name: toolName!, params: toolParams },
+            const execResult = await executeTool(
+              { name: tc.name, params: tc.arguments },
               mode === "plan" ? "plan" : "build",
               permissionEngine,
               "chat-session"
             );
-            resultText = `\n\n**Tool ${toolName}:** ${result.success ? result.output : `Error: ${result.error}`}\n\n`;
+            resultText += `\n\n**Tool ${tc.name}:** ${execResult.success ? execResult.output : `Error: ${execResult.error}`}\n\n`;
           } catch (e: any) {
-            resultText = `\n\n**Tool Error:** ${e.message}\n\n`;
+            resultText += `\n\n**Tool Error:** ${e.message}\n\n`;
+          }
+        }
+
+        if (mcpTool && mcpServer) {
+          try {
+            const mcpResult = await mcpManager.callTool(mcpServer, mcpTool, mcpArgs);
+            resultText += `\n\n**MCP Tool ${mcpServer}/${mcpTool}:** ${JSON.stringify(mcpResult)}\n\n`;
+          } catch (e: any) {
+            resultText += `\n\n**MCP Error:** ${e.message}\n\n`;
           }
         }
 
@@ -749,7 +745,7 @@ ${contextParts || 'No previous knowledge clusters found. Cold-start mode.'}
           res.write(`data: ${JSON.stringify({ content: token })}\n\n`);
         };
         try {
-          await generateContentStream(systemPrompt, messages, nextOnToken, aiProvider, localUrl, resolvedModel, apiKey, temperature, maxTokens, req.signal, onReasoning);
+          result = await generateContentStream(systemPrompt, messages, nextOnToken, aiProvider, localUrl, resolvedModel, apiKey, temperature, maxTokens, req.signal, onReasoning, tools);
         } catch (e: any) {
           res.write(`data: ${JSON.stringify({ error: e.message })}\n\n`);
           break;

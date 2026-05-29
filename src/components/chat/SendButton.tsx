@@ -9,6 +9,7 @@ interface SendButtonProps {
   onSend: () => void;
   onCancel?: (() => void) | undefined;
   className?: string;
+  cancelTitle?: string;
 }
 
 export const SendButton: React.FC<SendButtonProps> = ({
@@ -17,6 +18,7 @@ export const SendButton: React.FC<SendButtonProps> = ({
   disabled = false,
   onSend,
   onCancel,
+  cancelTitle = "Cancel",
   className,
 }) => {
   if (isLooming && onCancel) {
@@ -27,7 +29,7 @@ export const SendButton: React.FC<SendButtonProps> = ({
           "p-1 bg-dash-warning/20 hover:bg-dash-warning/30 border border-dash-warning/30 rounded-md transition-all",
           className
         )}
-        title="Cancel"
+        title={cancelTitle}
         type="button"
       >
         <X className="w-3 h-3 text-dash-warning" />

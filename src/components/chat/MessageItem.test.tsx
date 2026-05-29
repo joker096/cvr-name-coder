@@ -90,7 +90,7 @@ describe("MessageItem", () => {
       />
     );
     expect(screen.getByText("Gemini")).toBeInTheDocument();
-    expect(screen.getByText("gemini-2.5-flash")).toBeInTheDocument();
+    expect(screen.getByText("/gemini-2.5-flash")).toBeInTheDocument();
   });
 
   it("should not display provider info for user messages", () => {

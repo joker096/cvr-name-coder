@@ -187,6 +187,7 @@ export const InputArea: React.FC<InputAreaProps> = memo(({
           disabled={disabled}
           onSend={handleSend}
           onCancel={onCancel ?? undefined}
+          cancelTitle={t.cancel}
         />
       </div>
     </div>
