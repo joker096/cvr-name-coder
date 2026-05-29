@@ -1,8 +1,6 @@
 import { spawn, ChildProcess } from "child_process";
 import type { ToolResult } from "../../types/tools";
-import { resolveProjectPath } from "./file.js";
-
-const PROJECT_ROOT: string = process.cwd();
+import { resolveProjectPath, getProjectRoot } from "./file.js";
 
 /**
  * Splits a command string into an array of arguments, respecting quoted strings.
@@ -37,7 +35,7 @@ function splitArgs(cmd: string): string[] {
  * @returns A tool result with stdout+stderr output on success, or an error message on timeout/failure.
  */
 export async function executeCommand(params: Record<string, unknown>): Promise<ToolResult> {
-  const resolvedCwd: string = params.cwd !== undefined && params.cwd !== null ? resolveProjectPath(String(params.cwd)) : PROJECT_ROOT;
+  const resolvedCwd: string = params.cwd !== undefined && params.cwd !== null ? resolveProjectPath(String(params.cwd)) : getProjectRoot();
   const command = String(params.command);
   const args = splitArgs(command);
   if (args.length === 0) {

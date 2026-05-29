@@ -2026,12 +2026,12 @@ async function executeCustomTool(definition, params) {
       for (const [key, value] of Object.entries(params)) {
         command = command.replace(new RegExp(`\\{${key}\\}`, "g"), shellEscape(String(value)));
       }
-      const cwd2 = definition.handler.cwd ? path2.resolve(process.cwd(), definition.handler.cwd) : process.cwd();
+      const cwd = definition.handler.cwd ? path2.resolve(process.cwd(), definition.handler.cwd) : process.cwd();
       if (/[;&|`$(){}[\]<>!\\]/.test(command)) {
         return { success: false, output: "", error: "Command contains unsafe shell metacharacters" };
       }
       const { stdout, stderr } = await execFileAsync("sh", ["-c", command], {
-        cwd: cwd2,
+        cwd,
         encoding: "utf-8",
         timeout: 3e4,
         maxBuffer: 1024 * 1024
@@ -2400,7 +2400,6 @@ async function executeEditFile(params, sessionId = "default") {
 
 // src/server/tools/system.ts
 var import_child_process2 = require("child_process");
-var PROJECT_ROOT = process.cwd();
 function splitArgs(cmd) {
   const args = [];
   let current = "";
@@ -2429,7 +2428,7 @@ function splitArgs(cmd) {
   return args;
 }
 async function executeCommand(params) {
-  const resolvedCwd = params.cwd !== void 0 && params.cwd !== null ? resolveProjectPath(String(params.cwd)) : PROJECT_ROOT;
+  const resolvedCwd = params.cwd !== void 0 && params.cwd !== null ? resolveProjectPath(String(params.cwd)) : getProjectRoot();
   const command = String(params.command);
   const args = splitArgs(command);
   if (args.length === 0) {
@@ -2831,9 +2830,9 @@ var import_child_process3 = require("child_process");
 var import_util2 = require("util");
 init_errors();
 var execFileAsync2 = (0, import_util2.promisify)(import_child_process3.execFile);
-var PROJECT_ROOT2 = process.cwd();
+var PROJECT_ROOT = process.cwd();
 async function runGit(args) {
-  const { stdout, stderr } = await execFileAsync2("git", args, { cwd: PROJECT_ROOT2, timeout: 3e4 });
+  const { stdout, stderr } = await execFileAsync2("git", args, { cwd: PROJECT_ROOT, timeout: 3e4 });
   if (stderr && !stderr.includes("warning")) {
     throw new Error(stderr);
   }
@@ -2978,10 +2977,10 @@ async function hasGitRepo() {
 var import_child_process4 = require("child_process");
 var import_util3 = require("util");
 var execFileAsync3 = (0, import_util3.promisify)(import_child_process4.execFile);
-var PROJECT_ROOT3 = process.cwd();
+var PROJECT_ROOT2 = process.cwd();
 async function runGit2(args) {
   const { stdout, stderr } = await execFileAsync3("git", args, {
-    cwd: PROJECT_ROOT3,
+    cwd: PROJECT_ROOT2,
     timeout: 3e4
   });
   if (stderr && !stderr.startsWith("warning:")) throw new Error(stderr);
@@ -4458,13 +4457,12 @@ init_errors();
 // src/server/antiHallucination.ts
 var import_promises10 = require("fs/promises");
 var import_path2 = require("path");
-var cwd = process.cwd();
 var FILE_READ_TOOLS = /* @__PURE__ */ new Set(["read_file", "read"]);
 var FILE_WRITE_TOOLS = /* @__PURE__ */ new Set(["write_file", "write", "edit_file", "edit"]);
 var DIR_LIST_TOOLS = /* @__PURE__ */ new Set(["list_directory", "list_files", "glob"]);
 var SEARCH_TOOLS = /* @__PURE__ */ new Set(["search_files", "search", "grep"]);
 var ALL_FILE_TOOLS = /* @__PURE__ */ new Set([...FILE_READ_TOOLS, ...FILE_WRITE_TOOLS, ...DIR_LIST_TOOLS, ...SEARCH_TOOLS]);
-function normalizePath(rawPath, workspace = cwd) {
+function normalizePath(rawPath, workspace = getProjectRoot()) {
   const trimmed = rawPath.trim();
   if ((0, import_path2.isAbsolute)(trimmed)) return trimmed;
   return (0, import_path2.resolve)(workspace, trimmed);
@@ -4477,7 +4475,7 @@ async function pathExists(absPath) {
     return false;
   }
 }
-async function validateFileAccess(toolName, filePath, workspaceRoot = cwd) {
+async function validateFileAccess(toolName, filePath, workspaceRoot = getProjectRoot()) {
   if (!ALL_FILE_TOOLS.has(toolName)) return { valid: true };
   const absPath = normalizePath(filePath);
   if (FILE_READ_TOOLS.has(toolName) || FILE_WRITE_TOOLS.has(toolName)) {
@@ -4515,13 +4513,13 @@ async function validateFileAccess(toolName, filePath, workspaceRoot = cwd) {
   }
   return { valid: true };
 }
-async function scanResponse(text, workspaceRoot = cwd) {
+async function scanResponse(text, workspaceRoot = getProjectRoot()) {
   const warnings = [];
   const pathPatterns = [
     /(?:["'\x60]|^|\s)([\w\-\/\\]+\.[a-zA-Z0-9]{1,8}(?:x?))(?:["'\x60]|\b)/gm
   ];
   const checked = /* @__PURE__ */ new Set();
-  const root = workspaceRoot || cwd;
+  const root = workspaceRoot || getProjectRoot();
   for (const pattern of pathPatterns) {
     let match;
     while ((match = pattern.exec(text)) !== null) {
@@ -4917,10 +4915,10 @@ function setPermissionEngine(pe) {
 
 // src/server/mcpServer.ts
 init_logger();
-var PROJECT_ROOT4 = process.cwd();
+var PROJECT_ROOT3 = process.cwd();
 async function loadMcpConfig() {
   try {
-    const configPath = path15.join(PROJECT_ROOT4, ".cvr", "mcp.json");
+    const configPath = path15.join(PROJECT_ROOT3, ".cvr", "mcp.json");
     const data = await (0, import_promises11.readFile)(configPath, "utf-8");
     return JSON.parse(data);
   } catch {
@@ -5003,11 +5001,11 @@ async function createMcpServer() {
   });
   server.setRequestHandler(import_types.ListResourcesRequestSchema, async () => {
     try {
-      const entries = await (0, import_promises11.readdir)(PROJECT_ROOT4, { withFileTypes: true });
+      const entries = await (0, import_promises11.readdir)(PROJECT_ROOT3, { withFileTypes: true });
       const resources = entries.filter(
         (e) => !e.name.startsWith(".") && !e.name.startsWith("node_modules") && e.isFile()
       ).map((e) => ({
-        uri: `file://${path15.join(PROJECT_ROOT4, e.name)}`,
+        uri: `file://${path15.join(PROJECT_ROOT3, e.name)}`,
         name: e.name,
         mimeType: "text/plain"
       }));
@@ -5029,7 +5027,7 @@ async function createMcpServer() {
     }
     const filePath = uri.slice(7);
     const resolved = path15.resolve(filePath);
-    if (!resolved.startsWith(PROJECT_ROOT4)) {
+    if (!resolved.startsWith(PROJECT_ROOT3)) {
       throw new import_types.McpError(
         import_types.ErrorCode.InvalidRequest,
         "Path escapes project root"
@@ -9535,7 +9533,7 @@ function registerRoutes12(app2) {
       const result = await executeTool(toolCall, mode, permissionEngine, sessionId);
       incrementToolCall();
       if (result.success && (toolCall.name === "write_file" || toolCall.name === "edit_file")) {
-        const afterContent = toolCall.name === "write_file" ? toolCall.params.content : await (0, import_promises20.readFile)(path23.join(process.cwd(), toolCall.params.path), "utf-8");
+        const afterContent = toolCall.name === "write_file" ? toolCall.params.content : await (0, import_promises20.readFile)(path23.join(getProjectRoot(), toolCall.params.path), "utf-8");
         const change = await recordChange(
           toolCall.params.path,
           toolCall.name === "write_file" ? "write" : "edit",

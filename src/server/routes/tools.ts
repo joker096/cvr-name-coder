@@ -4,6 +4,7 @@ import { readFile } from "fs/promises";
 import { randomUUID } from "crypto";
 import { executeTool } from "../tools.js";
 import { recordChange } from "../changes.js";
+import { getProjectRoot } from "../tools/file.js";
 import { permissionEngine } from "../serverState.js";
 import { incrementToolCall } from "../standalone/health.js";
 import { validateBody, ToolExecuteSchema } from "../validation.js";
@@ -32,7 +33,7 @@ export function registerRoutes(app: Application) {
         const afterContent =
           toolCall.name === "write_file"
             ? (toolCall.params.content as string)
-            : await readFile(path.join(process.cwd(), toolCall.params.path as string), "utf-8");
+            : await readFile(path.join(getProjectRoot(), toolCall.params.path as string), "utf-8");
         const change = await recordChange(
           toolCall.params.path as string,
           toolCall.name === "write_file" ? "write" : "edit",

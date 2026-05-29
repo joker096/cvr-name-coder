@@ -1,7 +1,6 @@
 import { stat } from "fs/promises";
 import { resolve, isAbsolute } from "path";
-
-const cwd = process.cwd();
+import { getProjectRoot } from "./tools/file.js";
 
 const FILE_READ_TOOLS = new Set(["read_file", "read"]);
 const FILE_WRITE_TOOLS = new Set(["write_file", "write", "edit_file", "edit"]);
@@ -22,7 +21,7 @@ export interface ValidateResult {
   correctedPath?: string;
 }
 
-function normalizePath(rawPath: string, workspace: string = cwd): string {
+function normalizePath(rawPath: string, workspace: string = getProjectRoot()): string {
   const trimmed = rawPath.trim();
   if (isAbsolute(trimmed)) return trimmed;
   return resolve(workspace, trimmed);
@@ -46,7 +45,7 @@ async function pathExists(absPath: string): Promise<boolean> {
 export async function validateFileAccess(
   toolName: string,
   filePath: string,
-  workspaceRoot: string = cwd
+  workspaceRoot: string = getProjectRoot()
 ): Promise<ValidateResult> {
   if (!ALL_FILE_TOOLS.has(toolName)) return { valid: true };
 
@@ -99,7 +98,7 @@ export async function validateFileAccess(
  */
 export async function scanResponse(
   text: string,
-  workspaceRoot: string = cwd
+  workspaceRoot: string = getProjectRoot()
 ): Promise<HallucinationWarning[]> {
   const warnings: HallucinationWarning[] = [];
 
@@ -109,7 +108,7 @@ export async function scanResponse(
 
   const checked = new Set<string>();
 
-  const root = workspaceRoot || cwd;
+  const root = workspaceRoot || getProjectRoot();
 
   for (const pattern of pathPatterns) {
     let match: RegExpExecArray | null;
