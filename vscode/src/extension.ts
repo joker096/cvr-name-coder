@@ -557,10 +557,14 @@ ${mcpCtx}
 AVAILABLE TOOLS:
 You have the following built-in tools available via function calling. Use them when you need to read files, search the codebase, execute commands, or make changes. The system will automatically handle function call execution — just tell the system what you need and use the available functions.
 
-To use MCP (external) tools, include a fenced code block:
-```tool_call
+      To use MCP (external) tools, include a fenced code block:
+\`\`\`tool_call
 {"server": "server-name", "tool": "tool-name", "arguments": {...}}
-```
+\`\`\`
+
+      To use tools, include an ACTION:/PARAMS: block:
+ACTION: list_directory
+PARAMS: {"path": "."}
 
 Available tools:
 - read_file (path) - Read file contents
@@ -603,9 +607,28 @@ ${contextParts || 'No previous knowledge clusters found. Cold-start mode.'}
     if (_wsContextCache && _wsContextTime && Date.now() - _wsContextTime < 30000) return _wsContextCache;
 
     try {
-      const entries = fs.readdirSync(root, { withFileTypes: true });
-      const files = entries.filter(e => !e.name.startsWith('.') && !e.name.startsWith('node_modules')).map(e => e.name + (e.isDirectory() ? '/' : ''));
-      _wsContextCache = `Project: ${path.basename(root)}\nFiles: ${files.slice(0, 50).join(', ')}${files.length > 50 ? '...' : ''}`;
+      function walkDir(dirPath: string, depth: number = 0): string[] {
+        if (depth > 2) return [];
+        const results: string[] = [];
+        try {
+          const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+          for (const entry of entries) {
+            if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === 'dist') continue;
+            const relPath = path.relative(root, path.join(dirPath, entry.name));
+            if (entry.isDirectory()) {
+              results.push(relPath + '/');
+              if (depth < 2) {
+                results.push(...walkDir(path.join(dirPath, entry.name), depth + 1));
+              }
+            } else {
+              results.push(relPath);
+            }
+          }
+        } catch {}
+        return results;
+      }
+      const files = walkDir(root);
+      _wsContextCache = `Project: ${path.basename(root)}\nFiles: ${files.slice(0, 80).join(', ')}${files.length > 80 ? '...' : ''}`;
       _wsContextTime = Date.now();
       return _wsContextCache;
     } catch {
@@ -689,8 +712,8 @@ ${contextParts || 'No previous knowledge clusters found. Cold-start mode.'}
       let latestResponse = result.text;
 
       for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
-        // Use native tool_calls from AI response (replaces brittle ACTION:/PARAMS: regex)
-        const toolCalls = result.toolCalls;
+        // Use native tool_calls from AI response
+        let toolCalls = result.toolCalls;
 
         // Also check for MCP tool calls in text (still text-based)
         const mcpCallRegex = /```tool_call\n([\s\S]*?)```/g;
@@ -705,7 +728,24 @@ ${contextParts || 'No previous knowledge clusters found. Cold-start mode.'}
           } catch {}
         }
 
-        if (!toolCalls?.length && !mcpTool) break;
+        // Fallback: text-based ACTION:/PARAMS: parsing for models without function calling
+        if (!toolCalls?.length && !mcpTool) {
+          const actionMatch = latestResponse.match(/ACTION:\s*(\w+)/);
+          const paramsMatch = latestResponse.match(/PARAMS:\s*(\{[\s\S]*?\})/);
+          if (actionMatch && actionMatch[1]) {
+            try {
+              toolCalls = [{
+                id: `text_fallback_${turn}`,
+                name: actionMatch[1],
+                arguments: paramsMatch && paramsMatch[1] ? JSON.parse(paramsMatch[1]) : {},
+              }];
+            } catch {
+              break;
+            }
+          } else {
+            break;
+          }
+        }
 
         // Execute tool calls (natively parsed, no regex fragility)
         let resultText = '';
@@ -788,12 +828,27 @@ ${contextParts || 'No previous knowledge clusters found. Cold-start mode.'}
     if (!folders || folders.length === 0) return res.json({ root: null, files: [] });
     const root = folders[0].uri.fsPath;
     try {
-      const entries = fs.readdirSync(root, { withFileTypes: true });
-      const files = entries.filter(e => !e.name.startsWith('.') && e.name !== 'node_modules').map(e => ({
-        name: e.name,
-        isDir: e.isDirectory(),
-        size: e.isFile() ? fs.statSync(path.join(root, e.name)).size : 0,
-      }));
+      function walkDir(dirPath: string, depth: number = 0): any[] {
+        if (depth > 3) return [];
+        const results: any[] = [];
+        try {
+          const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+          for (const entry of entries) {
+            if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === 'dist') continue;
+            const item: any = {
+              name: path.relative(root, path.join(dirPath, entry.name)),
+              isDir: entry.isDirectory(),
+              size: entry.isFile() ? fs.statSync(path.join(dirPath, entry.name)).size : 0,
+            };
+            if (entry.isDirectory()) {
+              item.children = walkDir(path.join(dirPath, entry.name), depth + 1);
+            }
+            results.push(item);
+          }
+        } catch {}
+        return results;
+      }
+      const files = walkDir(root);
       res.json({ root: path.basename(root), rootPath: root, files });
     } catch (e: any) {
       res.json({ root: path.basename(root), files: [], error: e.message });
