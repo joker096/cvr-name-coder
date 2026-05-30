@@ -1,4 +1,4 @@
-import { readFile, writeFile, access, rename, stat } from "fs/promises";
+import { readFile, writeFile, access, rename, stat, mkdir, copyFile } from "fs/promises";
 import * as path from "path";
 
 let _memoryDir = path.resolve(process.cwd(), ".opencode-infinite");
@@ -22,6 +22,7 @@ export function setMemoryDir(dir: string): void {
 
 function getMemoryPath(): string { return path.join(_memoryDir, "MEMORY.md"); }
 function getUserPath(): string { return path.join(_memoryDir, "USER.md"); }
+function getArchiveDir(): string { return path.join(_memoryDir, "archive"); }
 
 /** A single section within a memory document, containing a title and its content lines. */
 export interface MemorySection {
@@ -68,6 +69,28 @@ async function ensureFile(filePath: string, defaultContent: string): Promise<voi
   } catch {
     await writeFile(filePath, defaultContent, "utf-8");
   }
+}
+
+function emptyMemoryContent(kind: MemoryDocumentKind): string {
+  return `# ${kind}\n`;
+}
+
+function archiveName(prefix: string): string {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  return `${prefix}-${stamp}.md`;
+}
+
+async function archiveFile(filePath: string, prefix: string): Promise<string | null> {
+  try {
+    await access(filePath);
+  } catch {
+    return null;
+  }
+
+  await mkdir(getArchiveDir(), { recursive: true });
+  const archivePath = path.join(getArchiveDir(), archiveName(prefix));
+  await copyFile(filePath, archivePath);
+  return archivePath;
 }
 
 /**
@@ -207,6 +230,18 @@ export async function deleteMemorySection(section: string): Promise<void> {
 }
 
 /**
+ * Clears all project memory sections, optionally archiving the current file first.
+ * @returns The archive path when archiving was requested and a file existed.
+ */
+export async function clearMemory(archive = false): Promise<string | null> {
+  const archivePath = archive ? await archiveFile(getMemoryPath(), "MEMORY") : null;
+  await atomicWriteFile(getMemoryPath(), emptyMemoryContent("Project Memory"));
+  _memCache = null;
+  _contextCache = null;
+  return archivePath;
+}
+
+/**
  * Reads the user preferences document (USER.md), creating it with defaults if missing.
  * Uses an in-memory cache keyed on file modification time.
  * @returns Parsed user preference data containing sections and raw text
@@ -323,6 +358,18 @@ export async function deleteUserSection(section: string): Promise<void> {
   await atomicWriteFile(getUserPath(), raw);
   _userCache = null;
   _contextCache = null;
+}
+
+/**
+ * Clears all user preference sections, optionally archiving the current file first.
+ * @returns The archive path when archiving was requested and a file existed.
+ */
+export async function clearUser(archive = false): Promise<string | null> {
+  const archivePath = archive ? await archiveFile(getUserPath(), "USER") : null;
+  await atomicWriteFile(getUserPath(), emptyMemoryContent("User Preferences"));
+  _userCache = null;
+  _contextCache = null;
+  return archivePath;
 }
 
 async function atomicWriteFile(filePath: string, content: string): Promise<void> {

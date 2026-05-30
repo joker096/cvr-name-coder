@@ -1,5 +1,5 @@
 import type { Application, Request, Response } from "express";
-import { readMemory, writeMemory, replaceMemorySection, deleteMemorySection, readUser, writeUser, replaceUserSection, deleteUserSection } from "../memoryStore.js";
+import { readMemory, writeMemory, replaceMemorySection, deleteMemorySection, clearMemory, readUser, writeUser, replaceUserSection, deleteUserSection, clearUser } from "../memoryStore.js";
 import { getErrorMessage } from "../../types/errors.js";
 import { validateBody, SectionDeleteSchema, SectionReplaceSchema, SectionWriteSchema } from "../validation.js";
 
@@ -58,6 +58,30 @@ export function registerRoutes(app: Application) {
     }
   });
 
+  app.delete("/api/memory/:section", async (req: Request, res: Response) => {
+    try {
+      const section = req.params.section;
+      if (!section) {
+        res.status(400).json({ error: "Missing section" });
+        return;
+      }
+      await deleteMemorySection(section);
+      res.json({ deleted: true });
+    } catch (e: unknown) {
+      res.status(500).json({ error: getErrorMessage(e) });
+    }
+  });
+
+  app.delete("/api/memory-all", async (req: Request, res: Response) => {
+    try {
+      const archive = req.query.archive === "true";
+      const archivePath = await clearMemory(archive);
+      res.json({ deleted: true, archivePath });
+    } catch (e: unknown) {
+      res.status(500).json({ error: getErrorMessage(e) });
+    }
+  });
+
   app.get("/api/user", async (_req: Request, res: Response) => {
     try {
       const data = await readUser();
@@ -92,6 +116,30 @@ export function registerRoutes(app: Application) {
       const { section } = req.body as { section: string };
       await deleteUserSection(section);
       res.json({ deleted: true });
+    } catch (e: unknown) {
+      res.status(500).json({ error: getErrorMessage(e) });
+    }
+  });
+
+  app.delete("/api/user/:section", async (req: Request, res: Response) => {
+    try {
+      const section = req.params.section;
+      if (!section) {
+        res.status(400).json({ error: "Missing section" });
+        return;
+      }
+      await deleteUserSection(section);
+      res.json({ deleted: true });
+    } catch (e: unknown) {
+      res.status(500).json({ error: getErrorMessage(e) });
+    }
+  });
+
+  app.delete("/api/user-all", async (req: Request, res: Response) => {
+    try {
+      const archive = req.query.archive === "true";
+      const archivePath = await clearUser(archive);
+      res.json({ deleted: true, archivePath });
     } catch (e: unknown) {
       res.status(500).json({ error: getErrorMessage(e) });
     }

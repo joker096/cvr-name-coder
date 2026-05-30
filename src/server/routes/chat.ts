@@ -16,6 +16,7 @@ import { executeTool } from "../tools.js";
 import { log } from "../logger.js";
 import { validateFileAccess, scanResponse } from "../antiHallucination.js";
 import { parseCommand, getCommandPrompt, getCommandAgent, getCommandMode } from "../../utils/commands.js";
+import { extractToolCalls } from "../shared.js";
 
 /** Configuration for AI chat provider and model settings. */
 interface ChatConfig {
@@ -206,6 +207,37 @@ function appendToolResults(contents: Content[], response: { text?: string | unde
   }
 }
 
+function extractTextToolCalls(text: string): Array<{ id: string; name: string; arguments: Record<string, unknown> }> {
+  const calls = extractToolCalls(text).map((tc, index) => ({
+    id: `text_tool_${Date.now()}_${index}`,
+    name: tc.tool,
+    arguments: tc.arguments,
+  }));
+
+  const actionMatch = text.match(/ACTION:\s*([a-zA-Z_][\w-]*)/);
+  if (!actionMatch?.[1]) {
+    return calls;
+  }
+
+  const paramsMatch = text.match(/PARAMS:\s*(\{[\s\S]*?\})(?:\s*$|\n\s*\n)/);
+  let args: Record<string, unknown> = {};
+  if (paramsMatch?.[1]) {
+    try {
+      args = JSON.parse(paramsMatch[1]) as Record<string, unknown>;
+    } catch {
+      args = {};
+    }
+  }
+
+  calls.push({
+    id: `action_tool_${Date.now()}`,
+    name: actionMatch[1],
+    arguments: args,
+  });
+
+  return calls;
+}
+
 async function runToolLoop(
   systemPrompt: string,
   contents: Content[],
@@ -218,12 +250,15 @@ async function runToolLoop(
 
   let response = await generateAIResponse(systemPrompt, contents, ctx.aiProvider, ctx.localUrl, ctx.resolvedModel, ctx.resolvedApiKey, ctx.temperature, ctx.maxTokens, step === 0, tools);
 
-  while (response.toolCalls && response.toolCalls.length > 0 && step < MAX_STEPS) {
+  let textToolCalls = response.toolCalls?.length ? [] : extractTextToolCalls(response.text || "");
+  while (((response.toolCalls && response.toolCalls.length > 0) || textToolCalls.length > 0) && step < MAX_STEPS) {
     step++;
-    const toolResults = await executeToolCalls(response.toolCalls, ctx.mode, ctx.agent);
-    appendToolResults(contents, response, toolResults);
-    if (onToolResult) onToolResult(step, response);
+    const activeToolCalls = response.toolCalls && response.toolCalls.length > 0 ? response.toolCalls : textToolCalls;
+    const toolResults = await executeToolCalls(activeToolCalls, ctx.mode, ctx.agent);
+    appendToolResults(contents, { ...response, toolCalls: activeToolCalls }, toolResults);
+    if (onToolResult) onToolResult(step, { ...response, toolCalls: activeToolCalls });
     response = await generateAIResponse(systemPrompt, contents, ctx.aiProvider, ctx.localUrl, ctx.resolvedModel, ctx.resolvedApiKey, ctx.temperature, ctx.maxTokens, false, tools);
+    textToolCalls = response.toolCalls?.length ? [] : extractTextToolCalls(response.text || "");
   }
 
   if (response.text) {
@@ -507,6 +542,20 @@ export function registerRoutes(app: Application) {
         });
 
         if (clientDisconnected) return;
+
+        if (result.steps > 0) {
+          if (result.text) {
+            sseWrite(res, { content: sanitizeAIResponse(result.text) });
+          }
+          sseWrite(res, { done: true, continueNeeded: false, tokenUsage: { input: Math.ceil((systemPrompt + message).length / 2.5), output: Math.ceil(result.text.length / 2.5) } });
+          res.end();
+
+          await finalizeChat(history, userEntry, result.text, ctx, {
+            steps: result.steps,
+            ...(toolOutputs.length > 0 ? { toolOutputs } : {}),
+          });
+          return;
+        }
 
         const sseTokenFilter = new SSETokenFilter();
         const finalStreamResponse = await generateStreamResponse(systemPrompt, allContents, ctx.aiProvider, ctx.localUrl, ctx.resolvedModel, ctx.resolvedApiKey, ctx.temperature, ctx.maxTokens, {

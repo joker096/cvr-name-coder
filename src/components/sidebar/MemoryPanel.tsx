@@ -13,12 +13,14 @@ export const MemoryPanel: React.FC<MemoryPanelProps> = ({ t, className }) => {
     memory, user, loading, saving, error,
     updateMemorySection, updateUserSection,
     deleteMemorySection, deleteUserSection,
+    clearMemory, clearUser,
     refresh,
   } = usePersistentMemory();
   const [activeTab, setActiveTab] = useState<"memory" | "user">("memory");
   const [editingSection, setEditingSection] = useState<string | null>(null);
   const [editContent, setEditContent] = useState("");
   const [showNewSection, setShowNewSection] = useState(false);
+  const [showClearMenu, setShowClearMenu] = useState(false);
   const [newSectionName, setNewSectionName] = useState("");
   const [newSectionContent, setNewSectionContent] = useState("");
 
@@ -62,6 +64,21 @@ export const MemoryPanel: React.FC<MemoryPanelProps> = ({ t, className }) => {
     await deleteSection(sectionName);
   };
 
+  const handleClearProject = async (archive: boolean) => {
+    const message = archive
+      ? t.archiveClearMemoryConfirm || "Archive and clear all project memory?"
+      : t.clearMemoryConfirm || "Clear all project memory without archiving?";
+    if (!confirm(message)) return;
+    await clearMemory(archive);
+    setShowClearMenu(false);
+  };
+
+  const handleClearUser = async () => {
+    if (!confirm(t.clearUserConfirm || "Clear all user preferences?")) return;
+    await clearUser(true);
+    setShowClearMenu(false);
+  };
+
   const sections = currentData?.sections ? Object.entries(currentData.sections) : [];
 
   return (
@@ -96,6 +113,38 @@ export const MemoryPanel: React.FC<MemoryPanelProps> = ({ t, className }) => {
           >
             <Plus className="w-3 h-3" />
           </button>
+          <div className="relative">
+            <button
+              onClick={() => setShowClearMenu((value) => !value)}
+              disabled={saving}
+              className="p-1 hover:bg-neutral-800 rounded transition-colors text-dash-text-muted hover:text-red-400 disabled:opacity-50"
+              title={t.clearMemory || "Clear Memory"}
+            >
+              <Trash2 className="w-3 h-3" />
+            </button>
+            {showClearMenu && (
+              <div className="absolute right-0 top-6 z-20 w-44 overflow-hidden rounded border border-dash-border bg-neutral-950 shadow-xl">
+                <button
+                  onClick={() => handleClearProject(true)}
+                  className="block w-full px-2 py-1.5 text-left text-[10px] text-dash-text-primary hover:bg-neutral-800"
+                >
+                  {t.archiveClearProjectMemory || "Archive & clear project"}
+                </button>
+                <button
+                  onClick={() => handleClearProject(false)}
+                  className="block w-full px-2 py-1.5 text-left text-[10px] text-red-300 hover:bg-neutral-800"
+                >
+                  {t.clearProjectMemory || "Clear project only"}
+                </button>
+                <button
+                  onClick={handleClearUser}
+                  className="block w-full px-2 py-1.5 text-left text-[10px] text-red-300 hover:bg-neutral-800"
+                >
+                  {t.clearUserPreferences || "Archive & clear user"}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

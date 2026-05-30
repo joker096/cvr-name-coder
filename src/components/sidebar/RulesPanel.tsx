@@ -44,7 +44,7 @@ export const RulesPanel: React.FC<RulesPanelProps> = ({ t, className }) => {
 
   const handleViewRule = async (name: string) => {
     try {
-      const res = await fetch(`/api/rules/${name}`);
+      const res = await fetch(`/api/rules/${encodeURIComponent(name)}`);
       const data = await res.json();
       if (data.name) setSelectedRule(data as Rule);
     } catch (e) {
@@ -67,11 +67,12 @@ export const RulesPanel: React.FC<RulesPanelProps> = ({ t, className }) => {
     if (!editingRule) return;
     setSaving(true);
     try {
-      await fetch(`/api/rules/${editingRule}`, {
+      const res = await fetch(`/api/rules/${encodeURIComponent(editingRule)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content: editContent, priority: editPriority }),
       });
+      if (!res.ok) throw new Error(await res.text());
       setEditingRule(null);
       await fetchRules();
     } catch (e) {
@@ -84,7 +85,8 @@ export const RulesPanel: React.FC<RulesPanelProps> = ({ t, className }) => {
   const handleDelete = async (name: string) => {
     if (!confirm(t.deleteRuleConfirm?.replace("{name}", name) || `Delete rule "${name}"?`)) return;
     try {
-      await fetch(`/api/rules/${name}`, { method: "DELETE" });
+      const res = await fetch(`/api/rules/${encodeURIComponent(name)}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(await res.text());
       setSelectedRule(null);
       await fetchRules();
     } catch (e) {
@@ -96,11 +98,12 @@ export const RulesPanel: React.FC<RulesPanelProps> = ({ t, className }) => {
     if (!newName.trim()) return;
     setSaving(true);
     try {
-      await fetch(`/api/rules/${newName.trim()}`, {
+      const res = await fetch(`/api/rules/${encodeURIComponent(newName.trim())}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content: newContent, priority: 0 }),
       });
+      if (!res.ok) throw new Error(await res.text());
       setShowNew(false);
       setNewName("");
       setNewContent("");

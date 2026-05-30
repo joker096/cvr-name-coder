@@ -1158,6 +1158,9 @@ function getMemoryPath() {
 function getUserPath() {
   return path.join(_memoryDir, "USER.md");
 }
+function getArchiveDir() {
+  return path.join(_memoryDir, "archive");
+}
 function parseMemoryMarkdown(raw) {
   const sections = [];
   const lines = raw.split("\n");
@@ -1202,6 +1205,25 @@ async function ensureFile(filePath, defaultContent) {
   } catch {
     await (0, import_promises.writeFile)(filePath, defaultContent, "utf-8");
   }
+}
+function emptyMemoryContent(kind) {
+  return `# ${kind}
+`;
+}
+function archiveName(prefix) {
+  const stamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
+  return `${prefix}-${stamp}.md`;
+}
+async function archiveFile(filePath, prefix) {
+  try {
+    await (0, import_promises.access)(filePath);
+  } catch {
+    return null;
+  }
+  await (0, import_promises.mkdir)(getArchiveDir(), { recursive: true });
+  const archivePath = path.join(getArchiveDir(), archiveName(prefix));
+  await (0, import_promises.copyFile)(filePath, archivePath);
+  return archivePath;
 }
 async function readMemory() {
   const memoryPath = getMemoryPath();
@@ -1305,6 +1327,13 @@ async function deleteMemorySection(section) {
   _memCache = null;
   _contextCache = null;
 }
+async function clearMemory(archive = false) {
+  const archivePath = archive ? await archiveFile(getMemoryPath(), "MEMORY") : null;
+  await atomicWriteFile(getMemoryPath(), emptyMemoryContent("Project Memory"));
+  _memCache = null;
+  _contextCache = null;
+  return archivePath;
+}
 async function readUser() {
   const userPath = getUserPath();
   await ensureFile(
@@ -1392,6 +1421,13 @@ async function deleteUserSection(section) {
   await atomicWriteFile(getUserPath(), raw);
   _userCache = null;
   _contextCache = null;
+}
+async function clearUser(archive = false) {
+  const archivePath = archive ? await archiveFile(getUserPath(), "USER") : null;
+  await atomicWriteFile(getUserPath(), emptyMemoryContent("User Preferences"));
+  _userCache = null;
+  _contextCache = null;
+  return archivePath;
 }
 async function atomicWriteFile(filePath, content) {
   const tmp = filePath + ".tmp";
@@ -6619,6 +6655,31 @@ var AGENT_PROMPTS = {
   prometheus: `[ROLE: PROMETHEUS] - STRATEGIC PLANNER. You are a strategic architect. Before any code is written, you must explore the actual codebase with list_directory/read_file, clarify requirements, define architecture, and scope the work. Do not invent file names \u2014 base your plan on REAL files. You create comprehensive plans.`,
   hephaestus: `[ROLE: HEPHAESTUS] - DEEP EXECUTOR. Autonomous specialist. Given a goal, independently research patterns by reading actual files, write code, and finish the task without requiring step-by-step guidance. Always verify file paths before editing \u2014 never hallucinate file names or code.`
 };
+function extractToolCalls(content) {
+  const calls = [];
+  const fencedRegex = /```tool_call\n([\s\S]*?)```/g;
+  let match;
+  while ((match = fencedRegex.exec(content)) !== null) {
+    try {
+      const call = JSON.parse(match[1] || "{}");
+      if (call.server && call.tool) {
+        calls.push(call);
+      }
+    } catch {
+    }
+  }
+  const xmlRegex = /<tool_call>\s*<name>(.+?)<\/name>\s*<params>\s*([\s\S]*?)\s*<\/params>\s*<\/tool_call>/g;
+  while ((match = xmlRegex.exec(content)) !== null) {
+    try {
+      const name = (match[1] || "").trim();
+      const paramsStr = (match[2] || "{}").trim();
+      const params = JSON.parse(paramsStr);
+      calls.push({ server: "local", tool: name, arguments: params });
+    } catch {
+    }
+  }
+  return calls;
+}
 
 // src/server/prompts.ts
 var _promptCache = /* @__PURE__ */ new Map();
@@ -6698,8 +6759,15 @@ ${modeDirective}
 
 DIRECTIONS:
 - Respond in plain text, be direct and concise
-- If you need to use a tool, just describe what you need
-- The system handles tool execution automatically
+- You DO have access to the workspace through tools. Never claim that you cannot read local files.
+- When the user asks you to inspect/read/search files, call tools instead of asking the user to paste file contents.
+- Prefer native function/tool calling when your model supports it.
+- If native tool calling is not available, emit exactly one textual tool call and no extra explanation:
+  ACTION: list_directory
+  PARAMS: {"path":"."}
+  or:
+  ACTION: read_file
+  PARAMS: {"path":"src/App.tsx"}
 - Always verify file paths before referencing them
 - Read files before making claims about their contents
 ${langInstruction}
@@ -7269,17 +7337,46 @@ function appendToolResults(contents, response, toolResults) {
     contents.push({ role: "tool", parts: [{ text: tr.content }], _toolCallId: tr.tool_call_id, _isToolResult: true });
   }
 }
+function extractTextToolCalls(text) {
+  const calls = extractToolCalls(text).map((tc, index) => ({
+    id: `text_tool_${Date.now()}_${index}`,
+    name: tc.tool,
+    arguments: tc.arguments
+  }));
+  const actionMatch = text.match(/ACTION:\s*([a-zA-Z_][\w-]*)/);
+  if (!actionMatch?.[1]) {
+    return calls;
+  }
+  const paramsMatch = text.match(/PARAMS:\s*(\{[\s\S]*?\})(?:\s*$|\n\s*\n)/);
+  let args = {};
+  if (paramsMatch?.[1]) {
+    try {
+      args = JSON.parse(paramsMatch[1]);
+    } catch {
+      args = {};
+    }
+  }
+  calls.push({
+    id: `action_tool_${Date.now()}`,
+    name: actionMatch[1],
+    arguments: args
+  });
+  return calls;
+}
 async function runToolLoop(systemPrompt, contents, ctx, onToolResult) {
   const tools = getOpenAITools();
   const MAX_STEPS = 20;
   let step = 0;
   let response = await generateAIResponse(systemPrompt, contents, ctx.aiProvider, ctx.localUrl, ctx.resolvedModel, ctx.resolvedApiKey, ctx.temperature, ctx.maxTokens, step === 0, tools);
-  while (response.toolCalls && response.toolCalls.length > 0 && step < MAX_STEPS) {
+  let textToolCalls = response.toolCalls?.length ? [] : extractTextToolCalls(response.text || "");
+  while ((response.toolCalls && response.toolCalls.length > 0 || textToolCalls.length > 0) && step < MAX_STEPS) {
     step++;
-    const toolResults = await executeToolCalls(response.toolCalls, ctx.mode, ctx.agent);
-    appendToolResults(contents, response, toolResults);
-    if (onToolResult) onToolResult(step, response);
+    const activeToolCalls = response.toolCalls && response.toolCalls.length > 0 ? response.toolCalls : textToolCalls;
+    const toolResults = await executeToolCalls(activeToolCalls, ctx.mode, ctx.agent);
+    appendToolResults(contents, { ...response, toolCalls: activeToolCalls }, toolResults);
+    if (onToolResult) onToolResult(step, { ...response, toolCalls: activeToolCalls });
     response = await generateAIResponse(systemPrompt, contents, ctx.aiProvider, ctx.localUrl, ctx.resolvedModel, ctx.resolvedApiKey, ctx.temperature, ctx.maxTokens, false, tools);
+    textToolCalls = response.toolCalls?.length ? [] : extractTextToolCalls(response.text || "");
   }
   if (response.text) {
     const warnings = await scanResponse(response.text);
@@ -7536,6 +7633,18 @@ Now respond to: ${message}`;
           }
         });
         if (clientDisconnected) return;
+        if (result2.steps > 0) {
+          if (result2.text) {
+            sseWrite(res, { content: sanitizeAIResponse(result2.text) });
+          }
+          sseWrite(res, { done: true, continueNeeded: false, tokenUsage: { input: Math.ceil((systemPrompt + message).length / 2.5), output: Math.ceil(result2.text.length / 2.5) } });
+          res.end();
+          await finalizeChat(history, userEntry, result2.text, ctx, {
+            steps: result2.steps,
+            ...toolOutputs2.length > 0 ? { toolOutputs: toolOutputs2 } : {}
+          });
+          return;
+        }
         const sseTokenFilter = new SSETokenFilter();
         const finalStreamResponse = await generateStreamResponse(systemPrompt, allContents, ctx.aiProvider, ctx.localUrl, ctx.resolvedModel, ctx.resolvedApiKey, ctx.temperature, ctx.maxTokens, {
           onToken: (token) => {
@@ -7728,6 +7837,28 @@ function registerRoutes2(app2) {
       res.status(500).json({ error: getErrorMessage(e) });
     }
   });
+  app2.delete("/api/memory/:section", async (req, res) => {
+    try {
+      const section = req.params.section;
+      if (!section) {
+        res.status(400).json({ error: "Missing section" });
+        return;
+      }
+      await deleteMemorySection(section);
+      res.json({ deleted: true });
+    } catch (e) {
+      res.status(500).json({ error: getErrorMessage(e) });
+    }
+  });
+  app2.delete("/api/memory-all", async (req, res) => {
+    try {
+      const archive = req.query.archive === "true";
+      const archivePath = await clearMemory(archive);
+      res.json({ deleted: true, archivePath });
+    } catch (e) {
+      res.status(500).json({ error: getErrorMessage(e) });
+    }
+  });
   app2.get("/api/user", async (_req, res) => {
     try {
       const data = await readUser();
@@ -7759,6 +7890,28 @@ function registerRoutes2(app2) {
       const { section } = req.body;
       await deleteUserSection(section);
       res.json({ deleted: true });
+    } catch (e) {
+      res.status(500).json({ error: getErrorMessage(e) });
+    }
+  });
+  app2.delete("/api/user/:section", async (req, res) => {
+    try {
+      const section = req.params.section;
+      if (!section) {
+        res.status(400).json({ error: "Missing section" });
+        return;
+      }
+      await deleteUserSection(section);
+      res.json({ deleted: true });
+    } catch (e) {
+      res.status(500).json({ error: getErrorMessage(e) });
+    }
+  });
+  app2.delete("/api/user-all", async (req, res) => {
+    try {
+      const archive = req.query.archive === "true";
+      const archivePath = await clearUser(archive);
+      res.json({ deleted: true, archivePath });
     } catch (e) {
       res.status(500).json({ error: getErrorMessage(e) });
     }
@@ -7887,20 +8040,20 @@ function registerRoutes4(app2) {
       return res.status(500).json({ error: e.message });
     }
   });
+  app2.get("/api/rules/context", async (_req, res) => {
+    try {
+      const ctx = await getInstructionsContext();
+      return res.json({ context: ctx });
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+  });
   app2.get("/api/rules/:name", async (req, res) => {
     try {
       const instructions = await loadInstructions();
       const rule = instructions.find((r) => r.name === req.params.name);
       if (!rule) return res.status(404).json({ error: "Rule not found" });
       return res.json({ name: rule.name, content: rule.content, priority: rule.priority });
-    } catch (e) {
-      return res.status(500).json({ error: e.message });
-    }
-  });
-  app2.get("/api/rules/context", async (_req, res) => {
-    try {
-      const ctx = await getInstructionsContext();
-      return res.json({ context: ctx });
     } catch (e) {
       return res.status(500).json({ error: e.message });
     }

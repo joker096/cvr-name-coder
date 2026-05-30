@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { setMemoryDir, readMemory, readUser } from "../memoryStore.js";
+import { clearMemory, clearUser, readMemory, readUser, setMemoryDir } from "../memoryStore.js";
 import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
@@ -57,6 +57,37 @@ describe("memoryStore", () => {
         expect(section).toHaveProperty("title");
         expect(section).toHaveProperty("lines");
       }
+    });
+  });
+
+  describe("clearMemory", () => {
+    it("clears project memory without restoring defaults", async () => {
+      await readMemory();
+      await clearMemory(false);
+
+      const data = await readMemory();
+      expect(data.raw.trim()).toBe("# Project Memory");
+      expect(data.sections).toHaveLength(0);
+    });
+
+    it("archives project memory before clearing", async () => {
+      await readMemory();
+      const archivePath = await clearMemory(true);
+
+      expect(archivePath).toBeTruthy();
+      expect(await fs.promises.readFile(archivePath!, "utf-8")).toContain("Project Overview");
+      expect((await readMemory()).sections).toHaveLength(0);
+    });
+  });
+
+  describe("clearUser", () => {
+    it("clears user preferences without restoring defaults", async () => {
+      await readUser();
+      await clearUser(false);
+
+      const data = await readUser();
+      expect(data.raw.trim()).toBe("# User Preferences");
+      expect(data.sections).toHaveLength(0);
     });
   });
 });

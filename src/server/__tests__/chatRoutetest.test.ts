@@ -459,6 +459,38 @@ describe("Chat route - tool loop execution", () => {
     expect(mockGenerate).toHaveBeenCalledTimes(2);
   });
 
+  it("executes textual ACTION tool calls from local models", async () => {
+    mockGenerate
+      .mockResolvedValueOnce({
+        text: 'ACTION: list_directory\nPARAMS: {"path":"."}',
+        inputTokens: 100,
+        outputTokens: 50,
+      })
+      .mockResolvedValueOnce({
+        text: "I inspected the workspace files.",
+        inputTokens: 100,
+        outputTokens: 80,
+      });
+
+    const req = createMockReq({
+      body: {
+        message: "прочитай сам файлы",
+        config: { aiProvider: "local", localUrl: "http://localhost:11434/v1", localModelName: "qwen3.5:9b", mode: "build" },
+      },
+      headers: { accept: "application/json" },
+    });
+    const res = createMockRes();
+    const app = createMockApp(req, res);
+
+    registerRoutes(app);
+
+    await vi.waitFor(() => expect(res.json).toHaveBeenCalled());
+
+    const jsonArg = res.json.mock.calls[0][0];
+    expect(jsonArg.content).toContain("I inspected the workspace files.");
+    expect(mockGenerate).toHaveBeenCalledTimes(2);
+  });
+
   it("handles empty AI response text", async () => {
     mockGenerate
       .mockResolvedValueOnce({

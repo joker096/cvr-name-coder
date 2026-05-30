@@ -91,21 +91,21 @@ export function registerRoutes(app: Application) {
     }
   });
 
+  app.get("/api/rules/context", async (_req: Request, res: Response) => {
+    try {
+      const ctx = await getInstructionsContext();
+      return res.json({ context: ctx });
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message });
+    }
+  });
+
   app.get("/api/rules/:name", async (req: Request, res: Response) => {
     try {
       const instructions = await loadInstructions();
       const rule = instructions.find((r) => r.name === req.params.name!);
       if (!rule) return res.status(404).json({ error: "Rule not found" });
       return res.json({ name: rule.name, content: rule.content, priority: rule.priority });
-    } catch (e: any) {
-      return res.status(500).json({ error: e.message });
-    }
-  });
-
-  app.get("/api/rules/context", async (_req: Request, res: Response) => {
-    try {
-      const ctx = await getInstructionsContext();
-      return res.json({ context: ctx });
     } catch (e: any) {
       return res.status(500).json({ error: e.message });
     }

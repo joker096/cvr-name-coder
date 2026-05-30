@@ -131,8 +131,15 @@ ${modeDirective}
 
 DIRECTIONS:
 - Respond in plain text, be direct and concise
-- If you need to use a tool, just describe what you need
-- The system handles tool execution automatically
+- You DO have access to the workspace through tools. Never claim that you cannot read local files.
+- When the user asks you to inspect/read/search files, call tools instead of asking the user to paste file contents.
+- Prefer native function/tool calling when your model supports it.
+- If native tool calling is not available, emit exactly one textual tool call and no extra explanation:
+  ACTION: list_directory
+  PARAMS: {"path":"."}
+  or:
+  ACTION: read_file
+  PARAMS: {"path":"src/App.tsx"}
 - Always verify file paths before referencing them
 - Read files before making claims about their contents
 ${langInstruction}

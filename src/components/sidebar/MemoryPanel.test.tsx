@@ -17,6 +17,12 @@ vi.mock("../../hooks/usePersistentMemory", () => ({
     saving: false,
     saveMemory: vi.fn(),
     saveUser: vi.fn(),
+    updateMemorySection: vi.fn(),
+    updateUserSection: vi.fn(),
+    deleteMemorySection: vi.fn(),
+    deleteUserSection: vi.fn(),
+    clearMemory: vi.fn(),
+    clearUser: vi.fn(),
     refresh: vi.fn(),
   }),
 }));

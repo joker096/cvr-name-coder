@@ -155,11 +155,7 @@ export function usePersistentMemory() {
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch("/api/memory", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ section }),
-      });
+      const res = await fetch(`/api/memory/${encodeURIComponent(section)}`, { method: "DELETE" });
       if (!res.ok) throw new Error(await res.text());
       await fetchMemory();
     } catch (e) {
@@ -175,11 +171,7 @@ export function usePersistentMemory() {
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch("/api/user", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ section }),
-      });
+      const res = await fetch(`/api/user/${encodeURIComponent(section)}`, { method: "DELETE" });
       if (!res.ok) throw new Error(await res.text());
       await fetchMemory();
     } catch (e) {
@@ -191,11 +183,44 @@ export function usePersistentMemory() {
     }
   }, [fetchMemory]);
 
+  const clearMemory = useCallback(async (archive = true) => {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/memory-all?archive=${archive ? "true" : "false"}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(await res.text());
+      await fetchMemory();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("Failed to clear memory:", e);
+      setError(msg);
+    } finally {
+      setSaving(false);
+    }
+  }, [fetchMemory]);
+
+  const clearUser = useCallback(async (archive = true) => {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/user-all?archive=${archive ? "true" : "false"}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(await res.text());
+      await fetchMemory();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("Failed to clear user preferences:", e);
+      setError(msg);
+    } finally {
+      setSaving(false);
+    }
+  }, [fetchMemory]);
+
   return {
     memory, user, loading, saving, error,
     saveMemory, saveUser,
     updateMemorySection, updateUserSection,
     deleteMemorySection, deleteUserSection,
+    clearMemory, clearUser,
     refresh: fetchMemory,
   };
 }
