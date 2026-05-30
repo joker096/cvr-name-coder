@@ -16,9 +16,16 @@ beforeEach(() => {
   writeFileSync(EDIT_FILE, "line1\nline2\nline3");
 });
 
-afterEach(() => {
+afterEach(async () => {
+  await resetFileToolState();
   rmSync(BASE, { recursive: true, force: true });
 });
+
+async function resetFileToolState() {
+  const { setProjectRoot, setWorkspaceFileSystem } = await import("../tools/file");
+  setProjectRoot(process.cwd());
+  setWorkspaceFileSystem(null);
+}
 
 
 describe("file.ts – setProjectRoot / getProjectRoot", () => {
@@ -210,6 +217,92 @@ describe("file.ts – executeSearchFiles", () => {
     expect(result.success).toBe(true);
     expect(result.output).toBe("No matches found.");
     setProjectRoot(process.cwd());
+  });
+});
+
+describe("file.ts – WorkspaceFileSystem backend", () => {
+  it("reads, lists, searches, writes, and edits through the configured backend", async () => {
+    const {
+      setProjectRoot,
+      setWorkspaceFileSystem,
+      executeReadFile,
+      executeListDirectory,
+      executeSearchFiles,
+      executeWriteFile,
+      executeEditFile,
+    } = await import("../tools/file");
+
+    const calls: string[] = [];
+    setProjectRoot(BASE);
+    setWorkspaceFileSystem({
+      async readText(filePath) {
+        calls.push(`read:${filePath}`);
+        return readFileSync(filePath, "utf-8");
+      },
+      async writeText(filePath, content) {
+        calls.push(`write:${filePath}`);
+        writeFileSync(filePath, content);
+      },
+      async createDirectory(dirPath) {
+        calls.push(`mkdir:${dirPath}`);
+        mkdirSync(dirPath, { recursive: true });
+      },
+      async readDirectory(dirPath) {
+        calls.push(`readdir:${dirPath}`);
+        const { readdirSync } = await import("fs");
+        return readdirSync(dirPath, { withFileTypes: true }).map((entry) => ({
+          name: entry.name,
+          type: entry.isDirectory() ? "directory" : entry.isFile() ? "file" : "other",
+        }));
+      },
+    });
+
+    const readResult = await executeReadFile({ path: "hello.txt" });
+    expect(readResult.output).toBe("Hello, World!");
+
+    const listResult = await executeListDirectory({ path: "." });
+    expect(listResult.output).toContain("hello.txt");
+    expect(listResult.output).toContain("nested");
+
+    const searchResult = await executeSearchFiles({ path: ".", query: "export const x" });
+    expect(searchResult.output).toContain("nested");
+    expect(searchResult.output).toContain("content");
+
+    const writeResult = await executeWriteFile({ path: "created/by/backend.txt", content: "created" });
+    expect(writeResult.success).toBe(true);
+    expect(readFileSync(join(BASE, "created", "by", "backend.txt"), "utf-8")).toBe("created");
+
+    const editResult = await executeEditFile({ path: "editable.txt", oldString: "line2", newString: "backend2" });
+    expect(editResult.success).toBe(true);
+    expect(readFileSync(EDIT_FILE, "utf-8")).toBe("line1\nbackend2\nline3");
+
+    expect(calls.some((call) => call.startsWith("read:"))).toBe(true);
+    expect(calls.some((call) => call.startsWith("readdir:"))).toBe(true);
+    expect(calls.some((call) => call.startsWith("mkdir:"))).toBe(true);
+    expect(calls.some((call) => call.startsWith("write:"))).toBe(true);
+
+    await resetFileToolState();
+  });
+
+  it("blocks paths outside the project before invoking the backend", async () => {
+    const { setProjectRoot, setWorkspaceFileSystem, executeReadFile, executeWriteFile } = await import("../tools/file");
+    const readText = vi.fn(async () => "should not run");
+    const writeText = vi.fn(async () => undefined);
+
+    setProjectRoot(BASE);
+    setWorkspaceFileSystem({
+      readText,
+      writeText,
+      createDirectory: vi.fn(async () => undefined),
+      readDirectory: vi.fn(async () => []),
+    });
+
+    await expect(executeReadFile({ path: "../outside.txt" })).rejects.toThrow("Path escapes project root");
+    await expect(executeWriteFile({ path: "../outside.txt", content: "nope" })).rejects.toThrow("Path escapes project root");
+    expect(readText).not.toHaveBeenCalled();
+    expect(writeText).not.toHaveBeenCalled();
+
+    await resetFileToolState();
   });
 });
 

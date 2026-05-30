@@ -25,7 +25,7 @@ import { loadSkills, getSkillById, setSkillsDir } from '../../src/server/skillLo
 import { setSkillCreatorDir } from '../../src/server/skillCreator.js';
 import { ingestDocument, searchRAG, listSources, clearSource, setRagDbPath } from '../../src/server/ragEngine.js';
 import { setRagEmbedFn } from '../../src/server/tools.js';
-import { setProjectRoot } from '../../src/server/tools/file.js';
+import { setProjectRoot, setWorkspaceFileSystem } from '../../src/server/tools/file.js';
 import { setGitProjectRoot } from '../../src/server/gitTools.js';
 import { setCacheDbPath } from '../../src/server/cache.js';
 import { indexProject } from '../../src/server/projectOracle.js';
@@ -225,6 +225,25 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
   if (workspaceRoot) {
     setProjectRoot(workspaceRoot);
     setGitProjectRoot(workspaceRoot);
+    setWorkspaceFileSystem({
+      async readText(filePath: string): Promise<string> {
+        const content = await vscode.workspace.fs.readFile(vscode.Uri.file(filePath));
+        return Buffer.from(content).toString('utf-8');
+      },
+      async writeText(filePath: string, content: string): Promise<void> {
+        await vscode.workspace.fs.writeFile(vscode.Uri.file(filePath), Buffer.from(content, 'utf-8'));
+      },
+      async createDirectory(dirPath: string): Promise<void> {
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(dirPath));
+      },
+      async readDirectory(dirPath: string) {
+        const entries = await vscode.workspace.fs.readDirectory(vscode.Uri.file(dirPath));
+        return entries.map(([name, type]) => ({
+          name,
+          type: type === vscode.FileType.Directory ? 'directory' as const : type === vscode.FileType.File ? 'file' as const : 'other' as const,
+        }));
+      },
+    });
   }
 
   function resolveCvrDir(name: string): string {
@@ -255,7 +274,8 @@ async function startAppServer(context: vscode.ExtensionContext): Promise<number>
   // Initialize Permission Engine
   let permissionEngine: PermissionEngine | undefined;
   try {
-    const configData = await fs.promises.readFile('.cvr/permissions.json', 'utf-8');
+    const permissionsPath = workspaceRoot ? path.join(workspaceRoot, '.cvr', 'permissions.json') : '.cvr/permissions.json';
+    const configData = await fs.promises.readFile(permissionsPath, 'utf-8');
     const config: PermissionConfig = JSON.parse(configData);
     permissionEngine = new PermissionEngine(config);
   } catch {
@@ -823,32 +843,40 @@ ${contextParts || 'No previous knowledge clusters found. Cold-start mode.'}
   });
 
   // Workspace API
-  app.get('/api/workspace', (_req: any, res: any) => {
+  app.get('/api/workspace', async (_req: any, res: any) => {
     const folders = vscode.workspace.workspaceFolders;
     if (!folders || folders.length === 0) return res.json({ root: null, files: [] });
     const root = folders[0].uri.fsPath;
     try {
-      function walkDir(dirPath: string, depth: number = 0): any[] {
+      async function walkDir(dirPath: string, depth: number = 0): Promise<any[]> {
         if (depth > 3) return [];
         const results: any[] = [];
         try {
-          const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-          for (const entry of entries) {
-            if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === 'dist') continue;
+          const entries = await vscode.workspace.fs.readDirectory(vscode.Uri.file(dirPath));
+          for (const [name, type] of entries) {
+            if (name.startsWith('.') || name === 'node_modules' || name === 'dist') continue;
+            const itemPath = path.join(dirPath, name);
+            const isDir = type === vscode.FileType.Directory;
+            let size = 0;
+            if (type === vscode.FileType.File) {
+              try {
+                size = (await vscode.workspace.fs.stat(vscode.Uri.file(itemPath))).size;
+              } catch {}
+            }
             const item: any = {
-              name: path.relative(root, path.join(dirPath, entry.name)),
-              isDir: entry.isDirectory(),
-              size: entry.isFile() ? fs.statSync(path.join(dirPath, entry.name)).size : 0,
+              name: path.relative(root, itemPath),
+              isDir,
+              size,
             };
-            if (entry.isDirectory()) {
-              item.children = walkDir(path.join(dirPath, entry.name), depth + 1);
+            if (isDir) {
+              item.children = await walkDir(itemPath, depth + 1);
             }
             results.push(item);
           }
         } catch {}
         return results;
       }
-      const files = walkDir(root);
+      const files = await walkDir(root);
       res.json({ root: path.basename(root), rootPath: root, files });
     } catch (e: any) {
       res.json({ root: path.basename(root), files: [], error: e.message });
@@ -869,7 +897,8 @@ ${contextParts || 'No previous knowledge clusters found. Cold-start mode.'}
     if (!isPathSafe(file, folders[0].uri.fsPath)) return res.status(403).json({ error: 'Path traversal denied' });
     const fullPath = path.resolve(path.join(folders[0].uri.fsPath, file));
     try {
-      const content = await fs.promises.readFile(fullPath, 'utf-8');
+      const bytes = await vscode.workspace.fs.readFile(vscode.Uri.file(fullPath));
+      const content = Buffer.from(bytes).toString('utf-8');
       res.json({ content, path: file });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
@@ -888,7 +917,8 @@ ${contextParts || 'No previous knowledge clusters found. Cold-start mode.'}
       if (diffEnabled) {
         let originalContent = '';
         try {
-          originalContent = await fs.promises.readFile(fullPath, 'utf-8');
+          const originalBytes = await vscode.workspace.fs.readFile(vscode.Uri.file(fullPath));
+          originalContent = Buffer.from(originalBytes).toString('utf-8');
         } catch {
           // File doesn't exist yet - skip diff for new files
         }
@@ -904,8 +934,8 @@ ${contextParts || 'No previous knowledge clusters found. Cold-start mode.'}
           }
         }
       }
-      await fs.promises.mkdir(path.dirname(fullPath), { recursive: true });
-      await fs.promises.writeFile(fullPath, content, 'utf-8');
+      await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(fullPath)));
+      await vscode.workspace.fs.writeFile(vscode.Uri.file(fullPath), Buffer.from(content, 'utf-8'));
       diagnosticsProvider.checkFileAfterEdit(fullPath);
       res.json({ status: 'written', path: file });
     } catch (e: any) {

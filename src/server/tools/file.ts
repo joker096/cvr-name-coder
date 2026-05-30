@@ -6,6 +6,37 @@ import { log } from "../logger.js";
 
 let _projectRoot: string | null = null;
 
+export interface FileSystemEntry {
+  name: string;
+  type: "file" | "directory" | "other";
+}
+
+export interface WorkspaceFileSystem {
+  readText(filePath: string): Promise<string>;
+  writeText(filePath: string, content: string): Promise<void>;
+  createDirectory(dirPath: string): Promise<void>;
+  readDirectory(dirPath: string): Promise<FileSystemEntry[]>;
+}
+
+const nodeFileSystem: WorkspaceFileSystem = {
+  readText: (filePath) => readFile(filePath, "utf-8"),
+  writeText: (filePath, content) => writeFile(filePath, content, "utf-8"),
+  createDirectory: (dirPath) => mkdir(dirPath, { recursive: true }).then(() => undefined),
+  async readDirectory(dirPath) {
+    const entries = await readdir(dirPath, { withFileTypes: true });
+    return entries.map((entry) => ({
+      name: entry.name,
+      type: entry.isDirectory() ? "directory" : entry.isFile() ? "file" : "other",
+    }));
+  },
+};
+
+let fileSystem: WorkspaceFileSystem = nodeFileSystem;
+
+export function setWorkspaceFileSystem(nextFileSystem: WorkspaceFileSystem | null): void {
+  fileSystem = nextFileSystem || nodeFileSystem;
+}
+
 export function getProjectRoot(): string {
   if (_projectRoot) return _projectRoot;
   _projectRoot = process.cwd();
@@ -38,19 +69,19 @@ export function resolveProjectPath(requestedPath: string): string {
  * @returns An array of match result strings prefixed with `[MATCH]`.
  */
 async function searchDir(dir: string, query: string): Promise<string[]> {
-  const entries = await readdir(dir, { withFileTypes: true });
+  const entries = await fileSystem.readDirectory(dir);
   const results: string[] = [];
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name);
     const relPath = path.relative(getProjectRoot(), fullPath);
-    if (entry.isDirectory() && entry.name !== "node_modules" && entry.name !== ".git") {
+    if (entry.type === "directory" && entry.name !== "node_modules" && entry.name !== ".git") {
       results.push(...(await searchDir(fullPath, query)));
-    } else if (entry.isFile()) {
+    } else if (entry.type === "file") {
       if (entry.name.toLowerCase().includes(query)) {
         results.push(`[MATCH] ${relPath} (filename)`);
       } else {
         try {
-          const content = await readFile(fullPath, "utf-8");
+          const content = await fileSystem.readText(fullPath);
           if (content.toLowerCase().includes(query)) {
             results.push(`[MATCH] ${relPath} (content)`);
           }
@@ -71,7 +102,7 @@ async function searchDir(dir: string, query: string): Promise<string[]> {
  */
 export async function executeReadFile(params: Record<string, unknown>): Promise<ToolResult> {
   const filePath = resolveProjectPath(String(params.path));
-  const content = await readFile(filePath, "utf-8");
+  const content = await fileSystem.readText(filePath);
   return { success: true, output: content };
 }
 
@@ -83,8 +114,8 @@ export async function executeReadFile(params: Record<string, unknown>): Promise<
  */
 export async function executeListDirectory(params: Record<string, unknown>): Promise<ToolResult> {
   const dirPath = resolveProjectPath(String(params.path || "."));
-  const entries = await readdir(dirPath, { withFileTypes: true });
-  const lines = entries.map((e) => (e.isDirectory() ? `[DIR]  ${e.name}` : `[FILE] ${e.name}`));
+  const entries = await fileSystem.readDirectory(dirPath);
+  const lines = entries.map((e) => (e.type === "directory" ? `[DIR]  ${e.name}` : `[FILE] ${e.name}`));
   return { success: true, output: lines.join("\n") };
 }
 
@@ -113,8 +144,8 @@ export async function executeWriteFile(params: Record<string, unknown>, sessionI
   const writePath = resolveProjectPath(String(params.path));
   const content = String(params.content);
   await hookRegistry.execute("file.write.before", { path: writePath, content }, sessionId);
-  await mkdir(path.dirname(writePath), { recursive: true });
-  await writeFile(writePath, content, "utf-8");
+  await fileSystem.createDirectory(path.dirname(writePath));
+  await fileSystem.writeText(writePath, content);
   await hookRegistry.execute("file.write.after", { path: writePath, content, success: true }, sessionId);
   return { success: true, output: `File written: ${String(params.path)}` };
 }
@@ -131,13 +162,13 @@ export async function executeEditFile(params: Record<string, unknown>, sessionId
   const editPath = resolveProjectPath(String(params.path));
   const oldString = String(params.oldString);
   const newString = String(params.newString);
-  const content = await readFile(editPath, "utf-8");
+  const content = await fileSystem.readText(editPath);
   if (!content.includes(oldString)) {
     return { success: false, output: "", error: "oldString not found in file" };
   }
   const updated = content.replace(oldString, newString);
   await hookRegistry.execute("file.write.before", { path: editPath, content: updated }, sessionId);
-  await writeFile(editPath, updated, "utf-8");
+  await fileSystem.writeText(editPath, updated);
   await hookRegistry.execute("file.write.after", { path: editPath, content: updated, success: true }, sessionId);
   return { success: true, output: `File edited: ${String(params.path)}` };
 }
