@@ -105,7 +105,7 @@ const DEFAULT_SETTINGS: Settings = {
   voiceEnabled: false,
   voiceLanguage: "en",
   voiceAutoSend: false,
-  lang: "en",
+  lang: "ru",
 };
 
 export const useSettings = () => {

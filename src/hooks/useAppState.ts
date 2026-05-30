@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { TOOL_DEFINITIONS } from "../types/tools";
 import { useSettings } from "./useSettings";
 import { useChat } from "./useChat";
@@ -25,8 +25,9 @@ export function useAppState() {
   const [translations, setTranslations] = useState<Record<string, string>>(() => getTranslationsSync("en"));
 
   const { settings, isLoading: settingsLoading, updateChatConfig, toggleAutonomous, updateAutoLoopDelay, toggleAutoCommit, toggleVoiceEnabled, setVoiceLanguage, toggleVoiceAutoSend, setLanguage, addPreset, deletePreset, loadPreset } = useSettings();
+  const chatConfig = useMemo(() => ({ ...settings.chat, responseLanguage: settings.lang }), [settings.chat, settings.lang]);
   const { state: agentState, isRunning: isAgentRunning, startLoop, abortLoop } = useAgentLoop();
-  const { messages, isLoading, error: chatError, sendMessage, cancelMessage, addMessage, deleteMessage, clearHistory } = useChat(settings.chat);
+  const { messages, isLoading, error: chatError, sendMessage, cancelMessage, addMessage, deleteMessage, clearHistory } = useChat(chatConfig);
   const [memoryCount, setMemoryCount] = useState(0);
   useEffect(() => {
     fetch("/api/memory")

@@ -18,7 +18,7 @@ import { SubagentManager } from '../../src/server/subagentManager.js';
 import { loadAgents, setAgentsDir, getAgentById } from '../../src/server/agentLoader.js';
 import { toOpenAITools, type OpenAITool, type OpenAIToolCall } from '../../src/types/tools.js';
 import { randomUUID } from 'crypto';
-import { readMemory, writeMemory, replaceMemorySection, deleteMemorySection, readUser, writeUser, replaceUserSection, deleteUserSection, setMemoryDir } from '../../src/server/memoryStore.js';
+import { readMemory, writeMemory, replaceMemorySection, deleteMemorySection, clearMemory, readUser, writeUser, replaceUserSection, deleteUserSection, clearUser, setMemoryDir } from '../../src/server/memoryStore.js';
 import { createSession, addMessage, getSession, listSessions, searchSessions, deleteSession, setSessionDbPath } from '../../src/server/sessionStore.js';
 import { setGoalStorageDir } from '../../src/server/goalSessionStore.js';
 import { loadSkills, getSkillById, setSkillsDir } from '../../src/server/skillLoader.js';
@@ -1309,6 +1309,27 @@ Complete the code at the cursor position:`;
     }
   });
 
+  app.delete('/api/memory/:section', async (req: any, res: any) => {
+    try {
+      const section = req.params.section;
+      if (!section) return res.status(400).json({ error: 'Missing section' });
+      await deleteMemorySection(section);
+      res.json({ deleted: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.delete('/api/memory-all', async (req: any, res: any) => {
+    try {
+      const archive = req.query.archive === 'true';
+      const archivePath = await clearMemory(archive);
+      res.json({ deleted: true, archivePath });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.get('/api/user', async (_req: any, res: any) => {
     try {
       const data = await readUser();
@@ -1343,6 +1364,27 @@ Complete the code at the cursor position:`;
       const { section } = req.body;
       await deleteUserSection(section);
       res.json({ deleted: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.delete('/api/user/:section', async (req: any, res: any) => {
+    try {
+      const section = req.params.section;
+      if (!section) return res.status(400).json({ error: 'Missing section' });
+      await deleteUserSection(section);
+      res.json({ deleted: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.delete('/api/user-all', async (req: any, res: any) => {
+    try {
+      const archive = req.query.archive === 'true';
+      const archivePath = await clearUser(archive);
+      res.json({ deleted: true, archivePath });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }

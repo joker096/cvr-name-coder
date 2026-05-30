@@ -3,6 +3,11 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { ModelConfig } from "./ModelConfig";
 
 describe("ModelConfig", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal("fetch", vi.fn());
+  });
+
   const mockModels = [
     { id: "gpt-4", name: "GPT-4" },
     { id: "gpt-3.5-turbo", name: "GPT-3.5 Turbo" },
@@ -26,10 +31,6 @@ describe("ModelConfig", () => {
       customUrl: "Custom URL",
     },
   };
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
 
   it("should render model selector for OpenAI", () => {
     render(<ModelConfig {...defaultProps} />);
@@ -212,6 +213,31 @@ describe("ModelConfig", () => {
     expect(modelNameLabels.length).toBe(1);
   });
 
+  it("should detect local models and render a dropdown", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ models: [{ name: "llama3.1" }, { name: "mistral-small" }, { name: "qwen2.5" }] }),
+    } as Response);
+
+    render(
+      <ModelConfig
+        {...defaultProps}
+        provider="local"
+        models={[]}
+        config={{
+          localUrl: "http://localhost:11434",
+          localModelName: "",
+          aiModel: "",
+        }}
+      />
+    );
+
+    const select = await screen.findByRole("combobox");
+    expect(select).toBeInTheDocument();
+    fireEvent.change(select, { target: { value: "qwen2.5" } });
+    expect(defaultProps.onChange).toHaveBeenCalledWith({ localModelName: "qwen2.5", aiModel: "qwen2.5" });
+  });
+
   it("should show dropdown (not text input) for non-local provider", () => {
     render(
       <ModelConfig
@@ -243,5 +269,4 @@ describe("ModelConfig", () => {
     expect(screen.getByText("GPT-4o")).toBeInTheDocument();
   });
 });
-
 

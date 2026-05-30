@@ -6648,12 +6648,12 @@ var import_promises16 = require("fs/promises");
 // src/server/shared.ts
 init_logger();
 var AGENT_PROMPTS = {
-  build: `[ROLE: BUILD] - DEFAULT DEVELOPER AGENT. You have full access to developer tools (read/write files, execute bash). First explore the codebase with list_directory/read_file to understand the actual project structure, then implement changes. NEVER invent file names or code. Focus on iterative coding, bug fixing, and implementation.`,
-  general: `[ROLE: GENERAL] - UNIVERSAL ASSISTANT. Help with complex, multi-stage tasks. You can modify files, run parallel processes, and coordinate broad workflows. Always verify file existence before referencing them \u2014 use list_directory and read_file to explore first.`,
-  explore: `[ROLE: EXPLORE] - CODEBASE EXPLORER. Read-only specialist. Efficiently search patterns, find keywords, and explain codebase structure. Use fast search tools. You CANNOT write files. Only report on files you have actually read.`,
-  scout: `[ROLE: SCOUT] - ANALYST. Read-only. Specialized in external documentation research and dependency analysis. Focus on architectural auditing and research. Verify file existence before analysis.`,
-  prometheus: `[ROLE: PROMETHEUS] - STRATEGIC PLANNER. You are a strategic architect. Before any code is written, you must explore the actual codebase with list_directory/read_file, clarify requirements, define architecture, and scope the work. Do not invent file names \u2014 base your plan on REAL files. You create comprehensive plans.`,
-  hephaestus: `[ROLE: HEPHAESTUS] - DEEP EXECUTOR. Autonomous specialist. Given a goal, independently research patterns by reading actual files, write code, and finish the task without requiring step-by-step guidance. Always verify file paths before editing \u2014 never hallucinate file names or code.`
+  build: `[ROLE: BUILD] - DEFAULT DEVELOPER AGENT. You have full access to developer tools (read/write files, execute bash). First explore the codebase with list_directory/read_file to understand the actual project structure, then implement changes. NEVER invent file names or code. NEVER claim that file access is impossible when tools are available. Focus on iterative coding, bug fixing, and implementation.`,
+  general: `[ROLE: GENERAL] - UNIVERSAL ASSISTANT. Help with complex, multi-stage tasks. You can modify files, run parallel processes, and coordinate broad workflows. Always verify file existence before referencing them \u2014 use list_directory and read_file to explore first. Never say that you cannot access files if workspace tools are available.`,
+  explore: `[ROLE: EXPLORE] - CODEBASE EXPLORER. Read-only specialist. Efficiently search patterns, find keywords, and explain codebase structure. Use fast search tools. You CANNOT write files. Only report on files you have actually read. Never claim that file access is impossible.`,
+  scout: `[ROLE: SCOUT] - ANALYST. Read-only. Specialized in external documentation research and dependency analysis. Focus on architectural auditing and research. Verify file existence before analysis. Never claim that file access is impossible.`,
+  prometheus: `[ROLE: PROMETHEUS] - STRATEGIC PLANNER. You are a strategic architect. Before any code is written, you must explore the actual codebase with list_directory/read_file, clarify requirements, define architecture, and scope the work. Do not invent file names \u2014 base your plan on REAL files. You create comprehensive plans. Never say you cannot access files when tools exist.`,
+  hephaestus: `[ROLE: HEPHAESTUS] - DEEP EXECUTOR. Autonomous specialist. Given a goal, independently research patterns by reading actual files, write code, and finish the task without requiring step-by-step guidance. Always verify file paths before editing \u2014 never hallucinate file names or code. Never claim that file access is impossible.`
 };
 function extractToolCalls(content) {
   const calls = [];
@@ -6711,8 +6711,31 @@ function detectLanguage(text) {
   if (ARABIC.test(text)) return "Arabic";
   return "English";
 }
+function normalizeLanguageCode(lang) {
+  if (!lang) return null;
+  const value = lang.trim().toLowerCase();
+  const map = {
+    en: "English",
+    ru: "Russian",
+    es: "Spanish",
+    zh: "Chinese",
+    de: "German",
+    fr: "French",
+    pt: "Portuguese",
+    it: "Italian",
+    ja: "Japanese",
+    ko: "Korean",
+    ar: "Arabic",
+    tr: "Turkish",
+    pl: "Polish",
+    uk: "Ukrainian",
+    vi: "Vietnamese",
+    hi: "Hindi"
+  };
+  return map[value] || lang;
+}
 async function buildSystemPrompt(options) {
-  const { agent, mode, contextParts, lastMessage, customSystemPrompt } = options;
+  const { agent, mode, contextParts, lastMessage, responseLanguage, customSystemPrompt } = options;
   const cacheKey = getCacheKey(agent, mode, contextParts, customSystemPrompt);
   const { memory: memoryMtime, user: userMtime } = await getMemoryMtime();
   const cached = _promptCache.get(cacheKey);
@@ -6747,9 +6770,11 @@ IMPORTANT: Before making ANY changes, you MUST first explore the codebase to und
   const instructionsContext = await getInstructionsContext();
   const activeDesignContext = await getActiveDesignSystem();
   const persistentContext = contextParts || memoryContext || "No previous knowledge clusters found. Kernel is in cold-start mode.";
+  const preferredResponseLanguage = normalizeLanguageCode(responseLanguage);
   const userLang = lastMessage ? detectLanguage(lastMessage) : "English";
-  const langInstruction = userLang !== "English" ? `
-IMPORTANT: The user wrote to you in ${userLang}. You MUST respond in ${userLang}. Do NOT switch to English.
+  const langTarget = preferredResponseLanguage || userLang;
+  const langInstruction = langTarget !== "English" ? `
+IMPORTANT: Respond in ${langTarget}. Do NOT switch to English unless the user explicitly asks.
 ` : "";
   const basePrompt = `You are "cvr.name", an autonomous coding agent.
 
@@ -7527,6 +7552,7 @@ function registerRoutes(app2) {
         mode,
         contextParts,
         lastMessage: message,
+        responseLanguage: config.responseLanguage,
         customSystemPrompt: (customSystemPrompt && customSystemPrompt.trim() ? customSystemPrompt : void 0) || commandPrompt
       });
       const rawImages = body.images ?? [];

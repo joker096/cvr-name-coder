@@ -37,6 +37,7 @@ interface ChatConfig {
   thinkingProvider?: string;
   thinkingModel?: string;
   thinkingLocalUrl?: string;
+  responseLanguage?: string;
 }
 
 interface KernelConfig {
@@ -436,6 +437,7 @@ export function registerRoutes(app: Application) {
         mode,
         contextParts,
         lastMessage: message,
+        responseLanguage: (config as ChatConfig).responseLanguage,
         customSystemPrompt: (customSystemPrompt && customSystemPrompt.trim() ? customSystemPrompt : undefined) || commandPrompt,
       } as Parameters<typeof buildSystemPrompt>[0]);
 

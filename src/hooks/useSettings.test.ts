@@ -35,7 +35,7 @@ describe("useSettings", () => {
     expect(result.current.settings.chat.aiModel).toBe(DEFAULT_MODEL);
     expect(result.current.settings.autoLoopDelay).toBe(2000);
     expect(result.current.settings.isAutonomous).toBe(true);
-    expect(result.current.settings.lang).toBe("en");
+    expect(result.current.settings.lang).toBe("ru");
   });
 
   it("should load saved settings from localStorage", async () => {

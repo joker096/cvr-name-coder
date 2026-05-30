@@ -38,6 +38,7 @@ export interface ChatConfig {
   thinkingProvider?: ChatProviderId;
   thinkingModel?: string;
   thinkingLocalUrl?: string;
+  responseLanguage?: string;
 }
 
 export type TrackerType = "github" | "jira" | "linear";

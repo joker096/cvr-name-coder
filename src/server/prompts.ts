@@ -61,6 +61,30 @@ function detectLanguage(text: string): string {
   return "English";
 }
 
+function normalizeLanguageCode(lang?: string): string | null {
+  if (!lang) return null;
+  const value = lang.trim().toLowerCase();
+  const map: Record<string, string> = {
+    en: "English",
+    ru: "Russian",
+    es: "Spanish",
+    zh: "Chinese",
+    de: "German",
+    fr: "French",
+    pt: "Portuguese",
+    it: "Italian",
+    ja: "Japanese",
+    ko: "Korean",
+    ar: "Arabic",
+    tr: "Turkish",
+    pl: "Polish",
+    uk: "Ukrainian",
+    vi: "Vietnamese",
+    hi: "Hindi",
+  };
+  return map[value] || lang;
+}
+
 /**
  * Builds the full system prompt for the AI model, combining agent identity,
  * mode directives, tool descriptions, memory context, and design system state.
@@ -77,9 +101,10 @@ export async function buildSystemPrompt(options: {
   mode: "plan" | "build" | "review";
   contextParts?: string;
   lastMessage?: string;
+  responseLanguage?: string;
   customSystemPrompt?: string;
 }): Promise<string> {
-  const { agent, mode, contextParts, lastMessage, customSystemPrompt } = options;
+  const { agent, mode, contextParts, lastMessage, responseLanguage, customSystemPrompt } = options;
 
   const cacheKey = getCacheKey(agent, mode, contextParts, customSystemPrompt);
   const { memory: memoryMtime, user: userMtime } = await getMemoryMtime();
@@ -118,9 +143,11 @@ export async function buildSystemPrompt(options: {
   const activeDesignContext = await getActiveDesignSystem();
   const persistentContext = contextParts || memoryContext || "No previous knowledge clusters found. Kernel is in cold-start mode.";
 
+  const preferredResponseLanguage = normalizeLanguageCode(responseLanguage);
   const userLang = lastMessage ? detectLanguage(lastMessage) : "English";
-  const langInstruction = userLang !== "English"
-    ? `\nIMPORTANT: The user wrote to you in ${userLang}. You MUST respond in ${userLang}. Do NOT switch to English.\n`
+  const langTarget = preferredResponseLanguage || userLang;
+  const langInstruction = langTarget !== "English"
+    ? `\nIMPORTANT: Respond in ${langTarget}. Do NOT switch to English unless the user explicitly asks.\n`
     : "";
 
   const basePrompt = `You are "cvr.name", an autonomous coding agent.

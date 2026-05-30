@@ -53,6 +53,9 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
 }) => {
   const [isCustomModel, setIsCustomModel] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
+  const [localModels, setLocalModels] = useState<AIModel[]>([]);
+  const [isDetectingLocalModels, setIsDetectingLocalModels] = useState(false);
+  const [localModelError, setLocalModelError] = useState<string | null>(null);
   const prevProvider = useRef(provider);
 
   const requiresApiKey =
@@ -86,6 +89,51 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
     }
   }, [provider]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const detectLocalModels = async () => {
+      if (provider !== "local" || !config.localUrl?.trim()) {
+        setLocalModels([]);
+        setLocalModelError(null);
+        return;
+      }
+
+      setIsDetectingLocalModels(true);
+      setLocalModelError(null);
+
+      try {
+        const response = await fetch(`${config.localUrl.replace(/\/$/, "")}/api/tags`, {
+          method: "GET",
+          headers: { "Content-Type": "application/json" },
+        });
+
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+        const data = await response.json() as { models?: Array<{ name?: string }> };
+        const models = (data.models || [])
+          .map((model) => model.name?.trim())
+          .filter((name): name is string => Boolean(name))
+          .map((name) => ({ id: name, name }));
+
+        if (!cancelled) setLocalModels(models);
+      } catch (error) {
+        if (!cancelled) {
+          setLocalModels([]);
+          setLocalModelError(error instanceof Error ? error.message : "Failed to detect local models");
+        }
+      } finally {
+        if (!cancelled) setIsDetectingLocalModels(false);
+      }
+    };
+
+    void detectLocalModels();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [provider, config.localUrl]);
+
   const handleModelChange = (value: string) => {
     if (value === "__custom__") {
       setIsCustomModel(true);
@@ -94,6 +142,10 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
       setIsCustomModel(false);
       onChange({ aiModel: value });
     }
+  };
+
+  const handleLocalModelChange = (value: string) => {
+    onChange({ localModelName: value, aiModel: value });
   };
 
   const handleApiKeyChange = useCallback((value: string) => {
@@ -197,13 +249,33 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
             <label className="block text-xs font-medium text-dash-text-primary mb-2">
               {t.modelName || "Model Name"}
             </label>
-            <input
-              type="text"
-              value={config.localModelName || ""}
-              onChange={(e) => onChange({ localModelName: e.target.value })}
-              className="w-full px-2.5 py-1.5 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs"
-              placeholder="llama3"
-            />
+            {localModels.length > 0 ? (
+              <select
+                value={config.localModelName || config.aiModel || ""}
+                onChange={(e) => handleLocalModelChange(e.target.value)}
+                className="w-full px-2.5 py-1.5 bg-dash-bg border border-dash-border rounded text-dash-text-primary focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs"
+              >
+                <option value="">{t.selectModel || "Select a model..."}</option>
+                {localModels.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                value={config.localModelName || config.aiModel || ""}
+                onChange={(e) => handleLocalModelChange(e.target.value)}
+                className="w-full px-2.5 py-1.5 bg-dash-bg border border-dash-border rounded text-dash-text-primary placeholder-dash-text-muted focus:outline-none focus:ring-2 focus:ring-dash-accent text-xs"
+                placeholder={isDetectingLocalModels ? "Detecting models..." : "llama3"}
+              />
+            )}
+            {localModelError && (
+              <p className="mt-1 text-[10px] text-dash-text-muted">
+                {t.localModelDetectFailed || "Could not detect local models"}: {localModelError}
+              </p>
+            )}
           </div>
         </>
       )}
