@@ -30,6 +30,8 @@ export interface Message {
   };
   toolCall?: ToolCall;
   tokenUsage?: TokenUsage;
+  provider?: string;
+  modelName?: string;
 }
 
 // Memory with branded ID

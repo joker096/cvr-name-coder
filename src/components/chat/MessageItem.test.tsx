@@ -54,15 +54,15 @@ describe("MessageItem", () => {
 
   it("should apply correct styling for user message", () => {
     const { container } = render(<MessageItem message={mockMessage} t={mockT} />);
-    const label = container.querySelector('[class*="text-dash-text-muted"]');
-    expect(label).toBeInTheDocument();
+    const avatar = container.querySelector('[class*="bg-dash-text-muted"]');
+    expect(avatar).toBeInTheDocument();
   });
 
   it("should apply correct styling for model message", () => {
     const modelMessage: Message = { ...mockMessage, role: "model" };
     const { container } = render(<MessageItem message={modelMessage} t={mockT} />);
-    const label = container.querySelector('[class*="text-dash-accent"]');
-    expect(label).toBeInTheDocument();
+    const avatar = container.querySelector('[class*="bg-dash-accent"]');
+    expect(avatar).toBeInTheDocument();
   });
 
   it("should render with model message card styling", () => {
@@ -91,6 +91,26 @@ describe("MessageItem", () => {
     );
     expect(screen.getByText("Gemini")).toBeInTheDocument();
     expect(screen.getByText("/gemini-2.5-flash")).toBeInTheDocument();
+  });
+
+  it("should prefer message provider and model metadata", () => {
+    const assistantMessage: Message = {
+      ...mockMessage,
+      role: "assistant",
+      provider: "local",
+      modelName: "llama3",
+    };
+    render(
+      <MessageItem
+        message={assistantMessage}
+        providerLabel="Gemini"
+        modelName="gemini-2.5-flash"
+        t={mockT}
+      />
+    );
+    expect(screen.getByText("local")).toBeInTheDocument();
+    expect(screen.getByText("/llama3")).toBeInTheDocument();
+    expect(screen.queryByText("Gemini")).not.toBeInTheDocument();
   });
 
   it("should not display provider info for user messages", () => {

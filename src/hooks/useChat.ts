@@ -89,6 +89,12 @@ export const useChat = (config: ChatConfig) => {
   const messagesMapRef = useRef<MessagesMap>(messagesToMap(state.messages));
   const localSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const getDisplayModelName = useCallback((chatConfig: ChatConfig) => {
+    return chatConfig.aiProvider === "local"
+      ? (chatConfig.localModelName || chatConfig.aiModel)
+      : chatConfig.aiModel;
+  }, []);
+
   const persistMessages = useCallback((msgs: Message[]) => {
     if (localSaveTimerRef.current) {
       clearTimeout(localSaveTimerRef.current);
@@ -174,6 +180,9 @@ export const useChat = (config: ChatConfig) => {
     }));
 
     abortControllerRef.current = new AbortController();
+    const requestConfig = configRef.current;
+    const responseProvider = requestConfig.aiProvider;
+    const responseModelName = getDisplayModelName(requestConfig);
 
     try {
       const response = await fetch("/api/chat", {
@@ -185,7 +194,7 @@ export const useChat = (config: ChatConfig) => {
         body: JSON.stringify({
           message: messageContent,
           images,
-          config: configRef.current,
+          config: requestConfig,
           agent,
           mode,
         }),
@@ -207,6 +216,8 @@ export const useChat = (config: ChatConfig) => {
           content: data.content || "",
           reasoning: data.reasoning ?? undefined,
           timestamp: Date.now(),
+          provider: responseProvider,
+          modelName: responseModelName,
           ...(data.tokenUsage ? { tokenUsage: data.tokenUsage } : {}),
         };
         setState((prev) => ({
@@ -229,6 +240,8 @@ export const useChat = (config: ChatConfig) => {
         content: "",
         reasoning: undefined,
         timestamp: Date.now(),
+        provider: responseProvider,
+        modelName: responseModelName,
       };
 
       setState((prev) => ({
@@ -420,7 +433,7 @@ export const useChat = (config: ChatConfig) => {
       }
       return null;
     }
-  }, []);
+  }, [getDisplayModelName]);
 
   const cancelMessage = useCallback(() => {
     if (abortControllerRef.current) {

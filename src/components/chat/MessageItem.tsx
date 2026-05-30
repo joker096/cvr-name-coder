@@ -23,6 +23,8 @@ const areEqual = (prev: MessageItemProps, next: MessageItemProps): boolean => {
     pm.content === nm.content &&
     pm.reasoning === nm.reasoning &&
     pm.timestamp === nm.timestamp &&
+    pm.provider === nm.provider &&
+    pm.modelName === nm.modelName &&
     pm.tokenUsage?.input === nm.tokenUsage?.input &&
     pm.tokenUsage?.output === nm.tokenUsage?.output &&
     JSON.stringify(pm.images) === JSON.stringify(nm.images) &&
@@ -43,6 +45,8 @@ export const MessageItem = memo<MessageItemProps>(({
   const tt = t as Record<string, string>;
   const [copied, setCopied] = useState(false);
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
+  const displayProvider = message.provider || providerLabel;
+  const displayModel = message.modelName || modelName;
 
   const handleCopy = useCallback(async () => {
     try {
@@ -129,27 +133,32 @@ export const MessageItem = memo<MessageItemProps>(({
     <motion.div
       initial={{ opacity: 0, y: 5 }}
       animate={{ opacity: 1, y: 0 }}
-      className="flex flex-col sm:flex-row gap-0.5 sm:gap-3 group"
+      className={cn(
+        "group flex w-full",
+        message.role === "user" ? "justify-end" : "justify-start"
+      )}
     >
-      <span
-        className={cn(
-          "shrink-0 font-bold uppercase text-[10px] sm:text-[11px] sm:w-14 sm:text-right pt-0.5 flex items-center justify-end gap-1",
-          message.role === "user" ? "text-dash-text-muted" : "text-dash-accent"
-        )}
-      >
-        {message.role === "user" ? (
-          <User className="w-3 h-3" />
-        ) : (
-          <Brain className="w-3 h-3" />
-        )}
-      </span>
       <div
         className={cn(
-          "flex-1 prose prose-invert prose-sm max-w-none text-dash-text-primary text-[12px] leading-relaxed overflow-x-auto relative",
-          message.role !== "user" &&
-            "p-2 bg-dash-surface/30 rounded border border-dash-border"
+          "prose prose-invert prose-sm max-w-none text-dash-text-primary text-[12px] leading-relaxed overflow-x-auto relative min-w-0",
+          message.role === "user"
+            ? "w-fit max-w-[92%] p-2 pl-7 bg-dash-bg/70 rounded border border-dash-border/70"
+            : "w-full p-2 pl-7 bg-dash-surface/30 rounded border border-dash-border"
         )}
       >
+        <span
+          className={cn(
+            "absolute left-2 top-2 flex h-4 w-4 items-center justify-center rounded text-dash-bg",
+            message.role === "user" ? "bg-dash-text-muted" : "bg-dash-accent"
+          )}
+          aria-hidden="true"
+        >
+          {message.role === "user" ? (
+            <User className="h-3 w-3" />
+          ) : (
+            <Brain className="h-3 w-3" />
+          )}
+        </span>
         {message.reasoning && message.role !== "user" && (
           <div className="mb-1 rounded border border-dash-accent/20 bg-dash-accent-soft/10 overflow-hidden">
             <button
@@ -167,9 +176,9 @@ export const MessageItem = memo<MessageItemProps>(({
           </div>
         )}
         <MarkdownRenderer content={message.content} />
-        {message.role !== "user" && (providerLabel || modelName || message.tokenUsage) && (
+        {message.role !== "user" && (displayProvider || displayModel || message.tokenUsage) && (
           <div className="mt-1.5 text-[9px] text-dash-text-label font-mono text-right leading-tight opacity-60 group-hover:opacity-100 transition-opacity">
-            {providerLabel}{modelName && <span>/{modelName.split("/").pop()}</span>}
+            {displayProvider}{displayModel && <span>/{displayModel.split("/").pop()}</span>}
             {message.tokenUsage && (
               <span> · ↓{message.tokenUsage.input.toLocaleString()} ↑{message.tokenUsage.output.toLocaleString()} tok</span>
             )}

@@ -13,6 +13,12 @@ export default function App() {
   const s = useAppState();
   const t = s.t;
 
+  const displayedModelName = useMemo(() => {
+    return s.settings.chat.aiProvider === "local"
+      ? (s.settings.chat.localModelName || s.settings.chat.aiModel)
+      : s.settings.chat.aiModel;
+  }, [s.settings.chat.aiProvider, s.settings.chat.aiModel, s.settings.chat.localModelName]);
+
   const agentStep = useMemo(() => 
     s.agentState ? `${s.agentState.currentStep}/${s.agentState.maxSteps}` : undefined,
     [s.agentState]
@@ -28,7 +34,7 @@ export default function App() {
     error: s.chatError,
     agentLabel: "BUILD",
     providerLabel: s.settings.chat.aiProvider,
-    modelName: s.settings.chat.aiModel,
+    modelName: displayedModelName,
     t,
     lang: s.lang,
     loadingText: t.processing,
@@ -37,7 +43,7 @@ export default function App() {
     voiceLanguage: s.settings.voiceLanguage,
     voiceAutoSend: s.settings.voiceAutoSend,
     visionEnabled: s.settings.chat.visionEnabled ?? true,
-  }), [s.messages, s.input, s.setInput, s.handleSendMessage, s.handleCancelMessage, s.isLoading, s.chatError, s.settings.chat.aiProvider, s.settings.chat.aiModel, s.settings.chat.visionEnabled, s.settings.voiceEnabled, s.settings.voiceLanguage, s.settings.voiceAutoSend, t, s.lang, t.processing, t.promptPlaceholder]);
+  }), [s.messages, s.input, s.setInput, s.handleSendMessage, s.handleCancelMessage, s.isLoading, s.chatError, s.settings.chat.aiProvider, displayedModelName, s.settings.chat.visionEnabled, s.settings.voiceEnabled, s.settings.voiceLanguage, s.settings.voiceAutoSend, t, s.lang, t.processing, t.promptPlaceholder]);
 
   const settingsModalProps = useMemo(() => ({
     isOpen: s.showSettings,
